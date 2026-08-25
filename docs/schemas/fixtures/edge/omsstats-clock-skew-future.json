@@ -1,0 +1,19 @@
+{
+  "uid": "d4d4d4d4-d4009-4d409-8d409-d4d4d4d4d4d4",
+  "tenant": "tenant-alpha",
+  "maintenant": "management-parent",
+  "gateway": "A1B2C3D4E5F6",
+  "type": "omsstats",
+  "ts": {
+    "processor": 1787054400,
+    "device": 1787058000
+  },
+  "data": {
+    "rx_nr_pkts": 49,
+    "rx_valid_nr_pkts": 8,
+    "rx_crc_bad": 41,
+    "device_count": 3,
+    "timespan": 300
+  },
+  "$comment": "ts.device is one hour in the future, ahead of ts.processor. A gateway with a bad clock. Decide and test explicitly: accept into a future partition, or reject. Currently unspecified - raise it rather than guessing."
+}

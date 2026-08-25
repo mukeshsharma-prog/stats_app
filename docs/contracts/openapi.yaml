@@ -1,0 +1,1083 @@
+# Stats App — Stats API (Module 3) v1
+#
+# Status:  DRAFT — FOR ZC CONFIRMATION
+# Owner:   Naman and Mukesh
+# Source:  docs/contracts/openapi-v1-design.md (design input)
+#          docs/source/Datahub_Core_StatsApp_ARD_v1_1.pdf §8 (endpoints, query rules)
+#          docs/requirements/SRS-v1.2-amendment.md STA-30A…STA-38A
+#          ADR-006 (tenant isolation and API security) — ACCEPTED
+#
+# Why this file exists: answered conflict C2. ZC's position was "please create an
+# OpenAPI definition and we will confirm/decline it", so writing this is our action,
+# not a wait on them (CLAUDE.md §7). It gates Phase 4 — controllers must not be
+# written against an unfrozen contract.
+#
+# SCOPE: the read-only Stats API only. The Heimdal inbound POST contract is a
+# different audience, a different auth mode and a different release cadence; it
+# lives in docs/contracts/heimdal-input-contract-v1.md and is NOT in this file.
+# The /actuator/** endpoints are platform-only (ARD v1.1 §8.1) and are deliberately
+# absent from a consumer-facing contract. There is no /v1/openapi discovery route:
+# Q1a answered that no internal reference repo exists, so there is no platform
+# convention to follow, and inventing one is not our call.
+#
+# KNOWN OBLIGATION — schema drift. The per-type `data` schemas below are inlined
+# rather than $ref'd out to docs/schemas/*.schema.json, so this file stays a single
+# self-contained artifact when it is circulated. That creates a drift risk between
+# two sources of truth. The JSON Schema catalogue REMAINS AUTHORITATIVE for
+# validation; this file is authoritative for the HTTP contract. A CI check
+# asserting the two agree is owed before the contract is frozen.
+
+openapi: 3.1.0
+
+info:
+  title: Zenner Datahub Core — Stats App API
+  version: 1.0.0-draft
+  summary: Read-only, tenant-scoped access to gateway statistics.
+  description: |
+    Read-only access to the statistics the Stats App receives from Heimdal Core,
+    buffers through RabbitMQ and persists in PostgreSQL.
+
+    ## Principles
+
+    - **GET only.** No POST, PUT, PATCH or DELETE exists on any `/v1/**` route,
+      ever. Non-GET methods return `405` with no side effect. (STA-32, STA-32A)
+    - **Tenant comes from the token, never from the caller.** There is no `tenant`
+      query parameter, header or body field. The tenant is derived from the
+      validated access token's claim and bound into every query, count and cursor
+      — including single-record lookup by `uid`. A `tenant` value supplied by a
+      caller is ignored, never honoured. (STA-34A, STA-35A, ADR-006)
+    - **`maintenant` is not an isolation field.** It is stored and returned, and it
+      is never filtered on. In much of the supplied sample data `tenant` and
+      `maintenant` hold the same value, so an implementation that filters on the
+      wrong one passes every test written from those samples and leaks data in
+      production. (CLAUDE.md §6 — the highest-risk item in the project)
+    - **Timestamps are Unix epoch SECONDS**, on the wire and in every filter. Not
+      milliseconds, not RFC 3339. This matches what Heimdal sends and what
+      retention keys on, so a value never changes meaning between ingest and read.
+      A 13-digit value is a millisecond timestamp and is rejected. (ARD v1.1 §8.2)
+    - **Ordering is fixed and deterministic**: `ts.device DESC, uid DESC`, always,
+      not only when a caller asks. There is no `sort` parameter. Without a unique
+      tie-breaker a paginated query can return the same row on two pages or skip
+      one entirely. (STA-36A)
+    - **Pagination is keyset, never offset.** (ARD v1.1 AD-14)
+
+    ## Query and retention basis
+
+    Both `from` and `to` filter on **`ts.device`** — the timestamp the gateway
+    reported, not the timestamp the processor handled it. Retention keys on the
+    same field and defaults to **90 days** (configurable, STA-23A). Two consequences
+    a consumer must plan for:
+
+    - A time range older than the retention window is syntactically valid and
+      returns an empty page rather than an error.
+    - A gateway that was offline delivers records whose `ts.device` is days or weeks
+      older than the moment they arrived. Such a record appears in the past, not at
+      the head of the list, and may be near expiry when it lands. This is accepted
+      business behaviour, not a defect.
+
+    ## Status
+
+    **This contract is a draft pending confirmation.** Items still open are marked
+    `PROVISIONAL` in the descriptions below: the maximum query window, and ZC's
+    confirmation of the Keycloak issuer, audience, role name and tenant claim
+    (Q8b-2 — ADR-006 itself is ACCEPTED). The security values are fail-closed
+    configuration with no defaults in code, so confirming them is a configuration
+    change and not a code change.
+  contact:
+    name: Naman and Mukesh
+  license:
+    name: Internal / Confidential
+
+servers:
+  - url: https://{host}/{basePath}
+    description: Deployment-supplied host. Path is stable across environments.
+    variables:
+      host:
+        default: stats.example
+        description: Ingress host, supplied by the platform.
+      basePath:
+        default: v1
+        description: |
+          API version segment. STA-38A: a breaking change requires a new version
+          segment or an approved migration — never a redefinition of this one.
+  - url: http://localhost:8083/v1
+    description: Local development stack (docker/docker-compose.yml).
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: stats
+    description: Tenant-scoped, read-only statistics retrieval.
+
+paths:
+
+  /stats/{type}:
+    parameters:
+      - $ref: '#/components/parameters/StatType'
+    get:
+      tags: [stats]
+      operationId: listStats
+      summary: List records of one stat type for the authenticated tenant.
+      description: |
+        Returns a keyset-paginated page of records of `{type}` belonging to the
+        tenant in the caller's token, ordered `ts.device DESC, uid DESC`.
+
+        `from` and `to` are **required**. An unbounded scan over a table holding up
+        to 115.2 million records a day is not a query anyone recovers from, so the
+        contract refuses to express one.
+
+        **Continuation.** Follow `nextCursor` to fetch the next page, resending
+        `from`, `to` and `gateway` unchanged. The cursor carries the filters it was
+        issued for; changing one mid-walk invalidates it (`invalid_cursor`) rather
+        than silently returning a page from a different query. A `null` or absent
+        `nextCursor` means the last page has been reached.
+
+        Requires the read-only role. (STA-33A)
+      parameters:
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/To'
+        - $ref: '#/components/parameters/Gateway'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: |
+            A page of records. An authenticated caller with no visible data for the
+            range receives an empty `items` array and `200` — never a `403` or a
+            `404`, either of which would disclose whether another tenant's data
+            exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatsPage'
+              examples:
+                lorastatsPage:
+                  $ref: '#/components/examples/LorastatsPage'
+                emptyPage:
+                  $ref: '#/components/examples/EmptyPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /stats/{type}/{uid}:
+    parameters:
+      - $ref: '#/components/parameters/StatType'
+      - $ref: '#/components/parameters/Uid'
+    get:
+      tags: [stats]
+      operationId: getStatRecord
+      summary: Retrieve one record by uid for the authenticated tenant.
+      description: |
+        Returns the single record identified by `{uid}` within `{type}`, scoped to
+        the tenant in the caller's token.
+
+        **The tenant predicate applies here exactly as it does to the list
+        operation.** A `uid` belonging to another tenant returns `404`, identical in
+        every observable respect — status, body, headers, timing class — to a `uid`
+        that does not exist at all. The response deliberately cannot be used to
+        probe whether a record exists in another tenant. Cross-tenant lookup by
+        `uid` is a named release gate. (STA-35A, STA-35B, ADR-006)
+      responses:
+        '200':
+          description: The record.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatRecord'
+              examples:
+                lorastats:
+                  $ref: '#/components/examples/LorastatsRecord'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+components:
+
+  # === Security ==============================================================
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Keycloak-issued OAuth2 / OIDC access token, validated as a resource server.
+
+        `PROVISIONAL — Q8b-2.` ADR-006 is **ACCEPTED**; the isolation decisions are
+        settled and buildable. What is provisional is only ZC's confirmation of the
+        names below, which are live in the development realm
+        (`docs/setup/keycloak-realm-statsapp.json`):
+
+        | Setting | Proposed value |
+        |---|---|
+        | Realm | `statsapp` |
+        | Audience / client | `stats-api` |
+        | Required role | `stats.readOnly` |
+        | Tenant claim | `tenant` — **single-valued String** |
+
+        The tenant claim is single-valued deliberately. A multi-valued claim turns
+        isolation into `tenant IN (...)`, and one misconfigured user then reads
+        several tenants with every test still green.
+
+        Every one of these is a configuration property with **no default in code**.
+        A token whose tenant claim is absent or empty fails closed — it is rejected,
+        never treated as "all tenants".
+
+  # === Parameters ============================================================
+
+  parameters:
+
+    StatType:
+      name: type
+      in: path
+      required: true
+      description: |
+        The stat type. This is a closed enumeration, matched before any query is
+        built — an unrecognised value returns `400 unknown_stat_type` and never
+        reaches a table name.
+
+        Adding a type is an additive change: a new value here never alters the
+        handling of an existing one. (STA-14, STA-14A, STA-22)
+      schema:
+        $ref: '#/components/schemas/StatType'
+      example: lorastats
+
+    Uid:
+      name: uid
+      in: path
+      required: true
+      description: The record's `uid`, as supplied by Heimdal at ingest.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+      example: b2b2b2b2-b2001-4b201-8b201-b2b2b2b2b2b2
+
+    From:
+      name: from
+      in: query
+      required: true
+      description: |
+        **Inclusive** lower bound on `ts.device`, in Unix epoch **seconds**.
+
+        Bounded to 2000-01-01 … 2100-01-01. A 13-digit millisecond value falls
+        outside that range and is rejected with `invalid_parameter` rather than
+        being silently reinterpreted.
+      schema:
+        $ref: '#/components/schemas/UnixSeconds'
+      example: 1787054100
+
+    To:
+      name: to
+      in: query
+      required: true
+      description: |
+        **Exclusive** upper bound on `ts.device`, in Unix epoch **seconds**.
+
+        Inclusivity is asymmetric on purpose: `[from, to)` lets a caller walk
+        consecutive windows without overlapping or dropping a boundary record.
+        `from >= to` returns `400 invalid_time_range`.
+      schema:
+        $ref: '#/components/schemas/UnixSeconds'
+      example: 1787057700
+
+    Gateway:
+      name: gateway
+      in: query
+      required: false
+      description: |
+        Exact-match filter on the reporting gateway: 12 hexadecimal characters,
+        matched case-insensitively. There is no prefix or wildcard form.
+
+        Supplying it widens the permitted query window — see `query_window_exceeded`
+        — because `(tenant, gateway, ts_device DESC, uid DESC)` is the covering
+        index and a gateway-scoped scan is bounded in a way an open one is not.
+      schema:
+        type: string
+        pattern: '^[0-9A-Fa-f]{12}$'
+      example: A1B2C3D4E5F6
+
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: |
+        Maximum records in the page. A page may return fewer; only an absent or
+        `null` `nextCursor` means the walk is finished.
+      schema:
+        type: integer
+        format: int32
+        minimum: 1
+        maximum: 1000
+        default: 100
+      example: 100
+
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: |
+        Opaque keyset continuation token, taken verbatim from the previous
+        response's `nextCursor`.
+
+        **Opaque means opaque.** It is signed, time-limited, and binds the stat
+        type, the tenant, and every filter it was issued for. Do not decode,
+        construct, edit or store it. A cursor that has been tampered with, has
+        expired, or is presented alongside filters different from the ones it was
+        issued for is rejected with `400 invalid_cursor`. It is specifically not
+        possible to reach another tenant's rows by editing a cursor — the tenant is
+        re-derived from the token and cross-checked against the cursor on every
+        request.
+      schema:
+        type: string
+        maxLength: 2048
+
+  # === Reusable responses ====================================================
+
+  responses:
+
+    BadRequest:
+      description: |
+        The request is malformed or exceeds a documented limit. See the `code` in
+        `errors[]` for which of `unknown_stat_type`, `invalid_parameter`,
+        `invalid_time_range`, `query_window_exceeded` or `invalid_cursor` applies.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          examples:
+            invalidTimeRange:
+              $ref: '#/components/examples/ProblemInvalidTimeRange'
+            unknownStatType:
+              $ref: '#/components/examples/ProblemUnknownStatType'
+            queryWindowExceeded:
+              $ref: '#/components/examples/ProblemQueryWindowExceeded'
+
+    Unauthorized:
+      description: |
+        No token, or a token that is malformed, expired, wrongly issued, wrongly
+        audienced, or carries no usable tenant claim. An empty tenant claim fails
+        closed and lands here — it is never read as "all tenants".
+      headers:
+        WWW-Authenticate:
+          description: Bearer challenge, per RFC 6750.
+          schema:
+            type: string
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          examples:
+            unauthorized:
+              $ref: '#/components/examples/ProblemUnauthorized'
+
+    Forbidden:
+      description: |
+        The token is valid but the caller lacks the read-only role.
+
+        `403` means "you are authenticated and not permitted to use this operation".
+        It never means "that data belongs to someone else" — a cross-tenant read is
+        an empty `200` or a `404`, because distinguishing the two would disclose the
+        existence of another tenant's data.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          examples:
+            forbidden:
+              $ref: '#/components/examples/ProblemForbidden'
+
+    NotFound:
+      description: |
+        No such record **in the caller's tenant**. Deliberately indistinguishable
+        from a record that exists under a different tenant.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          examples:
+            notFound:
+              $ref: '#/components/examples/ProblemNotFound'
+
+    MethodNotAllowed:
+      description: |
+        A non-GET method was used. The API is read-only and this response carries
+        **no side effect** of any kind. (STA-32, STA-32A)
+      headers:
+        Allow:
+          description: Always `GET`.
+          schema:
+            type: string
+            const: GET
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          examples:
+            methodNotAllowed:
+              $ref: '#/components/examples/ProblemMethodNotAllowed'
+
+    ServiceUnavailable:
+      description: |
+        A dependency the API needs is unavailable. The request was not served; it
+        is safe to retry. Reads are idempotent.
+      headers:
+        Retry-After:
+          description: Seconds to wait before retrying, when a useful value is known.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          examples:
+            serviceUnavailable:
+              $ref: '#/components/examples/ProblemServiceUnavailable'
+
+  # === Schemas ===============================================================
+
+  schemas:
+
+    StatType:
+      type: string
+      description: |
+        The V1 stat type set. Determines routing key, queue, consumer, table and
+        endpoint operation.
+      enum:
+        - lorastats
+        - ltestats
+        - sysstats
+        - netstats
+        - omsstats
+
+    UnixSeconds:
+      type: integer
+      format: int64
+      minimum: 946684800
+      maximum: 4102444800
+      description: |
+        Unix epoch timestamp in **seconds**.
+
+        Bounded to 2000-01-01T00:00:00Z … 2100-01-01T00:00:00Z. The bounds are not
+        decoration: they are what turns a millisecond timestamp into a `400` instead
+        of a date roughly 53,000 years in the future that retention never reaches
+        and no query ever returns.
+
+    Timestamps:
+      type: object
+      description: |
+        Both members are Unix seconds. The Stats App performs **no timestamp
+        normalisation** — Heimdal already sends the canonical `ts.processor`
+        (ADR-004, ACCEPTED). A `ts.converter` member does not exist in this system;
+        a record carrying one is invalid at ingest and cannot be read back.
+      required: [processor, device]
+      properties:
+        processor:
+          allOf:
+            - $ref: '#/components/schemas/UnixSeconds'
+          description: When Heimdal processed the record.
+        device:
+          allOf:
+            - $ref: '#/components/schemas/UnixSeconds'
+          description: |
+            When the gateway measured the record. **This is the field `from`/`to`
+            filter on, the field results sort on, and the field retention keys on.**
+            It can be substantially older than `processor` for a gateway that was
+            offline.
+      additionalProperties: true
+      not:
+        required: [converter]
+      # ADR-004 made machine-checkable rather than only prose. Other unknown `ts`
+      # members are accepted under D14; `converter` specifically is not, because
+      # accepting it would imply a normalisation step this system does not perform.
+
+    Envelope:
+      type: object
+      description: |
+        The fields present on every record regardless of type. Only `data` differs
+        between types.
+      required: [uid, tenant, maintenant, gateway, type, ts, data]
+      properties:
+        uid:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: |
+            The record's unique identifier, supplied by Heimdal — never generated by
+            the database. Unique per `(ts_device, uid)`, which is what makes a
+            redelivered message a no-op rather than a duplicate row. (STA-21B)
+        tenant:
+          type: string
+          minLength: 1
+          description: |
+            The tenant the gateway is assigned to. **The isolation field.** Always
+            equal to the caller's own token claim — a caller can never observe any
+            other value here, so returning it discloses nothing.
+        maintenant:
+          type: string
+          minLength: 1
+          description: |
+            The *managing* tenant. Stored and returned for completeness and
+            **never used for isolation or filtering**. Frequently identical to
+            `tenant` in sample data; that resemblance is the trap, not the rule.
+        gateway:
+          type: string
+          pattern: '^[0-9A-Fa-f]{12}$'
+          description: The reporting device identifier, 12 hexadecimal characters.
+        type:
+          $ref: '#/components/schemas/StatType'
+        ts:
+          $ref: '#/components/schemas/Timestamps'
+        data:
+          type: object
+          description: |
+            The type-specific payload — the only part of a record that differs
+            between stat types. Refined to a concrete shape by each per-type
+            schema below.
+
+            Declared here rather than only in the per-type schemas on purpose:
+            `additionalProperties: false` on this object is evaluated per subschema,
+            so a member that `allOf` composition adds later but this object never
+            names is rejected as an unexpected property.
+      additionalProperties: false
+
+    StatRecord:
+      description: |
+        One stored record. The concrete shape is selected by `type`; within a single
+        request every item is of the type named in the path.
+      oneOf:
+        - $ref: '#/components/schemas/LorastatsRecord'
+        - $ref: '#/components/schemas/LtestatsRecord'
+        - $ref: '#/components/schemas/SysstatsRecord'
+        - $ref: '#/components/schemas/NetstatsRecord'
+        - $ref: '#/components/schemas/OmsstatsRecord'
+      discriminator:
+        propertyName: type
+        mapping:
+          lorastats: '#/components/schemas/LorastatsRecord'
+          ltestats: '#/components/schemas/LtestatsRecord'
+          sysstats: '#/components/schemas/SysstatsRecord'
+          netstats: '#/components/schemas/NetstatsRecord'
+          omsstats: '#/components/schemas/OmsstatsRecord'
+
+    StatsPage:
+      type: object
+      description: One page of a keyset walk.
+      required: [items, limit]
+      properties:
+        items:
+          type: array
+          description: |
+            The page's records, ordered `ts.device DESC, uid DESC`. Empty when the
+            range holds nothing visible to the caller.
+          items:
+            $ref: '#/components/schemas/StatRecord'
+        nextCursor:
+          type: [string, 'null']
+          maxLength: 2048
+          description: |
+            Opaque continuation token for the next page, or `null` on the last page.
+            Pass it back verbatim as `cursor`. **Do not infer completion from
+            `items.length < limit`** — a page may be short and still have a
+            successor.
+        limit:
+          type: integer
+          format: int32
+          description: The effective limit applied, after defaulting and clamping.
+      additionalProperties: false
+
+    # --- Per-type payloads ---------------------------------------------------
+    #
+    # Mirrors of docs/schemas/<type>-v1.schema.json. That catalogue is the
+    # authoritative validation contract; these exist so this document can be
+    # circulated on its own. See "KNOWN OBLIGATION" in the file header.
+    #
+    # `additionalProperties: true` on every `data` object is deliberate (D14):
+    # unknown members inside `data` are accepted at ingest, preserved, and returned
+    # here unchanged. Envelope fields do not get that latitude.
+
+    LorastatsRecord:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            type:
+              const: lorastats
+            data:
+              $ref: '#/components/schemas/LorastatsData'
+
+    LorastatsData:
+      type: object
+      description: |
+        LoRa radio counters. Every counter is stored as `BIGINT` — a 32-bit column
+        would wrap silently on a long-lived gateway and corrupt the value with no
+        error anywhere.
+      required:
+        [rx_nr_pkts, rx_crc_missing, rx_crc_bad, tx_success, tx_failed, tx_peek,
+         tx_peek_index_zero, tx_override, tx_busy, tx_dequeue_error, tx_type_beacon,
+         chip_comm_error, util_fopen_failed]
+      properties:
+        rx_nr_pkts: { type: integer, format: int64 }
+        rx_crc_missing: { type: integer, format: int64 }
+        rx_crc_bad: { type: integer, format: int64 }
+        tx_success: { type: integer, format: int64 }
+        tx_failed: { type: integer, format: int64 }
+        tx_peek: { type: integer, format: int64 }
+        tx_peek_index_zero: { type: integer, format: int64 }
+        tx_override: { type: integer, format: int64 }
+        tx_busy: { type: integer, format: int64 }
+        tx_dequeue_error: { type: integer, format: int64 }
+        tx_type_beacon: { type: integer, format: int64 }
+        chip_comm_error: { type: integer, format: int64 }
+        util_fopen_failed: { type: integer, format: int64 }
+      additionalProperties: true
+
+    LtestatsRecord:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            type:
+              const: ltestats
+            data:
+              $ref: '#/components/schemas/LtestatsData'
+
+    LtestatsData:
+      type: object
+      description: |
+        LTE modem signal and network identity.
+
+        `imsi` is a subscriber identifier and is classified sensitive operational
+        data (ARD v1.1 §9). Whether it is returned in full, masked, or withheld from
+        some consumers is **not settled** — it needs the same consumer/security
+        review that closes ADR-006. Treated as returned-in-full here so the question
+        is visible rather than quietly decided.
+      required: [rssi, rsrp, rsrq, access_technology, operator, plmn, imsi, lac, cid]
+      properties:
+        rssi: { type: integer, format: int32, description: Received signal strength, dBm. }
+        rsrp: { type: integer, format: int32, description: Reference signal received power, dBm. }
+        rsrq: { type: integer, format: int32, description: Reference signal received quality, dB. }
+        access_technology: { type: string, minLength: 1 }
+        operator: { type: string, minLength: 1 }
+        plmn: { type: integer, format: int32, description: Public land mobile network code. }
+        imsi: { type: string, minLength: 1, description: 'SENSITIVE — masking policy pending review.' }
+        lac: { type: string, minLength: 1, description: Location area code, as reported. }
+        cid: { type: string, minLength: 1, description: Cell identifier, as reported. }
+      additionalProperties: true
+
+    SysstatsRecord:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            type:
+              const: sysstats
+            data:
+              $ref: '#/components/schemas/SysstatsData'
+
+    SysstatsData:
+      type: object
+      description: Gateway operating-system health.
+      required: [memfree, uptime, idletime, load1, load5, load15, runable]
+      properties:
+        memfree: { type: integer, format: int64, description: Free memory, kilobytes. }
+        uptime: { type: number, format: double, description: Seconds since boot. }
+        idletime: { type: number, format: double, description: Aggregate CPU idle seconds. }
+        load1: { type: number, format: double }
+        load5: { type: number, format: double }
+        load15: { type: number, format: double }
+        runable:
+          type: string
+          description: |
+            Runnable/total process count as reported by the gateway, e.g. `"2/139"`.
+            A string, not a number, and the spelling is the SRS's.
+      additionalProperties: true
+
+    OmsstatsRecord:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            type:
+              const: omsstats
+            data:
+              $ref: '#/components/schemas/OmsstatsData'
+
+    OmsstatsData:
+      type: object
+      description: |
+        OMS reception counters over a reporting window. No timestamp normalisation
+        is applied to this or any other type (ADR-004).
+      required: [rx_nr_pkts, rx_valid_nr_pkts, rx_crc_bad, device_count, timespan]
+      properties:
+        rx_nr_pkts: { type: integer, format: int64 }
+        rx_valid_nr_pkts: { type: integer, format: int64 }
+        rx_crc_bad: { type: integer, format: int64 }
+        device_count: { type: integer, format: int64 }
+        timespan: { type: integer, format: int64, minimum: 0, description: Reporting window length, seconds. }
+      additionalProperties: true
+
+    NetstatsRecord:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            type:
+              const: netstats
+            data:
+              $ref: '#/components/schemas/NetstatsData'
+
+    NetstatsData:
+      type: object
+      description: |
+        Per-interface network counters and addressing.
+
+        `eth0` and `wwan` are mandatory. **Any other interface name is accepted**
+        and validated against the same shape, so a gateway reporting a new interface
+        never requires a schema change (Q4a, STA-14A).
+
+        Interface names are matched against
+        `^(?!timespan$)[A-Za-z][A-Za-z0-9_.:-]{0,14}$`. OpenAPI's
+        `patternProperties` support is uneven across tooling, so this document
+        expresses the additional interfaces through `additionalProperties` instead
+        of the negative-lookahead pattern; `docs/schemas/netstats-v1.schema.json`
+        carries the exact form and remains authoritative for validation.
+      required: [timespan, eth0, wwan]
+      properties:
+        timespan:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Reporting window length, seconds.
+        eth0:
+          $ref: '#/components/schemas/NetworkInterface'
+        wwan:
+          $ref: '#/components/schemas/NetworkInterface'
+      additionalProperties:
+        $ref: '#/components/schemas/NetworkInterface'
+
+    NetworkInterface:
+      type: object
+      description: One network interface's addressing and byte counters.
+      required: [gw, tx, rx, ip, dns, mask]
+      properties:
+        gw:
+          $ref: '#/components/schemas/IPv4'
+        ip:
+          $ref: '#/components/schemas/IPv4'
+        mask:
+          $ref: '#/components/schemas/IPv4'
+        dns:
+          type: array
+          minItems: 0
+          items:
+            $ref: '#/components/schemas/IPv4'
+        apipa:
+          allOf:
+            - $ref: '#/components/schemas/IPv4'
+          description: |
+            **Optional.** ZC's own supplied sample carries `apipa` on `eth0` and
+            omits it on `wwan`, so requiring it would reject their own record.
+        tx:
+          $ref: '#/components/schemas/ByteCounter'
+        rx:
+          $ref: '#/components/schemas/ByteCounter'
+      additionalProperties: true
+
+    IPv4:
+      type: string
+      pattern: '^((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])$'
+      description: |
+        Dotted-quad IPv4 address. `PROVISIONAL — Q4b open`: no gateway is known to
+        report IPv6 and V1 does not accept it. If ZC confirms IPv6 anywhere in the
+        estate, this one definition widens and nothing else changes.
+      examples: ['192.168.178.10']
+
+    ByteCounter:
+      type: string
+      pattern: '^(0|[1-9][0-9]{0,18})$'
+      description: |
+        A byte counter, carried as a **decimal string, not a number**.
+
+        This is not an oversight. Heimdal sends these as strings, they are stored as
+        `BIGINT`, and they are returned in the representation they arrived in so a
+        value never changes shape between ingest and read. Constraining it to digits
+        means a non-numeric value fails at ingest with a `400` rather than failing a
+        cast at query time.
+
+        The 19-digit ceiling rejects anything above 9999999999999999999, but the gap
+        between that and the signed `BIGINT` maximum 9223372036854775807 cannot be
+        expressed as a pattern — the Writer range-checks before conversion, because
+        an unchecked overflow corrupts the value with no error at all.
+      examples: ['139303320']
+
+    ProblemDetails:
+      type: object
+      description: |
+        RFC 9457 Problem Details. Every error response in this API uses this shape
+        with content type `application/problem+json`.
+
+        **What a problem response never contains:** an access token, a full stored
+        record, an `imsi`, a SQL error, a stack trace, an internal queue or table
+        name, or anything that reveals whether another tenant's data exists.
+        Validation entries name the offending **field and code** and never echo the
+        offending **value**.
+      required: [type, title, status]
+      properties:
+        type:
+          type: string
+          format: uri
+          description: |
+            Stable URI identifying the error class. The final path segment is the
+            machine-readable code; match on this, never on `title` or `detail`.
+        title:
+          type: string
+          description: Short human-readable summary. Stable for a given `type`.
+        status:
+          type: integer
+          format: int32
+          minimum: 400
+          maximum: 599
+        detail:
+          type: string
+          description: |
+            Human-readable explanation of this occurrence. Advisory only — its
+            wording is not part of the contract and may change without a version bump.
+        instance:
+          type: string
+          description: The request path that produced the error.
+        statType:
+          $ref: '#/components/schemas/StatType'
+        traceId:
+          type: string
+          description: |
+            Correlation identifier for this request. Quote it in a support request;
+            it is the fastest route to the corresponding server-side log entry.
+        errors:
+          type: array
+          description: Per-field detail, when the failure is a validation failure.
+          items:
+            $ref: '#/components/schemas/FieldError'
+      additionalProperties: true
+
+    FieldError:
+      type: object
+      required: [field, code]
+      properties:
+        field:
+          type: string
+          description: Name of the offending parameter or field.
+        code:
+          type: string
+          description: |
+            Machine-readable reason. The catalogue for this API:
+
+            | Code | HTTP | Meaning |
+            |---|---|---|
+            | `unknown_stat_type` | 400 | `{type}` is not one of the five V1 types. |
+            | `invalid_parameter` | 400 | A parameter is malformed, out of range, or a millisecond timestamp. |
+            | `invalid_time_range` | 400 | `from >= to`. |
+            | `query_window_exceeded` | 400 | `to - from` exceeds the permitted window. |
+            | `invalid_cursor` | 400 | Cursor is malformed, expired, tampered with, or issued for different filters. |
+            | `unauthorized` | 401 | Missing, malformed, expired token, or no usable tenant claim. |
+            | `forbidden` | 403 | Authenticated, but lacks the read-only role. |
+            | `record_not_found` | 404 | No such `uid` **in the caller's tenant**. |
+            | `method_not_allowed` | 405 | Non-GET method on a read-only API. |
+            | `service_unavailable` | 503 | A dependency is unavailable; the read is safe to retry. |
+
+            The exhaustive example set for each of these is task J5's deliverable.
+        message:
+          type: string
+          description: Human-readable detail. Never contains the offending value.
+
+  # === Examples ==============================================================
+  # Drawn from docs/schemas/fixtures/valid/*.json so an example is never a
+  # hand-written record that no validator has ever seen.
+
+  examples:
+
+    LorastatsRecord:
+      summary: One lorastats record
+      value:
+        uid: b2b2b2b2-b2001-4b201-8b201-b2b2b2b2b2b2
+        tenant: tenant-alpha
+        maintenant: management-parent
+        gateway: A1B2C3D4E5F6
+        type: lorastats
+        ts:
+          processor: 1787054120
+          device: 1787054100
+        data:
+          rx_nr_pkts: 1487
+          rx_crc_missing: 12
+          rx_crc_bad: 31
+          tx_success: 903
+          tx_failed: 4
+          tx_peek: 17
+          tx_peek_index_zero: 2
+          tx_override: 0
+          tx_busy: 6
+          tx_dequeue_error: 0
+          tx_type_beacon: 288
+          chip_comm_error: 0
+          util_fopen_failed: 0
+
+    LorastatsPage:
+      summary: A page with a continuation cursor
+      description: |
+        Note `tenant` and `maintenant` differ. That is the case the contract is
+        designed around: filtering on `maintenant` would return other tenants' rows.
+      value:
+        items:
+          - uid: b2b2b2b2-b2001-4b201-8b201-b2b2b2b2b2b2
+            tenant: tenant-alpha
+            maintenant: management-parent
+            gateway: A1B2C3D4E5F6
+            type: lorastats
+            ts:
+              processor: 1787054120
+              device: 1787054100
+            data:
+              rx_nr_pkts: 1487
+              rx_crc_missing: 12
+              rx_crc_bad: 31
+              tx_success: 903
+              tx_failed: 4
+              tx_peek: 17
+              tx_peek_index_zero: 2
+              tx_override: 0
+              tx_busy: 6
+              tx_dequeue_error: 0
+              tx_type_beacon: 288
+              chip_comm_error: 0
+              util_fopen_failed: 0
+        nextCursor: eyJ2IjoxLCJrIjoiLi4uIn0.c2lnbmF0dXJl
+        limit: 100
+
+    EmptyPage:
+      summary: Valid query, nothing visible to this caller
+      description: |
+        A range older than the 90-day retention window, or a range in which this
+        tenant reported nothing, returns this — not a `404`, and not a `403`.
+      value:
+        items: []
+        nextCursor: null
+        limit: 100
+
+    ProblemInvalidTimeRange:
+      summary: from is not earlier than to
+      value:
+        type: https://stats.example/errors/invalid-time-range
+        title: Invalid time range
+        status: 400
+        detail: "'from' must be earlier than 'to'."
+        instance: /v1/stats/lorastats
+        statType: lorastats
+        traceId: 7b3f1c8e2a904d51
+        errors:
+          - field: from
+            code: invalid_time_range
+            message: Must be earlier than 'to'.
+
+    ProblemUnknownStatType:
+      summary: Unrecognised stat type in the path
+      value:
+        type: https://stats.example/errors/unknown-stat-type
+        title: Unknown stat type
+        status: 400
+        detail: Supported types are lorastats, ltestats, sysstats, netstats, omsstats.
+        instance: /v1/stats/wifistats
+        traceId: 1d90ab44c7e35f02
+        errors:
+          - field: type
+            code: unknown_stat_type
+            message: Not a supported stat type.
+
+    ProblemQueryWindowExceeded:
+      summary: Range wider than the permitted window
+      description: |
+        `PROVISIONAL — pending consumer confirmation and load testing.` The
+        current limits are **7 days with a `gateway` filter** and **1 hour
+        without one**. Narrow the range, or add `gateway` to widen it.
+      value:
+        type: https://stats.example/errors/query-window-exceeded
+        title: Query window exceeded
+        status: 400
+        detail: Range spans 172800 seconds; the maximum without a gateway filter is 3600.
+        instance: /v1/stats/lorastats
+        statType: lorastats
+        traceId: 44c1e0b7f2a68d39
+        errors:
+          - field: to
+            code: query_window_exceeded
+            message: Narrow the range or supply a gateway filter.
+
+    ProblemUnauthorized:
+      summary: Missing or unusable token
+      value:
+        type: https://stats.example/errors/unauthorized
+        title: Unauthorized
+        status: 401
+        detail: A valid bearer token is required.
+        instance: /v1/stats/lorastats
+        traceId: 9f2c74a1b5083e6d
+
+    ProblemForbidden:
+      summary: Authenticated without the read-only role
+      value:
+        type: https://stats.example/errors/forbidden
+        title: Forbidden
+        status: 403
+        detail: The token does not grant the required role.
+        instance: /v1/stats/lorastats
+        traceId: 6a08d3f95c1b427e
+
+    ProblemNotFound:
+      summary: No such record in this tenant
+      value:
+        type: https://stats.example/errors/record-not-found
+        title: Record not found
+        status: 404
+        detail: No record with that uid exists for this tenant.
+        instance: /v1/stats/lorastats/b2b2b2b2-b2001-4b201-8b201-b2b2b2b2b2b2
+        statType: lorastats
+        traceId: 2e7b91c04af6538a
+
+    ProblemMethodNotAllowed:
+      summary: Non-GET on a read-only API
+      value:
+        type: https://stats.example/errors/method-not-allowed
+        title: Method not allowed
+        status: 405
+        detail: The Stats API is read-only. Only GET is supported.
+        instance: /v1/stats/lorastats
+        traceId: 83d5f0a6e21c974b
+
+    ProblemServiceUnavailable:
+      summary: A dependency is unavailable
+      value:
+        type: https://stats.example/errors/service-unavailable
+        title: Service unavailable
+        status: 503
+        detail: The request was not served. Retry after the indicated interval.
+        instance: /v1/stats/lorastats
+        traceId: c409e7b21d8f5a63

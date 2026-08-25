@@ -1,0 +1,19 @@
+{
+  "uid": "d4d4d4d4-d4008-4d408-8d408-d4d4d4d4d4d4",
+  "tenant": "tenant-alpha",
+  "maintenant": "management-parent",
+  "gateway": "A1B2C3D4E5F6",
+  "type": "omsstats",
+  "ts": {
+    "processor": 1787054340,
+    "device": 1779364800
+  },
+  "data": {
+    "rx_nr_pkts": 49,
+    "rx_valid_nr_pkts": 8,
+    "rx_crc_bad": 41,
+    "device_count": 3,
+    "timespan": 300
+  },
+  "$comment": "ts.device is 89 days old - one day inside the 90-day window. MUST be stored. Pairs with the late-arrival fixture to test both sides of the boundary."
+}

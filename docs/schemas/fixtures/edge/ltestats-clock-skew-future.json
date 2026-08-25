@@ -1,0 +1,23 @@
+{
+  "uid": "c3c3c3c3-c3009-4c309-8c309-c3c3c3c3c3c3",
+  "tenant": "tenant-alpha",
+  "maintenant": "management-parent",
+  "gateway": "A1B2C3D4E5F6",
+  "type": "ltestats",
+  "ts": {
+    "processor": 1787054400,
+    "device": 1787058000
+  },
+  "data": {
+    "rssi": -52,
+    "rsrp": -79,
+    "rsrq": -8,
+    "access_technology": "4G",
+    "operator": "ExampleTel",
+    "plmn": 26201,
+    "imsi": "262019999999999",
+    "lac": "63AE",
+    "cid": "2648604"
+  },
+  "$comment": "ts.device is one hour in the future, ahead of ts.processor. A gateway with a bad clock. Decide and test explicitly: accept into a future partition, or reject. Currently unspecified - raise it rather than guessing."
+}

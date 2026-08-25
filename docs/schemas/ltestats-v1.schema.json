@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zenner.example/stats-app/schemas/ltestats-v1.schema.json",
+  "title": "ltestats v1",
+  "allOf": [
+    { "$ref": "envelope-v1.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "type": { "const": "ltestats" },
+        "data": {
+          "type": "object",
+          "required": ["rssi", "rsrp", "rsrq", "access_technology", "operator", "plmn", "imsi", "lac", "cid"],
+          "properties": {
+            "rssi": { "type": "integer" },
+            "rsrp": { "type": "integer" },
+            "rsrq": { "type": "integer" },
+            "access_technology": { "type": "string", "minLength": 1 },
+            "operator": { "type": "string", "minLength": 1 },
+            "plmn": { "type": "integer" },
+            "imsi": { "type": "string", "minLength": 1, "$comment": "Sensitive identifier; exact format and masking policy are pending approval." },
+            "lac": { "type": "string", "minLength": 1 },
+            "cid": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": true
+        }
+      }
+    }
+  ],
+  "$comment": "Development draft based on SRS v1.0. Signal-value ranges, max lengths, and unknown-field policy require approval."
+}

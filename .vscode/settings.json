@@ -1,0 +1,27 @@
+{
+  "files.trimTrailingWhitespace": true,
+  "files.insertFinalNewline": true,
+  "files.exclude": {
+    "**/.gradle": true,
+    "**/build": true,
+    "**/.idea": true
+  },
+  "search.exclude": {
+    "**/.gradle": true,
+    "**/build": true
+  },
+  "java.configuration.updateBuildConfiguration": "interactive",
+  "java.gradle.buildServer.enabled": true,
+  "java.test.defaultConfig": "",
+  "editor.formatOnSave": false,
+  "editor.rulers": [
+    120
+  ],
+  "yaml.validate": true,
+  "rest-client.environmentVariables": {
+    "$shared": {
+      "statsInputUrl": "http://localhost:8081",
+      "statsApiUrl": "http://localhost:8083"
+    }
+  }
+}

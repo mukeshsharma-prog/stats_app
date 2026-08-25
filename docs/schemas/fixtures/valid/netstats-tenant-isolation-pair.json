@@ -1,0 +1,75 @@
+{
+  "$comment": "Tenant A and tenant B on the same gateway. record_b.maintenant equals tenant-alpha on purpose: a query filtering on maintenant returns BOTH records for tenant-alpha and leaks tenant-beta data. A correct implementation filtering on tenant returns exactly one.",
+  "record_a": {
+    "uid": "e5e5e5e5-e5002-4e502-8e502-e5e5e5e5e5e5",
+    "tenant": "tenant-alpha",
+    "maintenant": "management-parent",
+    "gateway": "A1B2C3D4E5F6",
+    "type": "netstats",
+    "ts": {
+      "processor": 1787053820,
+      "device": 1787053800
+    },
+    "data": {
+      "eth0": {
+        "apipa": "169.254.154.202",
+        "gw": "192.168.178.1",
+        "tx": "72152674",
+        "rx": "139304320",
+        "ip": "192.168.178.10",
+        "dns": [
+          "192.168.178.1"
+        ],
+        "mask": "255.255.255.0"
+      },
+      "wwan": {
+        "gw": "10.119.110.117",
+        "tx": "350417",
+        "rx": "325936",
+        "ip": "10.119.110.116",
+        "dns": [
+          "8.8.8.8",
+          "8.8.4.4"
+        ],
+        "mask": "255.255.255.248"
+      },
+      "timespan": 300
+    }
+  },
+  "record_b": {
+    "uid": "e5e5e5e5-e5003-4e503-8e503-e5e5e5e5e5e5",
+    "tenant": "tenant-beta",
+    "maintenant": "tenant-alpha",
+    "gateway": "A1B2C3D4E5F6",
+    "type": "netstats",
+    "ts": {
+      "processor": 1787053820,
+      "device": 1787053800
+    },
+    "data": {
+      "eth0": {
+        "apipa": "169.254.154.202",
+        "gw": "192.168.178.1",
+        "tx": "72153674",
+        "rx": "139305320",
+        "ip": "192.168.178.10",
+        "dns": [
+          "192.168.178.1"
+        ],
+        "mask": "255.255.255.0"
+      },
+      "wwan": {
+        "gw": "10.119.110.117",
+        "tx": "350427",
+        "rx": "325946",
+        "ip": "10.119.110.116",
+        "dns": [
+          "8.8.8.8",
+          "8.8.4.4"
+        ],
+        "mask": "255.255.255.248"
+      },
+      "timespan": 300
+    }
+  }
+}

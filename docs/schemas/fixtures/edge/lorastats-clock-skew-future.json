@@ -1,0 +1,27 @@
+{
+  "uid": "b2b2b2b2-b2009-4b209-8b209-b2b2b2b2b2b2",
+  "tenant": "tenant-alpha",
+  "maintenant": "management-parent",
+  "gateway": "A1B2C3D4E5F6",
+  "type": "lorastats",
+  "ts": {
+    "processor": 1787054400,
+    "device": 1787058000
+  },
+  "data": {
+    "rx_nr_pkts": 1487,
+    "rx_crc_missing": 12,
+    "rx_crc_bad": 31,
+    "tx_success": 903,
+    "tx_failed": 4,
+    "tx_peek": 17,
+    "tx_peek_index_zero": 2,
+    "tx_override": 0,
+    "tx_busy": 6,
+    "tx_dequeue_error": 0,
+    "tx_type_beacon": 288,
+    "chip_comm_error": 0,
+    "util_fopen_failed": 0
+  },
+  "$comment": "ts.device is one hour in the future, ahead of ts.processor. A gateway with a bad clock. Decide and test explicitly: accept into a future partition, or reject. Currently unspecified - raise it rather than guessing."
+}

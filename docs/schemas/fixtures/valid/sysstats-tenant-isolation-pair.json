@@ -1,0 +1,43 @@
+{
+  "$comment": "Tenant A and tenant B on the same gateway. record_b.maintenant equals tenant-alpha on purpose: a query filtering on maintenant returns BOTH records for tenant-alpha and leaks tenant-beta data. A correct implementation filtering on tenant returns exactly one.",
+  "record_a": {
+    "uid": "a1a1a1a1-a1002-4a102-8a102-a1a1a1a1a1a1",
+    "tenant": "tenant-alpha",
+    "maintenant": "management-parent",
+    "gateway": "A1B2C3D4E5F6",
+    "type": "sysstats",
+    "ts": {
+      "processor": 1787053820,
+      "device": 1787053800
+    },
+    "data": {
+      "memfree": 56949,
+      "uptime": 955701.36,
+      "idletime": 3632533.13,
+      "load1": 0.41,
+      "load5": 0.42,
+      "load15": 0.38,
+      "runable": "2/139"
+    }
+  },
+  "record_b": {
+    "uid": "a1a1a1a1-a1003-4a103-8a103-a1a1a1a1a1a1",
+    "tenant": "tenant-beta",
+    "maintenant": "tenant-alpha",
+    "gateway": "A1B2C3D4E5F6",
+    "type": "sysstats",
+    "ts": {
+      "processor": 1787053820,
+      "device": 1787053800
+    },
+    "data": {
+      "memfree": 57086,
+      "uptime": 955761.36,
+      "idletime": 3632588.13,
+      "load1": 0.41,
+      "load5": 0.42,
+      "load15": 0.38,
+      "runable": "2/139"
+    }
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "recommendations": [
+    "vscjava.vscode-java-pack",
+    "vmware.vscode-boot-dev-pack",
+    "vscjava.vscode-gradle",
+    "ms-azuretools.vscode-docker",
+    "redhat.vscode-yaml",
+    "humao.rest-client",
+    "anthropic.claude-code",
+    "ms-ossdata.vscode-pgsql",
+    "SonarSource.sonarlint-vscode",
+    "usernamehw.errorlens",
+    "EditorConfig.EditorConfig",
+    "yzhang.markdown-all-in-one"
+  ],
+  "unwantedRecommendations": [
+    "vscjava.vscode-maven"
+  ]
+}

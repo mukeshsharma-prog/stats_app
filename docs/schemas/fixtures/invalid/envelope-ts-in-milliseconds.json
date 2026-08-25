@@ -1,0 +1,21 @@
+{
+  "uid": "a1a1a1a1-a1004-4a104-8a104-a1a1a1a1a1a1",
+  "tenant": "tenant-alpha",
+  "maintenant": "management-parent",
+  "gateway": "A1B2C3D4E5F6",
+  "type": "sysstats",
+  "ts": {
+    "processor": 1787054120,
+    "device": 1787054100000
+  },
+  "data": {
+    "memfree": 56812,
+    "uptime": 955641.36,
+    "idletime": 3632478.13,
+    "load1": 0.41,
+    "load5": 0.42,
+    "load15": 0.38,
+    "runable": "2/139"
+  },
+  "$comment": "ts.device supplied in MILLISECONDS. It parses as a valid integer, so nothing fails loudly - the record simply lands ~53,000 years in the future and retention never reaches it. This is the fixture that catches the seconds/millis trap; a plausibility bound on ts.device is what makes it a 400."
+}

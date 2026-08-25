@@ -1,0 +1,27 @@
+{
+  "uid": "b2b2b2b2-b2008-4b208-8b208-b2b2b2b2b2b2",
+  "tenant": "tenant-alpha",
+  "maintenant": "management-parent",
+  "gateway": "A1B2C3D4E5F6",
+  "type": "lorastats",
+  "ts": {
+    "processor": 1787054340,
+    "device": 1779364800
+  },
+  "data": {
+    "rx_nr_pkts": 1487,
+    "rx_crc_missing": 12,
+    "rx_crc_bad": 31,
+    "tx_success": 903,
+    "tx_failed": 4,
+    "tx_peek": 17,
+    "tx_peek_index_zero": 2,
+    "tx_override": 0,
+    "tx_busy": 6,
+    "tx_dequeue_error": 0,
+    "tx_type_beacon": 288,
+    "chip_comm_error": 0,
+    "util_fopen_failed": 0
+  },
+  "$comment": "ts.device is 89 days old - one day inside the 90-day window. MUST be stored. Pairs with the late-arrival fixture to test both sides of the boundary."
+}

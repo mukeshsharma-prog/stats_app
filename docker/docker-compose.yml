@@ -1,0 +1,201 @@
+# Stats App — local development stack.
+#
+#   docker compose up -d                       infrastructure only (the default)
+#   docker compose --profile apps up -d        infrastructure + all three modules
+#
+# The default is infrastructure only, because the documented development loop
+# (claude/DEVELOPMENT.md §3.3) runs the modules with ./gradlew bootRun so you get
+# a debugger and hot restart. The `apps` profile is for end-to-end checks and for
+# anyone who wants the whole system with one command.
+#
+# RabbitMQ, PostgreSQL and Keycloak are INFRASTRUCTURE DEPENDENCIES, not Stats App
+# deployables (CLAUDE.md §1). Only the three services under the `apps` profile are
+# ours to ship.
+#
+# All values come from the repository-root .env. This file contains no ${...}
+# interpolation on purpose: env_file paths resolve relative to this file, so the
+# stack behaves identically no matter which directory you run compose from.
+
+name: stats-app
+
+services:
+
+  # === PostgreSQL — the only V1 persistence technology (CLAUDE.md §3) =========
+  postgres:
+    image: postgres:17-alpine
+    container_name: stats-postgres
+    restart: unless-stopped
+    env_file: ../.env
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      # Runs ONCE, on an empty data directory. Edit a script here and you must
+      # `docker compose down -v` for it to run again.
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      # Both -U and -d matter: without -d, pg_isready probes a database named
+      # after the user, which does not exist here.
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  # === RabbitMQ ==============================================================
+  # No queues, exchanges or bindings are declared here, deliberately. The topology
+  # is declared by the modules from the shared constants in stats-common. Two
+  # declarations of the same resource with different arguments is exactly the
+  # RESOURCE_LOCKED failure CLAUDE.md §6 warns about, and a definitions file
+  # committed here would be a second, silently drifting source of truth.
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    container_name: stats-rabbitmq
+    restart: unless-stopped
+    env_file: ../.env
+    ports:
+      - "5672:5672"     # AMQP
+      - "15672:15672"   # management UI
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 30s
+
+  # === Keycloak ==============================================================
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    container_name: stats-keycloak
+    restart: unless-stopped
+    # --import-realm reads /opt/keycloak/data/import at startup, and ONLY when the
+    # realm does not already exist. Edit the realm JSON and restarting changes
+    # nothing — you need `docker compose down -v` to drop Keycloak's H2 state.
+    command: ["start-dev", "--import-realm"]
+    # env_file supplies KC_BOOTSTRAP_ADMIN_* for the admin account and every
+    # STATS_* value the realm JSON resolves as ${env.NAME:default}.
+    env_file: ../.env
+    environment:
+      KC_HEALTH_ENABLED: "true"
+      # localhost is the issuer, deliberately. The app services sit behind the
+      # `apps` profile, so a plain `docker compose up` starts infrastructure only
+      # and you run the modules from your IDE against the published port. For that
+      # — the common path — localhost:8080 is what both the browser and the module
+      # see, and no /etc/hosts edit is needed.
+      #
+      # KC_HOSTNAME fixes what goes in every token's `iss` claim. It does NOT have
+      # to be reachable from inside the compose network, because a containerised
+      # module validates `iss` as a string and fetches keys from a separate URL:
+      # see KEYCLOAK_JWK_SET_URI on stats-api below. That split is what lets one
+      # issuer value work from the host and from a container at the same time.
+      KC_HOSTNAME: http://localhost:8080
+      KC_HOSTNAME_STRICT: "false"
+      KC_HTTP_ENABLED: "true"
+    ports:
+      - "8080:8080"
+    volumes:
+      - ../docs/setup/keycloak-realm-statsapp.json:/opt/keycloak/data/import/realm.json:ro
+    healthcheck:
+      # The Keycloak image ships no curl or wget. bash's /dev/tcp is the portable
+      # way to probe the management port (9000) it serves /health/ready on.
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && echo -e 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q '\"status\": \"UP\"' <&3"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 30s
+
+  # === Module 1 — Input: HTTP POST -> AMQP ===================================
+  stats-input:
+    profiles: ["apps"]
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      args:
+        MODULE: stats-input
+    image: stats-app/stats-input:dev
+    container_name: stats-input
+    restart: unless-stopped
+    env_file: ../.env
+    ports:
+      - "8081:8081"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8081/actuator/health/readiness"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+
+  # === Module 2 — Writer: AMQP -> PostgreSQL =================================
+  # The only component with database write access (rule 2, STA-32).
+  stats-writer:
+    profiles: ["apps"]
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      args:
+        MODULE: stats-writer
+    image: stats-app/stats-writer:dev
+    container_name: stats-writer
+    restart: unless-stopped
+    env_file: ../.env
+    ports:
+      - "8082:8082"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8082/actuator/health/readiness"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+
+  # === Module 3 — API: read-only REST ========================================
+  # No broker connection, deliberately — Q3a. Give this module a RabbitMQ
+  # dependency and you have contradicted the open question, not answered it.
+  stats-api:
+    profiles: ["apps"]
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      args:
+        MODULE: stats-api
+    image: stats-app/stats-api:dev
+    container_name: stats-api
+    restart: unless-stopped
+    env_file: ../.env
+    environment:
+      # `iss` stays http://localhost:8080/realms/statsapp — it is validated as a
+      # string, never fetched. But this container cannot reach the host's
+      # localhost:8080 to download signing keys, so point the JWK set at the
+      # compose-network hostname instead. Setting jwk-set-uri also disables OIDC
+      # discovery, which is exactly what we want here: discovery would try to GET
+      # the issuer URL and fail.
+      #
+      # In production, leave this unset — discovery from the real HTTPS issuer is
+      # correct and one less thing to keep in sync.
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI: http://keycloak:8080/realms/statsapp/protocol/openid-connect/certs
+    ports:
+      - "8083:8083"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8083/actuator/health/readiness"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+
+volumes:
+  postgres-data:
+  rabbitmq-data:

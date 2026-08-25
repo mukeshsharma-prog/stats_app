@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zenner.example/stats-app/schemas/sysstats-v1.schema.json",
+  "title": "sysstats v1",
+  "allOf": [
+    { "$ref": "envelope-v1.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "type": { "const": "sysstats" },
+        "data": {
+          "type": "object",
+          "required": ["memfree", "uptime", "idletime", "load1", "load5", "load15", "runable"],
+          "properties": {
+            "memfree": { "type": "integer" },
+            "uptime": { "type": "number" },
+            "idletime": { "type": "number" },
+            "load1": { "type": "number" },
+            "load5": { "type": "number" },
+            "load15": { "type": "number" },
+            "runable": { "type": "string", "$comment": "Field spelling comes from SRS; regex/semantic format is pending approval." }
+          },
+          "additionalProperties": true
+        }
+      }
+    }
+  ],
+  "$comment": "Development draft based on SRS v1.0. Numeric ranges and unknown-field policy require approval."
+}

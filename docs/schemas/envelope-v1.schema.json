@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zenner.example/stats-app/schemas/envelope-v1.schema.json",
+  "title": "Stats App Common Envelope v1",
+  "type": "object",
+  "required": [
+    "uid",
+    "tenant",
+    "maintenant",
+    "gateway",
+    "type",
+    "ts",
+    "data"
+  ],
+  "properties": {
+    "uid": {
+      "type": "string",
+      "minLength": 1,
+      "$comment": "ADR-005 is ACCEPTED. Uniqueness is enforced in PostgreSQL by PRIMARY KEY (ts_device, uid), scoped PER PARTITION - a global unique index is not creatable on a table partitioned by ts_device (ADR-003, G2). No UUID format is enforced here: ZC guarantees uniqueness, not a format, and rejecting a non-UUID uid would reject valid data."
+    },
+    "tenant": {
+      "type": "string",
+      "minLength": 1
+    },
+    "maintenant": {
+      "type": "string",
+      "minLength": 1
+    },
+    "gateway": {
+      "type": "string",
+      "pattern": "^[0-9A-Fa-f]{12}$"
+    },
+    "type": {
+      "type": "string",
+      "enum": ["lorastats", "ltestats", "sysstats", "omsstats", "netstats"],
+      "$comment": "The five approved V1 stat types, as a closed enumeration. Without this, an unrecognised type validates cleanly against the envelope and is only caught later by routing - which means the 400 depends on where the record happens to fail rather than on the contract. STA-14A: adding a type adds a member here, and changes nothing about existing types."
+    },
+    "ts": {
+      "type": "object",
+      "required": [
+        "processor",
+        "device"
+      ],
+      "properties": {
+        "processor": {
+          "type": "integer",
+          "minimum": 946684800,
+          "maximum": 4102444800,
+          "$comment": "Unix epoch SECONDS. Bounded to 2000-01-01 .. 2100-01-01 so a millisecond timestamp fails validation with a 400 instead of silently landing ~53,000 years in the future where retention never reaches it. Answered 18 Aug 2026."
+        },
+        "device": {
+          "type": "integer",
+          "minimum": 946684800,
+          "maximum": 4102444800,
+          "$comment": "Unix epoch SECONDS. Bounded to 2000-01-01 .. 2100-01-01 so a millisecond timestamp fails validation with a 400 instead of silently landing ~53,000 years in the future where retention never reaches it. Answered 18 Aug 2026."
+        }
+      },
+      "additionalProperties": true,
+      "not": {
+        "required": [
+          "converter"
+        ]
+      },
+      "$comment": "ADR-004 is ACCEPTED: Stats App performs no timestamp normalisation and a record carrying ts.converter is INVALID. Other unknown ts members are still accepted under D14 (unknown-field policy)."
+    },
+    "data": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "$comment": "additionalProperties stays true under the D14 unknown-field policy: unknown members are accepted and preserved rather than rejected. This is a deliberate decision (claude/CLAUDE.md §7), not a Jackson default - the alternative was considered and not chosen. Note the one asymmetry: ts.converter fails even though other unknown ts members pass, because its presence means the sender believes in a normalisation step this system does not perform (ADR-004)."
+}

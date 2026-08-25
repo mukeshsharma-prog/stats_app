@@ -1,0 +1,19 @@
+{
+  "uid": "d4d4d4d4-d4004-4d404-8d404-d4d4d4d4d4d4",
+  "tenant": "tenant-alpha",
+  "maintenant": "management-parent",
+  "gateway": "04B6481037E9",
+  "type": "omsstats",
+  "ts": {
+    "processor": 1787053520,
+    "device": 1787053500
+  },
+  "data": {
+    "rx_nr_pkts": 0,
+    "rx_valid_nr_pkts": 0,
+    "rx_crc_bad": 0,
+    "device_count": 0,
+    "timespan": 0
+  },
+  "$comment": "Every counter and timespan at zero. A gateway that saw no traffic in the interval is a normal record, not an error."
+}

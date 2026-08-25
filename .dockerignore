@@ -1,0 +1,22 @@
+# Keep the build context small and reproducible. Everything the image needs is
+# COPYed explicitly in docker/Dockerfile.
+
+.git
+.gradle
+build
+*/build
+*/bin
+.idea
+.vscode
+.DS_Store
+
+# Never let a secret into a build context — layers are readable by anyone who
+# can pull the image.
+.env
+*.env
+
+# Documentation is not needed to compile. The realm JSON is MOUNTED into Keycloak
+# at runtime by compose, not baked into any image.
+docs
+claude
+*.md

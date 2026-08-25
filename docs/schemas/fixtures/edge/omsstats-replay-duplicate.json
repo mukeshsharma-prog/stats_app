@@ -1,0 +1,19 @@
+{
+  "uid": "d4d4d4d4-d4001-4d401-8d401-d4d4d4d4d4d4",
+  "tenant": "tenant-alpha",
+  "maintenant": "management-parent",
+  "gateway": "A1B2C3D4E5F6",
+  "type": "omsstats",
+  "ts": {
+    "processor": 1787054120,
+    "device": 1787054100
+  },
+  "data": {
+    "rx_nr_pkts": 49,
+    "rx_valid_nr_pkts": 8,
+    "rx_crc_bad": 41,
+    "device_count": 3,
+    "timespan": 300
+  },
+  "$comment": "Byte-identical uid and ts.device to valid/omsstats-valid.json. Models a Heimdal dead-letter replay or an AMQP redelivery after a crash between commit and ACK. ON CONFLICT (ts_device, uid) DO NOTHING must make this a no-op that increments duplicates_total - not an error, and not a second row."
+}

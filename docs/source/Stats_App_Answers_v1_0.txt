@@ -1,0 +1,547 @@
+﻿
+DISCOVERY & CLARIFICATION QUESTIONS
+Stats App
+Open questions to resolve before implementation begins
+Version 1.0  |  August 2026
+Classification: Internal / Confidential
+Prepared by: Naman  | Senior Software Engineer, Zenner
+
+How to Read This Document
+This document lists the questions that need answers before the Stats App design can be locked and implementation can start. It is drawn from two sources: the Stats App SRS v1.0, and the implementation brief sent by Hasan Dogan.
+It leads with what is already settled, then with the points where the two sources disagree, and only then with the questions that remain genuinely open. Each question is presented with what we already know, why the answer matters, and our recommended approach — so the discussion can be a decision rather than an exploration.
+Section
+What it contains
+What we already know
+What the SRS, the brief, or the existing stack already tells us — so settled points are not revisited.
+Why we're asking
+What the answer unblocks or changes. If a question does not change a decision, it is not in this document.
+Our recommended approach
+Our engineering lean, with reasoning. A starting proposal to accept, adjust, or reject — not a decision already taken.
+
+Reference Scheme
+Every item carries a reference that is unique across the document and used consistently wherever it is cross-referenced. References are contiguous within each prefix, so a gap means a missing item rather than a deleted one.
+Prefix
+Meaning
+Range
+A
+Answered — closed by the implementation brief. Recorded for traceability only.
+A1 – A9
+C
+Conflict — the brief and the SRS disagree. Resolve before implementation.
+C1 – C2
+Q
+Open question — affects architecture, scope, or a technology choice.
+Q1 – Q18
+D
+Detail question — implementation behaviour the SRS implies but does not specify.
+D1 – D13
+
+Note on references: items that were open in the working draft and have since been answered are not renumbered out of existence — they appear in Section 1 under an A reference, so nothing referenced anywhere is missing from this document.
+
+
+
+Priority Key
+Priority
+Meaning
+CONFLICT
+The brief and the SRS disagree, or reference material we do not have. Must be resolved before implementation — building the wrong one means rework.
+BLOCKER
+Design cannot be finalised without this.
+HIGH
+Affects architecture or a technology choice. Can run in parallel with initial setup.
+MEDIUM
+Needed before go-live, but does not block the start of development.
+
+
+1. What the Implementation Brief Settles
+"Implementation brief" throughout this document refers to the email from Hasan Dogan summarising the task.
+The following questions are now answered. They are recorded here so the discussion does not revisit them, and so the reasoning behind each is traceable.
+Ref
+Question
+Answer from the brief
+A1
+Which database technology?
+MongoDB is the primary implementation. PostgreSQL as an alternative implementation if time permits. This closes SRS Open Item #1.
+A2
+Where is each stat type stored?
+A separate collection per statistics type — confirming STA-21.
+A3
+Standalone API service or a module?
+A multi-module Gradle project with three modules: Input Module, Stats Writer, Stats API.
+A4
+Keycloak roles and access model
+Access controlled exclusively through roles. Read-only users. GET requests only. Client registration detail still open — see Q8.
+A5
+Are aggregation endpoints required?
+Implied no for v1 — the brief describes retrieving data from the database via GET endpoints only. See Q16.
+A6
+Retention period
+90 days maximum for the initial version, configurable externally via application.properties. Closes SRS Open Item #2 for v1.
+A7
+RabbitMQ naming
+Exchange: app_stats_input. Queue: app_statsstore. Routing key: the message type (lorastats, ltestats, sysstats, netstats, omsstats, etc.). See C1 — the queue structure needs clarification.
+A8
+Are dead-lettering, metrics, and horizontal scaling still in v1 scope?
+Yes — confirmed in scope. Dead-letter queues with retry limits (STA-12, STA-25), per-type runtime metrics including queue depth (STA-27), and horizontal scalability of all three modules (STA-06, STA-26, STA-39) are all required for the first version. Their absence from the brief was summarisation, not descoping.
+A9
+Does a larger specification with a section 9.2 exist?
+No. The reference in STA-03 to section 9.2.1 ff. is a typo — the 9 was added in error. The intended target is the per-type schema sections already in this SRS. There is no separate master document.
+
+
+2. Conflicts to Resolve Before Implementation
+These two points are the highest priority in this document. Each is cheap to clarify now and expensive to rework later, because each affects structure that gets baked into the codebase early. A third conflict from the working draft — whether dead-lettering, metrics, and horizontal scaling remained in v1 scope — has since been resolved and is recorded as A8.
+C1
+One queue named app_statsstore, or one queue per stat type? The brief and the SRS specify different structures.
+CONFLICT
+The two positions
+The implementation brief states the queue should be named app_statsstore — singular, with the routing key carrying the message type. The SRS states the opposite: STA-10 requires a dedicated queue per stat type (giving queue.lorastats and queue.ltestats as examples) explicitly so that processing and error handling can occur independently per type, and STA-20 requires a separate consumer per stat type. STA-14 further requires new queues to be addable without changing existing ones.
+Why it matters
+With a single queue bound to all routing keys, one consumer pool handles every stat type. If a malformed omsstats document repeatedly fails to write, that consumer is occupied retrying it while lorastats messages queue behind — classic head-of-line blocking, which is precisely the failure mode STA-10 exists to prevent. It also means all types share one dead-letter queue, one retry policy, and one scaling unit, so a spike in one type slows down every other type.
+Our recommended approach
+Most likely app_statsstore is intended as a base or prefix name, with per-type queues such as app_statsstore.lorastats bound to the corresponding routing key on the app_stats_input exchange. That reading satisfies both the brief and STA-10/STA-20 and is what we would build by default. However, the brief reads as a single queue, so we should confirm explicitly rather than assume.
+
+
+C2
+Where are the detailed endpoint definitions for the Stats API? Both documents describe Module 3 in general terms only.
+CONFLICT
+The two positions
+The SRS describes the API in requirement terms — read-only retrieval per stat type with filtering by time range and identifiers (STA-33, STA-34) — and the brief confirms GET-only, role-controlled access. Neither gives concrete endpoint paths, parameter names, a response envelope, pagination, or sort order. STA-03 pointed at a section 9.2.1 ff. that might have contained them; A9 confirms that reference was a typo, so no such definition exists in the material we hold.
+Why it matters
+Module 3 is the module consumers actually see. Path shape, parameter naming, pagination and response envelope are the parts of the contract that cannot be changed once anything has integrated against them. Until they are defined we can build ingestion and storage but not the API, which makes this the deciding factor for phasing (Q15).
+Our recommended approach
+If a definition exists elsewhere, we would like it. If it does not, we propose drafting an OpenAPI specification from the SRS filter requirements and circulating it for approval before implementing, rather than waiting on a document that may not exist. That keeps phase two unblocked and gives something concrete to review.
+
+3. Technology Stack (New — Arising from the Brief)
+The brief specifies a multi-module Gradle project with configuration in application.properties. Both are JVM conventions, and application.properties in particular indicates Spring Boot. This is a significant and previously unstated constraint, and it changes several assumptions in the working draft.
+Q1
+Java or Kotlin? Which Spring Boot version? Is there a reference project we should model the structure on?
+BLOCKER
+What we already know
+Gradle multi-module plus application.properties indicates a JVM stack, almost certainly Spring Boot. The brief does not name a language, a framework version, or an existing project to follow.
+Why we're asking
+This determines the entire codebase: build configuration, dependency versions, testing framework, and code conventions. Following an existing internal service gives us CI/CD, secrets handling, logging format, and deployment conventions for free rather than reinventing them — and makes the result maintainable by whoever inherits it.
+Our recommended approach
+We should be pointed at an existing Zenner Spring Boot service to model module layout, configuration, logging, and error-handling conventions on. Consistency with the existing estate matters more here than any individual preference. Note that the natural mappings are clean: Spring AMQP for the RabbitMQ layer, Spring Data MongoDB for persistence, and Spring Security OAuth2 Resource Server for the Keycloak integration.
+
+Q2
+Three Gradle modules — three separately deployable artifacts, or one deployable containing all three?
+HIGH
+What we already know
+The brief describes three Gradle modules within a single multi-module project. STA-06, STA-26, and STA-39 each require the corresponding component to be independently horizontally scalable.
+Why we're asking
+A Gradle module is a build-time concept; it does not by itself imply a separate deployable. If all three ship as one artifact, they cannot be scaled independently, which conflicts with three separate MUST requirements. Ingestion and retrieval have very different load profiles, so scaling them together is wasteful.
+Our recommended approach
+Recommend three separate deployable artifacts sharing a common Gradle build and a shared module for domain types and DTOs. This satisfies the scaling requirements and keeps the build unified, which is very likely what the multi-module structure is intended to achieve.
+
+Q3
+What exchange type is app_stats_input, and which component declares the exchange, queues, and bindings?
+MEDIUM
+What we already know
+The brief specifies the exchange name and that the routing key equals the message type, but not the exchange type. Routing on a type value works with either a direct or a topic exchange.
+Why we're asking
+The choice affects extensibility. A topic exchange allows pattern-based bindings, so a future consumer could subscribe to several types at once; a direct exchange requires an exact match per binding. Separately, if both the Input Module and the Stats Writer declare the same topology with different arguments, RabbitMQ will reject the mismatched declaration at startup — a confusing failure that is easy to avoid by deciding ownership upfront.
+Our recommended approach
+Recommend a topic exchange for flexibility, with topology declared in one place only — ideally the Stats Writer, since it owns the queues, or externally via infrastructure configuration. Whichever is chosen, it should be documented so the two modules do not compete to declare it.
+
+4. Questions Still Open
+Ordered by priority. Q4 and Q5 block design; the remainder can run alongside initial setup.
+Q4
+Where is the netstats schema? What fields does it contain?
+BLOCKER
+What we already know
+netstats appears in the SRS supported-type list, in requirements STA-21 and STA-33, and in the brief’s routing key list. However, while SRS sections 1.2.1 to 1.2.4 define fields for sysstats, lorastats, ltestats, and omsstats, there is no equivalent section for netstats.
+Why we're asking
+We cannot implement validation (STA-03), define a collection structure, or design indexes for a schema that does not exist. netstats is currently the only named stat type we cannot build at all.
+
+Q5
+Will every incoming record always carry a tenant reference?
+BLOCKER
+What we already know
+All four defined stat types list tenant and maintenant as mandatory. SRS Open Item #3 nevertheless questions whether the Datahub Core might deliver system-wide statistics without a tenant reference. The brief reinforces that tenant isolation is a hard requirement but does not resolve the underlying uncertainty.
+Why we're asking
+Tenant isolation is a security control, not a convenience feature. It can only be enforced server-side if the tenant is reliably present at write time. The brief makes this more pressing, not less: it names tenant isolation as an important aspect of the Stats API, so an unenforceable control would be a direct failure against a stated requirement.
+Our recommended approach
+We are treating this as a blocking dependency rather than an open question. If system-wide records without a tenant are possible, we need an agreed handling rule — a reserved tenant value, a separate collection, or outright rejection — before the write path is built.
+
+Q6
+Is uid guaranteed unique per record, and can Heimdal Core deliver the same record more than once?
+HIGH
+What we already know
+Every stat type carries a uid field, described in the SRS as a unique identifier. Neither document states whether that uniqueness is guaranteed across retries, across stat types, or only within a single type, and neither describes retry behaviour on the sending side.
+Why we're asking
+Several downstream decisions rest on this one answer: whether uid can serve as the MongoDB _id (D8), whether acknowledging after the write is safe (D7), and whether a redelivery produces a duplicate or a harmless no-op. If uid is not reliably unique, we need a different idempotency key, and we would rather choose one now than discover the problem in production.
+Our recommended approach
+Treat the pipeline as at-least-once and rely on a unique constraint on uid to absorb duplicates. That is only safe if uniqueness is confirmed, so we would like it stated explicitly rather than inferred from a field description.
+
+Q7
+For omsstats, who normalises ts.converter to ts.processor — Heimdal Core or us?
+HIGH
+What we already know
+SRS section 1.2.4 defines omsstats with a ts.converter timestamp, whereas the other stat types carry ts.processor. Requirements written against ts.processor therefore do not map cleanly onto omsstats as specified.
+Why we're asking
+If Heimdal already sends ts.processor for omsstats, the schema section is simply out of date and no code is needed. If it sends ts.converter, we must normalise it, and where that happens becomes a design decision (D6). Retention also needs a single timestamp field to key on consistently across all collections (D9).
+Our recommended approach
+Confirm what Heimdal actually sends. If normalisation falls to us, do it in the Input Module so that everything downstream sees one consistent envelope.
+
+Q8
+Which Keycloak realm and client, and what are the exact role names?
+HIGH
+What we already know
+The brief confirms access is controlled exclusively through roles, with read-only users and GET-only endpoints (A4). It does not name the realm, say whether a new client is registered for the Stats App, or define the role names.
+Why we're asking
+A dedicated client allows stats-specific roles and independent revocation; reusing the existing Datahub client means existing tokens work directly but couples access control to the main platform. Either way, the exact role names must be agreed because they are hard-coded into the security configuration.
+Our recommended approach
+A dedicated client with a small set of explicit roles, so that stats access can be granted and revoked without touching Datahub Core access. If platform convention says otherwise, convention wins.
+
+Q9
+If the Stats App is unavailable, does Heimdal Core queue and replay, or is the data lost?
+HIGH
+What we already know
+Neither document addresses behaviour upstream of the HTTP endpoint. The brief describes the Input Module as forwarding data after validation but says nothing about sender-side resilience.
+Why we're asking
+Two consequences: whether an outage means permanent data loss, which the business must accept explicitly; and whether we should expect a large replay burst on recovery, which our buffer and consumers must survive.
+Our recommended approach
+Ideally Heimdal buffers and replays with backoff. If it does not, the data-loss window should be documented as an accepted risk and our availability targets set accordingly (see D5).
+
+Q10
+Is there a contract or API document describing what Heimdal Core actually sends, beyond the schemas in the SRS?
+HIGH
+What we already know
+The SRS defines the field structure for four stat types in sections 1.2.1 to 1.2.4, and gives one example record per type. It does not describe the sending side: how Heimdal calls us, what headers it sets, whether it retries, what content type it uses, or how it behaves on a non-2xx response.
+Why we're asking
+The schemas tell us what a valid record looks like, but not how it arrives. Several of our open questions are really the same question asked from our side of the boundary — whether Heimdal replays after an outage (Q9), whether it can produce duplicates (Q6), whether it sends the normalised timestamp field for omsstats (Q7), and whether a tenant is always present (Q5). A single contract document, or a short call with whoever owns Heimdal (Q12), would likely settle all of them at once. Without it we are inferring the sender’s behaviour from the receiver’s schema, which is guesswork.
+
+Q11
+Can we get an export of real sample records covering all stat types, including edge cases?
+HIGH
+What we already know
+The SRS provides one example record per stat type for four of the five types (netstats has none — see Q4). The examples use tenants named stage and uaa, which suggests non-production environments exist and that exporting real records is feasible.
+Why we're asking
+One example per type is enough to write a happy-path unit test and nothing more. It does not show us optional fields that are sometimes absent, the range and distribution of real values, how omsstats timestamps arrive in practice, or what malformed records look like when they do occur. Every one of those gaps turns into an assumption baked into validation logic. The tenant and maintenant point is the sharpest: in the SRS examples the two fields hold the same value, so an implementation that filters on the wrong one would pass every test written against that sample data and only fail in production.
+Our recommended approach
+Request an export of real records per stat type from a non-production environment. This also gives us realistic data for the load testing flagged as a risk in the ARB submission.
+
+Q12
+Who owns the Heimdal Core side, and can we speak to them directly?
+HIGH
+What we already know
+The SRS describes Heimdal Core as the source of all statistics data but does not name an owning team or contact. The internal Confluence material describes Heimdal as the export and import permission manager, which suggests the component predates this project.
+Why we're asking
+Q5, Q6, Q7, Q9, Q10 and Q13 are all questions about Heimdal’s behaviour rather than about the Stats App. One conversation with whoever owns that side would very likely resolve all of them faster than routing each one through the specification.
+Our recommended approach
+An introduction, or that person joining the clarification call.
+
+Q13
+What message volume should we design for — average rate, peak rate, and split per stat type?
+HIGH
+What we already know
+The SRS positions RabbitMQ as a buffer that absorbs load so the database is not confronted with the input rate directly. No figures are given for the number of devices, gateways, or tenants, or for the reporting interval in production.
+Why we're asking
+Volume determines index strategy, whether batched writes are worth their error-handling complexity (D11), whether sharding is needed, and how much storage 90 days of retention actually costs. It is also the number we would size a load test against.
+Our recommended approach
+An order-of-magnitude figure per stat type — hundreds, thousands, or millions of records per day — would be enough to make these decisions. We would rather design against a rough number than none.
+
+Q14
+After tenant, what is the dominant query pattern the Stats API must serve?
+HIGH
+What we already know
+STA-34 requires filtering by time range and by identifiers. Tenant is always a filter because of isolation (Q5). The relative frequency of the other filters is not described anywhere.
+Why we're asking
+Compound index order follows query shape, and getting it wrong on a high-volume, time-series-shaped collection is the difference between a fast lookup and a collection scan. It is cheap to decide upfront and expensive to change once the collections are large.
+Our recommended approach
+Default to a compound index on tenant plus timestamp descending, extended per type once the common filters are known. Depends in part on who the consumers are (Q16).
+
+Q15
+What is the target timeline, and is phased delivery acceptable?
+HIGH
+What we already know
+Neither document gives dates. The brief describes this as the first version and marks the PostgreSQL implementation as optional if time permits, which implies some time pressure but no specific deadline.
+Why we're asking
+Sequencing depends on it. Phasing also solves a real problem: netstats cannot be built until Q4 is answered and the API cannot be built until C2 is resolved, so a phase-one scope of the four fully specified types lets work start immediately without waiting. The JVM stack (Q1) may also warrant ramp-up time in the estimate.
+Our recommended approach
+Recommend phase one covering the Input Module and Stats Writer with the four defined stat types plus retention; phase two the Stats API once endpoint definitions exist (C2) and consumers are known (Q16); phase three netstats and the PostgreSQL implementation. This front-loads fully specified work and defers only what genuinely lacks information.
+
+
+
+
+
+
+5. Implementation Detail Questions
+The questions above concern architecture and scope. These concern the day-to-day decisions a developer hits as soon as the code is open — behaviour the SRS implies but does not specify. Each is anchored to the specific SRS statement that raises it.
+Individually these are small. Collectively they are where most of the rework risk lives, because each one gets decided implicitly by whoever writes that line of code first, and the three modules can easily end up deciding them differently.
+5.1 Logging & Observability
+D1
+How are logs kept and managed — format, aggregation, and retention?
+HIGH
+SRS reference
+The JSON endpoint receives statistics data from the Heimdal Core via HTTP, validates the structure, and writes valid messages to RabbitMQ. Invalid messages are rejected and logged without being written to RabbitMQ. STA-03 and STA-25 both require logging on failure, but no requirement describes log format, destination, aggregation, or how long logs are kept.
+Why it matters
+Logging is the only record of a rejected message — once rejected, the data is gone and the log line is all that remains. If those logs are not aggregated and searchable, a validation regression affecting one stat type is effectively invisible.
+Our recommended approach
+We should use whatever central logging stack Zenner already runs rather than introducing one. Recommend structured JSON logging with consistent field names across all three modules, so a single rejected message can be traced from the endpoint through to the dead-letter queue.
+
+D2
+When a message is rejected or dead-lettered, what exactly may we log — the full payload, or only metadata?
+HIGH
+SRS reference
+STA-03 requires invalid messages to be rejected and logged; STA-25 requires write failures to be logged. Neither says what the log entry should contain. The records themselves contain device identifiers — IMSI, MAC addresses, gateway IDs — and tenant references.
+Why it matters
+There is a direct tension here. Logging the full payload makes debugging a malformed message straightforward; it also copies identifiable device and tenant data into a logging system that likely has different retention and access controls than the database, and that sits outside the 90-day retention policy the SRS carefully defines.
+Our recommended approach
+Recommend logging metadata by default — uid, stat type, tenant, gateway, and the specific validation failure — and the full payload only at DEBUG level, disabled in production. This gives enough to diagnose without duplicating device data into logs indefinitely. Worth confirming whether there is an existing Zenner policy on this.
+
+5.2 Validation Behaviour
+D3
+What should the HTTP 400 response body contain?
+MEDIUM
+SRS reference
+STA-03 requires invalid messages to be rejected with HTTP 400 and logged. The response body format is not specified anywhere.
+Why it matters
+The response is what the Heimdal Core sees. If it contains only a status code, whoever operates Heimdal cannot tell whether the problem is a missing field, a wrong type, or an unrecognised stat type — and will have to ask us to check our logs every time.
+Our recommended approach
+Recommend RFC 9457 Problem Details for HTTP APIs, which Spring Boot 3 supports natively via ProblemDetail — so this costs almost nothing to implement and is a recognised standard rather than a house format. Proposed shape below. The key points are that every rejection names the specific field and reason, that multiple failures are reported together rather than one per round trip, and that the uid is echoed back so a rejection can be correlated with our logs. This same shape should be reused by the Stats API so the two modules do not diverge. If existing Datahub services already use a different error format, theirs wins — consistency across the platform matters more than the standard (see Q18).
+
+Proposed HTTP 400 response body for D3 — for review:
+{
+  "type":     "https://<host>/errors/validation-failed",
+  "title":    "Validation failed",
+  "status":   400,
+  "detail":   "2 fields failed validation",
+  "instance": "/stats",
+  "statType": "lorastats",
+  "uid":      "a3f1c8e2-...",        // echoed back for log correlation
+  "errors": [
+    { "field": "ts.processor",   "code": "missing",
+      "message": "Mandatory field is absent" },
+    { "field": "data.txPackets", "code": "invalid_type",
+      "message": "Expected integer, got string" }
+  ]
+}
+Two notes on this. First, an unrecognised stat type should use a distinct code (for example unknown_stat_type) rather than being reported as a generic field error, since it points to a different problem entirely — a routing or configuration mismatch rather than a malformed record. Second, the detail line should never echo the offending value itself, only the field name and the reason, because these payloads carry device identifiers.
+5.3 Messaging Behaviour
+D4
+Does the Input Module return HTTP 200 before or after RabbitMQ confirms the message was accepted?
+HIGH
+SRS reference
+STA-04 requires valid messages to be written to the corresponding RabbitMQ queue. STA-13 requires queues to be durable so messages survive a broker restart. The timing of the HTTP response relative to broker acknowledgement is not specified.
+Why it matters
+This determines whether a 200 response is a genuine guarantee. If we respond before the broker confirms, a broker failure in that window means the message is lost while Heimdal believes it was accepted — and since Heimdal saw a success, it will not retry. Waiting for the confirm makes the response truthful but slower.
+Our recommended approach
+Recommend publisher confirms with the HTTP response sent only after the broker acknowledges. A 200 should mean the data is safe. The latency cost is small relative to the reporting interval, and it makes the contract with Heimdal honest.
+
+D5
+What should the Input Module do if RabbitMQ is unavailable when a valid message arrives?
+HIGH
+SRS reference
+The SRS positions RabbitMQ as a buffer that absorbs load so the database is not confronted with the input rate directly. It does not describe behaviour when the broker itself is unreachable.
+Why it matters
+This is the one failure the buffer cannot absorb, because the buffer is what failed. The options are to return an error and rely on Heimdal to retry (see Q9 — we do not know whether it does), or to buffer locally in the Input Module, which introduces state into a component that is supposed to be stateless and horizontally scalable per STA-06.
+Our recommended approach
+Recommend returning HTTP 503 rather than buffering locally, keeping the Input Module stateless. This makes Q9 more important: if Heimdal does not retry, a broker outage means data loss, and that trade-off needs to be accepted explicitly rather than discovered.
+
+D6
+Is the message published to RabbitMQ byte-identical to what was received, or transformed first?
+MEDIUM
+SRS reference
+The SRS describes the endpoint as validating the structure and writing valid messages to RabbitMQ, implying pass-through. However, the omsstats timestamp normalisation from ts.converter to ts.processor (Q7) is a transformation, and if it falls to us, it happens here.
+Why it matters
+Determines where the canonical form of a record is established. Pass-through keeps the Input Module simple and means the Stats Writer receives exactly what Heimdal sent; transforming at the edge means everything downstream sees one consistent shape.
+Our recommended approach
+Recommend transforming at the edge so the Stats Writer only ever handles the normalised envelope. This keeps the special case in one place rather than spreading it through every consumer. Depends on the outcome of Q7.
+
+
+D7
+What is the consumer acknowledgement strategy — acknowledge before or after the database write?
+MEDIUM
+SRS reference
+STA-25 requires that a message which cannot be written to the database is returned to the dead-letter queue and the error logged. This implies acknowledgement occurs after the write, but it is not stated.
+Why it matters
+Acknowledging before the write means a crash between acknowledgement and write loses the message silently, and STA-25 cannot be satisfied because there is nothing left to dead-letter. Acknowledging after the write means a crash after writing but before acknowledging causes redelivery and a duplicate — which is only safe if idempotency is in place (Q6).
+Our recommended approach
+Recommend acknowledging only after a successful write, with a unique index on uid so redelivery results in a harmless no-op rather than a duplicate. This satisfies STA-25 and makes the pipeline safely at-least-once.
+
+5.4 Persistence & Retention Detail
+D8
+Should uid be stored as the MongoDB document _id, or as a separate indexed field?
+MEDIUM
+SRS reference
+Every record carries a uid described as a unique identifier. MongoDB requires an _id on every document and creates a unique index on it automatically.
+Why it matters
+Using uid as _id gives idempotency for free — a duplicate insert fails cleanly on the primary key with no extra index to maintain. Keeping them separate means an additional unique index, which costs storage and write time on a high-volume collection.
+Our recommended approach
+Recommend using uid as _id if Q6 confirms it is genuinely unique per record. It is the cheapest possible idempotency guarantee. If uniqueness is not guaranteed, keep them separate — an _id collision would cause silent data loss rather than a visible error.
+
+D9
+Which timestamp drives retention — ts.processor or ts.device?
+HIGH
+SRS reference
+STA-23 requires entries to be automatically deleted after the retention period, defaulting to 90 days. Every record carries two timestamps: ts.processor, when the Datahub Core processed it, and ts.device, when the device recorded it. The SRS does not say which governs expiry.
+Why it matters
+These can differ substantially. A gateway that was offline may deliver data with a ts.device weeks older than its ts.processor. If retention keys on ts.device, that backlogged data could be deleted almost immediately on arrival — potentially before anyone reads it. If it keys on ts.processor, retention reflects when we received the data rather than when it happened.
+Our recommended approach
+Recommend ts.processor, so retention measures how long we have held the data rather than how old the measurement is. This avoids the case where late-arriving data expires on arrival. It is a small decision that is expensive to reverse, because reversing it means data has already been deleted. Note the omsstats dependency in Q7.
+
+D10
+STA-21 lists collections as lorastats, ltestats, sysstats, and netstats — omsstats is missing. Is that an omission?
+MEDIUM
+SRS reference
+STA-21 requires each stat type to be persisted in its own collection or table, and names lorastats, ltestats, sysstats, and netstats. omsstats has a full schema definition in section 1.2.4 and appears in the brief’s routing key list, but is absent from the STA-21 collection list. STA-33 has the same omission for API queries.
+Why it matters
+Almost certainly an editorial oversight rather than intent, since omsstats is specified in detail elsewhere. But it sits alongside the netstats gap (Q4) as evidence that the type list is not consistent across the document, and we should confirm rather than assume which types are actually in scope for v1.
+Our recommended approach
+Treat omsstats as in scope unless told otherwise, and correct STA-21 and STA-33 in the next SRS revision.
+
+D11
+Should the Stats Writer write records individually or in batches?
+MEDIUM
+SRS reference
+STA-20 requires a dedicated consumer per stat type reading its queue and writing to the corresponding collection. Batching is not mentioned.
+Why it matters
+Batched writes are substantially more efficient at volume, but complicate error handling: if one document in a batch of 500 fails, STA-25 requires that specific message to be dead-lettered — which means identifying which one failed and not dead-lettering the other 499.
+Our recommended approach
+Recommend starting with individual writes for correctness and simplicity, and introducing batching only if the volume from Q13 shows it is necessary. If batching is added, it must dead-letter individual failures rather than whole batches.
+
+5.5 API Behaviour Detail
+D12
+How should invalid filter combinations be handled — for example from later than to, or a time range longer than the retention period?
+MEDIUM
+SRS reference
+STA-34 requires the filter parameters but does not describe validation of them. STA-23 means data older than the retention period does not exist.
+Why it matters
+An inverted range currently returns an empty result, which a consumer will read as no data exists rather than your query was wrong. Similarly, a consumer querying twelve months of history will get 90 days back with no indication that the rest was never available rather than simply absent.
+Our recommended approach
+Recommend rejecting an inverted range with a 400 rather than returning empty, and documenting the retention limit clearly in the OpenAPI description. Returning empty for a malformed query hides bugs on the consumer side. Error shape as per D3.
+
+5.6 Operational Detail
+D13
+What health check endpoints are expected, and what should they actually verify?
+MEDIUM
+SRS reference
+STA-06, STA-26, and STA-39 all require horizontal scalability, which implies an orchestrator making scheduling and restart decisions. Health endpoints are not mentioned.
+Why it matters
+A health check that only confirms the process is running is close to useless here, because this pipeline fails silently — a Stats Writer with a dead database connection is still running and still reporting healthy. The orchestrator needs to be able to tell the difference.
+Our recommended approach
+Recommend separate liveness and readiness checks: liveness confirming the process is responsive, readiness verifying broker and database connectivity. Only readiness should gate traffic, so a brief database blip does not trigger a restart loop.
+
+
+Appendix — Question Index
+Every open reference in this document, in one place, for tracking answers during and after the discussion. Answered items (A1–A9) are in Section 1 and are not repeated here.
+Conflicts — resolve before implementation
+Ref
+Question
+Answer / Owner
+C1
+One queue app_statsstore, or one queue per stat type?
+one queue per stat type
+C2
+Where are the detailed Stats API endpoint definitions?
+9.2.1 ff. is a typo, no other definitions exists, please create an OpenAPI definition and we will confirm/decline it.  
+
+Blockers — design cannot be locked without these
+Ref
+Question
+Answer / Owner
+Q1
+Java or Kotlin? Spring Boot version? Reference project?
+Java 21, Spring Boot > 3.5.x
+Q4
+Where is the netstats schema?
+See file in mail
+Q5
+Does every record carry a tenant reference?
+yes
+
+High priority
+Ref
+Question
+Answer / Owner
+Q2
+Three deployables or one artifact?
+One docker image for  each module
+Q6
+Is uid unique? Can Heimdal deliver duplicates?
+uid is unique and heimdal doesn’t deliver duplicates
+Q7
+Who normalises the omsstats timestamp?
+Heimdal already sends the ts, no further implementation needed
+Q8
+Keycloak realm, client, and exact role names?
+Must be specified from our side, you can use dummy readOnly role
+Q9
+Does Heimdal replay after an outage?
+No implemention on your side, heimdal-core has a deadletter handling if no http status 2xx is received
+Q10
+Is there a contract / API document for what Heimdal sends?
+Heimdal sends the message described in 1.2
+Q11
+Can we get real sample records across all stat types?
+See file in mail
+Q12
+Who owns the Heimdal Core side?
+We (ZC)
+Q13
+What message volume should we design for?
+We have 160k gateways, which send every 10 minutes every stat 
+
+160k*10*6*24*numberOfStat
+= volume each day
+Q14
+Dominant query pattern after tenant?
+Tenant, gateway and ts.device are the dominant query patterns
+Q15
+Timeline, and is phased delivery acceptable?
+Please use only postgres, no mongo implementation 
+
+you can send it phase delivery but for each stat type 
+D1
+How are logs kept, aggregated, and retained?
+First version you can use the java logger. The java logger should send the data to docker logs. 
+The format is up to you :-) 
+D2
+What may be logged on rejection — payload or metadata?
+payload
+D4
+HTTP 200 before or after broker confirm?
+after
+D5
+Behaviour when RabbitMQ is unavailable?
+HttpStatus != 2xx 
+D9
+Does retention key on ts.processor or ts.device?
+ts.device
+
+Medium priority
+Ref
+Question
+Answer / Owner
+Q3
+Exchange type, and who declares the topology?
+TopicExchange, every module have to declare the exchanges, queues and bindings.
+D3
+Confirm the proposed RFC 9457 error response shape (Section 5.2)
+We confirm
+D6
+Is the published message identical to what was received?
+yes
+D7
+Acknowledge before or after the database write?
+It’s up to you. 
+D8
+Store uid as the MongoDB _id?
+No mongo anymore. Please use postgres. 
+
+For postgres:
+no, please use uid as an own column. 
+D10
+Is omsstats in scope? Missing from the STA-21 list.
+Typo, is in scope.
+D11
+Individual or batched writes?
+It’s up to you. 
+D12
+How are invalid filter combinations handled?
+Your recommendation. 
+D13
+What should health checks actually verify?
+Your recommendation.
+

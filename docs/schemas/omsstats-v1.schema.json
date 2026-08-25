@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zenner.example/stats-app/schemas/omsstats-v1.schema.json",
+  "title": "omsstats v1",
+  "allOf": [
+    { "$ref": "envelope-v1.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "type": { "const": "omsstats" },
+        "data": {
+          "type": "object",
+          "required": ["rx_nr_pkts", "rx_valid_nr_pkts", "rx_crc_bad", "device_count", "timespan"],
+          "properties": {
+            "rx_nr_pkts": { "type": "integer" },
+            "rx_valid_nr_pkts": { "type": "integer" },
+            "rx_crc_bad": { "type": "integer" },
+            "device_count": { "type": "integer" },
+            "timespan": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": true
+        }
+      }
+    }
+  ],
+  "$comment": "Development draft based on SRS v1.0. This schema requires canonical ts.processor input after ADR-004 approval; counter ranges and unknown-field policy remain pending."
+}

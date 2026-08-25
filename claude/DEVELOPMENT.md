@@ -1,0 +1,649 @@
+# DEVELOPMENT.md
+
+How to build, run, test, and contribute to the Stats App.
+
+> **Version 1.2 — 16 August 2026.** Rewritten for **PostgreSQL**. The v1.0 version
+> of this file documented a MongoDB stack and said retention keys on
+> `ts.processor`; both are wrong. Retention keys on **`ts.device`**.
+>
+> **Status:** the remaining `TBC` items are listed in §11 and in `CLAUDE.md` §7.
+> Where a section says TBC, do not guess; raise it.
+
+---
+
+## 1. Prerequisites
+
+| Tool | Version | Notes |
+|---|---|---|
+| JDK | **21** | Answered (Q1). Not 17. |
+| Gradle | Wrapper (`./gradlew`) | Do not install globally |
+| Docker + Compose | Recent | For local PostgreSQL, RabbitMQ, Keycloak |
+| IDE | IntelliJ IDEA recommended | Best Gradle + Spring support |
+| `psql` | 16+ client | Optional but useful for poking at the database |
+
+Spring Boot is pinned at **3.5.16** in `gradle/libs.versions.toml` (G6, 18 Aug
+2026), and final — Q1a closed the same day. Module build files never declare their
+own versions — if ZC overrides the version it is a one-line change. The internal
+reference project for CI, logging, secrets, and deployment conventions is still
+outstanding; see §11.
+
+---
+
+## 2. Repository layout
+
+Documentation is already in place. The `build.gradle` / module directories below
+are created in Phase 1 — see `PROJECT_STATUS_AND_PLAN.md`.
+
+```
+stats_app/                          # repository root — everything lives here
+├── README.md                       # index — start here
+├── CLAUDE.md                       # pointer only — imports claude/CLAUDE.md so it auto-loads
+│
+├── claude/                         # working documents — all of them live here
+│   ├── CLAUDE.md                   # project context, non-negotiable rules, traps
+│   ├── IMPLEMENTATION_RULES.md     # detailed rules + required working sequence
+│   ├── PROJECT_STATUS_AND_PLAN.md  # status, open items by owner, phased plan
+│   ├── DEVELOPMENT.md              # this file
+│   ├── SKILLS.md                   # repeatable procedures
+│   └── CODE_START_CHECKLIST.md     # stop/go decision register
+│
+├── docs/
+│   ├── requirements/               # SRS / BRD / ARB v1.2 amendments
+│   ├── decisions/                  # answer reconciliation, PostgreSQL baseline
+│   ├── architecture/
+│   │   ├── adr/                    # ADR-001 … ADR-006
+│   │   └── Stats_App_Flow.png
+│   ├── contracts/                  # Heimdal input, AMQP topology, OpenAPI design
+│   ├── schemas/                    # JSON Schema catalogue + fixtures
+│   ├── prompts/                    # prompt templates for this repo
+│   ├── setup/                      # IDE setup
+│   └── source/                     # historical .docx — provenance only
+│
+│   ── created in Phase 1 ─────────────────────────────────────────
+├── build.gradle(.kts)              # root build, shared plugin + version config
+├── settings.gradle(.kts)           # module registration
+├── gradle/libs.versions.toml       # version catalog — single source of dep versions
+│
+├── stats-common/                   # shared domain types, DTOs, envelope model,
+│                                   # stat-type enum, AMQP topology constants
+├── stats-input/                    # Module 1 — HTTP POST → AMQP
+│   └── src/main/resources/application.properties
+├── stats-writer/                   # Module 2 — AMQP → PostgreSQL
+│   ├── src/main/resources/db/migration/   # versioned migrations
+│   └── src/main/resources/application.properties
+├── stats-api/                      # Module 3 — read-only REST
+│   └── src/main/resources/application.properties
+│
+└── docker/
+    └── docker-compose.yml          # PostgreSQL, RabbitMQ, Keycloak for local dev
+```
+
+The `openapi.yaml` we owe ZC goes in `docs/contracts/` alongside its design input.
+
+Each application module builds its own Docker image — three images, answered (Q2).
+
+### Why `stats-common`
+The envelope (`uid`, `tenant`, `maintenant`, `gateway`, `type`, `ts`) is identical
+across all three modules, as are the exchange/queue/routing-key names. Defining
+them once prevents drift, and — for the topology constants specifically — prevents
+the `RESOURCE_LOCKED` failure that happens when two modules declare the same
+RabbitMQ resource with different arguments. Put **only** genuinely shared things
+here — resist making it a dumping ground.
+
+### Module dependency rules
+
+```
+stats-input  → stats-common
+stats-writer → stats-common
+stats-api    → stats-common
+```
+
+**Never** module-to-module. `stats-api` must not depend on `stats-writer`. They
+communicate only through the database and the broker. If you find yourself wanting
+a direct dependency, the boundary is wrong.
+
+`stats-api` has **no RabbitMQ dependency at all** — it is a read-only PostgreSQL
+consumer. See §11 (Q3a) for the one open thread on this.
+
+---
+
+## 3. Local setup
+
+### 3.1 Start infrastructure
+
+```bash
+cd docker
+docker compose up -d
+```
+
+Brings up:
+
+| Service | Port | Notes |
+|---|---|---|
+| PostgreSQL | 5432 | `statsdb` / `stats` / `stats` locally |
+| RabbitMQ | 5672 / 15672 | Management UI on 15672, `guest`/`guest` |
+| Keycloak | 8080 | Dev mode, realm imported at startup |
+
+### 3.2 Verify
+
+```bash
+docker compose ps                                   # all healthy
+curl http://localhost:15672                         # RabbitMQ management UI
+psql -h localhost -U stats -d statsdb -c "select 1"
+```
+
+### 3.3 Run the modules
+
+```bash
+./gradlew :stats-input:bootRun
+./gradlew :stats-writer:bootRun
+./gradlew :stats-api:bootRun
+```
+
+Run in separate terminals. `stats-writer` should be running before you send
+traffic through `stats-input`, or messages will sit in the queue — which is
+correct behaviour, the buffer working as designed.
+
+`stats-writer` applies its migrations on startup, so run it once before expecting
+tables to exist.
+
+### 3.4 Smoke test
+
+```bash
+# 1. Send a record.
+#    approved-types.json is a map keyed by stat type, so extract one record.
+jq '.lorastats' docs/schemas/fixtures/valid/approved-types.json > /tmp/lorastats.json
+curl -X POST http://localhost:8081/stats \
+  -H "Content-Type: application/json" \
+  -d @/tmp/lorastats.json
+
+# 2. Confirm it was consumed (queue should return to 0)
+#    → http://localhost:15672 → Queues → app_statsstore.lorastats
+
+# 3. Confirm it was stored
+psql -h localhost -U stats -d statsdb -c "select count(*) from lorastats"
+
+# 4. Read it back (needs a token — see §6)
+curl http://localhost:8083/v1/stats/lorastats \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+If step 4 fails but 1–3 pass, the problem is auth, not the pipeline.
+
+A useful negative smoke test: stop RabbitMQ and repeat step 1. You must get a
+**503**, not a 200 — the Input module returns success only after publisher
+confirm.
+
+---
+
+## 4. Configuration
+
+All configuration lives in `application.properties`, read through typed
+configuration properties. **Nothing** that varies by environment belongs in code.
+
+### Shared
+```properties
+spring.application.name=stats-<module>
+```
+
+### Module 1 — Input
+```properties
+server.port=8081
+spring.rabbitmq.host=${RABBITMQ_HOST:localhost}
+spring.rabbitmq.port=${RABBITMQ_PORT:5672}
+
+# Publisher confirms — STA-04A. A 2xx is only returned after the broker confirms.
+spring.rabbitmq.publisher-confirm-type=correlated
+stats.amqp.confirm-timeout-ms=5000
+
+stats.exchange.name=app_stats_input
+
+# Request limits — STA-06B
+stats.input.max-request-bytes=TBC
+stats.input.request-timeout-ms=TBC
+```
+
+### Module 2 — Stats Writer
+```properties
+server.port=8082
+spring.datasource.url=${POSTGRES_URL:jdbc:postgresql://localhost:5432/statsdb}
+spring.datasource.username=${POSTGRES_USER:stats}
+spring.datasource.password=${POSTGRES_PASSWORD:stats}
+
+# Retention — STA-23A/STA-23B. Default 90 days, overridable per type.
+# Keys on ts.device, NOT ts.processor. See the caveat below.
+stats.retention.default-days=90
+# stats.retention.lorastats-days=90
+# stats.retention.sysstats-days=30
+
+# Partitioning is the retention mechanism — ADR-003. Retention drops one
+# partition per type per day; it does not delete rows.
+stats.retention.partition-granularity=daily
+stats.retention.pre-create-days=7
+stats.retention.schedule=0 30 3 * * *        # Spring 6-field cron, off-peak
+
+# Fallback path only, if partitioning is not approved for increment 1
+stats.retention.delete-batch-size=10000
+stats.retention.fallback-schedule=0 */5 * * * *
+stats.retention.max-batches-per-run=50
+stats.retention.max-run-duration=PT2M
+
+# Retry tiers and DLQ — STA-12A, rule 5, G1/G4. THREE tiers with fixed delays,
+# all externalised here and NEVER hard-coded. There is no multiplier: the tiers
+# are explicit, not derived from a backoff curve. Immediate requeue is never used
+# for a persistent failure — that is a hot loop against a failing database.
+stats.amqp.retry.tier1-delay=PT30S
+stats.amqp.retry.tier2-delay=PT5M
+stats.amqp.retry.tier3-delay=PT30M
+stats.amqp.max-retries=3
+# stats.amqp.dlq-retention-ms=TBC   # still needs an operations decision
+
+# Per-type consumer controls — STA-11A. Prefetch starts at 500 (Q13a, 2B §5):
+# above the 100-500 micro-batch band so a batch can always be filled, low enough
+# that one consumer cannot monopolise a synchronised burst. Tune by measurement.
+stats.consumer.lorastats.concurrency=1
+stats.consumer.lorastats.prefetch=500
+```
+
+> **Retention caveat (STA-23B):** retention keys on **`ts.device`** — the device's
+> own timestamp, not the time we processed it. A gateway that was offline for
+> three weeks delivers records that are already 21 days into their 90-day window,
+> and a gateway offline for 91 days delivers records that expire almost
+> immediately. This is the **answered and accepted business rule**. Do not
+> "correct" it to `ts.processor`. Document it, and cover it with a late-arrival
+> boundary test.
+
+### Module 3 — Stats API
+```properties
+server.port=8083
+spring.datasource.url=${POSTGRES_URL:jdbc:postgresql://localhost:5432/statsdb}
+spring.datasource.username=${POSTGRES_RO_USER:stats_ro}
+spring.datasource.password=${POSTGRES_RO_PASSWORD:stats_ro}
+
+# Keycloak — ADR-006 is ACCEPTED. These values are the engineering proposal that
+# is live in the dev realm and awaiting ZC confirmation (Q8b-2). Give them NO
+# defaults in code: an unset value must stop the module starting, never fall back
+# to a guessed security posture.
+spring.security.oauth2.resourceserver.jwt.issuer-uri=${KEYCLOAK_ISSUER}
+stats.security.audience=${STATS_API_AUDIENCE}
+stats.security.read-role=${STATS_READ_ONLY_ROLE}
+stats.security.tenant-claim=${STATS_TENANT_CLAIM}
+
+stats.api.default-page-size=100
+stats.api.max-page-size=1000
+stats.api.max-query-window-days=TBC
+```
+
+Give the API a **read-only database user**. The "only Module 2 writes" rule should
+be enforced by database grants, not just by convention — that way a mistake in
+code fails loudly instead of silently writing.
+
+### Rules
+- Secrets come from the environment, never from a committed file
+- Every property gets a comment naming its `STA-nn` requirement where one applies
+- No magic numbers in code — if it might change, it is a property
+- Config is immutable per process unless an approved live-reconfiguration design exists
+
+---
+
+## 5. Building and testing
+
+```bash
+./gradlew build                       # everything
+./gradlew :stats-writer:build         # one module
+./gradlew test                        # unit tests
+./gradlew integrationTest             # integration (needs Docker)
+./gradlew :stats-api:test --tests "*TenantIsolation*"
+```
+
+### Test layers
+
+| Layer | Scope | Infrastructure |
+|---|---|---|
+| Unit | Validation, mapping, business logic | None — mocks only |
+| Integration | Repository, messaging, controllers | Testcontainers |
+| Contract | Payload schema conformance | Fixtures in `docs/schemas/fixtures/` |
+| Load | Throughput, backpressure, recovery | Dedicated environment |
+
+Use **Testcontainers** for PostgreSQL and RabbitMQ in integration tests — real
+behaviour, disposable, no shared local state. Persistence, migrations, indexes,
+and retention must be verified against a real PostgreSQL container. An in-memory
+database will not reproduce partition pruning, index behaviour, or constraint
+semantics, so it is not an acceptable substitute here.
+
+### Coverage expectations
+Not a percentage target. These specifically must be covered:
+
+- Every validation rule, positive and negative *(STA-03A)*
+- **Tenant isolation, with `tenant ≠ maintenant` fixtures** *(STA-35A, STA-35B)*
+- Publisher-confirm timing: no 2xx before confirm; 503 when the broker is down *(STA-04A, STA-06A)*
+- Dead-letter path on write failure, per type *(STA-12A, STA-25A)*
+- Poison-message isolation: a bad message in one type does not stall another *(STA-10B)*
+- Duplicate `uid` redelivery is a harmless no-op *(STA-25A)*
+- Retention boundary — just inside and just outside, plus a late-arriving record *(STA-23A, STA-23B)*
+- Every non-GET verb rejected on every endpoint *(STA-32A)*
+- Deterministic pagination under concurrent writes *(STA-36A)*
+
+Full checklist: `SKILLS.md` Skill 3.
+
+---
+
+## 6. Local Keycloak
+
+```bash
+# Get a token for local testing
+curl -X POST http://localhost:8080/realms/statsapp/protocol/openid-connect/token \
+  -d "client_id=stats-api" \
+  -d "username=testuser" \
+  -d "password=testpass" \
+  -d "grant_type=password" | jq -r .access_token
+```
+
+The dev realm ships five users, and each one is a test rather than filler:
+
+| User | Proves |
+|---|---|
+| `alpha-reader` | Reads tenant-alpha, and only tenant-alpha |
+| `beta-reader` | The other half of the cross-tenant isolation pair |
+| `no-role` | An authenticated caller without `stats.readOnly` gets **403** |
+| `no-tenant` | A token with **no** `tenant` claim gets 403 — absent never means "all tenants" |
+| `empty-tenant` | A token with an **empty** `tenant` claim gets 403 too. Separate from `no-tenant` on purpose: a naive `claim != null` check passes this one and then filters on an empty string |
+
+> Realm, clients, roles and the tenant claim are **our proposal, live in the dev
+> realm** (Q8b answered 18 Aug 2026 by building it rather than waiting):
+> realm `statsapp`; clients `stats-api` / `stats-input` / `stats-dev-cli`;
+> audience `stats-api`; read role **`stats.readOnly`**; ingest role
+> `stats.ingest`; tenant claim **`tenant`, single-valued String**.
+>
+> `stats.readOnly` is the real name — **not** the bare `readOnly` placeholder from
+> the v1.0 answer. ZC's confirmation (Q8b-2) is outstanding, but because every one
+> of these is a configuration property with no default in code, confirming them is
+> a config change. Do not hard-code any of them.
+>
+> The claim is single-valued on purpose: a multi-valued claim turns isolation into
+> `tenant IN (...)`, and one misconfigured user then reads several tenants with
+> every test still green.
+
+---
+
+## 7. Code conventions
+
+### Naming
+| Thing | Convention | Example |
+|---|---|---|
+| Table | stat type name, lowercase | `lorastats` |
+| Routing key | stat type name | `lorastats` |
+| Main queue | `app_statsstore.<type>` | `app_statsstore.lorastats` |
+| Retry queues (3 tiers) | `app_statsstore.<type>.retry.<tier>` | `app_statsstore.lorastats.retry.1` |
+| Dead-letter queue | `app_statsstore.<type>.dlq` | `app_statsstore.lorastats.dlq` |
+| Dead-letter exchange | `app_stats_dlx` | — |
+| Config property | `stats.<area>.<name>` | `stats.retention.default-days` |
+| Endpoint | `/v{n}/stats/{type}` | `/v1/stats/lorastats` |
+
+### Structure
+- Constructor injection only. No field injection.
+- Controllers stay thin — validate, delegate, map. No business logic.
+- Repository interface per stat type, so a new type is an additive change.
+- Retention behind its own abstraction, separate from the write path.
+- Every schema change is a **versioned migration**. No `ddl-auto` beyond `validate`.
+- UTC internally; serialize API timestamps only as the approved OpenAPI defines.
+- All pagination deterministic: indexed sort plus a unique tie-breaker.
+
+### Baseline table and index shape
+
+Per **ADR-003**: PostgreSQL 17, daily range partitions on `ts_device`, typed
+columns for the four stable types, `jsonb` only for the `netstats` interface map.
+
+```sql
+CREATE TABLE <stat_type> (
+    uid           text        NOT NULL,
+    tenant        text        NOT NULL,
+    maintenant    text        NOT NULL,
+    gateway       text        NOT NULL,
+    ts_processor  timestamptz NOT NULL,
+    ts_device     timestamptz NOT NULL,
+    received_at   timestamptz NOT NULL DEFAULT now(),
+    -- typed payload columns; bigint for counters, never integer
+    <payload columns>,
+    PRIMARY KEY (ts_device, uid)
+) PARTITION BY RANGE (ts_device);
+
+-- Created on the parent; PostgreSQL propagates it to every partition.
+-- Dominant query pattern (STA-21C), with a unique tie-breaker for keyset paging
+CREATE INDEX idx_<stat_type>_tenant_gateway_device_uid
+    ON <stat_type> (tenant, gateway, ts_device DESC, uid DESC);
+
+-- One partition per day, pre-created ahead of ingestion
+CREATE TABLE <stat_type>_2026_08_16 PARTITION OF <stat_type>
+    FOR VALUES FROM ('2026-08-16') TO ('2026-08-17');
+```
+
+Three things to know before you write a migration:
+
+- **The primary key is `(ts_device, uid)`, not `uid`.** PostgreSQL requires a
+  unique index on a partitioned table to include the partition key; a global
+  unique index across partitions does not exist. `ts_device` leads so the key
+  matches the partition key and the mandatory `(ts_device DESC, uid DESC)` sort
+  (G2). Uniqueness is therefore scoped
+  per partition. Redelivery still cannot duplicate, because a redelivered record
+  is byte-identical and carries the same `ts_device`. See ADR-003.
+- **There is no `retention_at` column.** The partition boundary *is* the
+  retention mechanism; a column would be a second source of truth.
+- **Counters are `bigint`.** The SRS says "integer", but these are monotonic
+  counters over long device uptimes and `int4` overflow is silent corruption.
+
+The idempotent write is:
+
+```sql
+INSERT INTO <stat_type> (...) VALUES (...) ON CONFLICT (ts_device, uid) DO NOTHING;
+```
+
+Dominant filters — `tenant`, `gateway`, `ts_device` — must never require a JSON
+path scan.
+
+### Behavioural defaults
+
+These were open in v1.0. Most are now **answered** and are no longer proposals.
+
+| Behaviour | Value | Status |
+|---|---|---|
+| Error response format | RFC 9457 Problem Details (`ProblemDetail`, native in Spring Boot 3) | **Confirmed** (D3) |
+| HTTP 2xx timing | Only after broker publisher-confirm | **Confirmed** (D4) |
+| RabbitMQ unreachable | Return 503; do **not** buffer locally | **Confirmed** (D5) |
+| Published message | Identical to what was received; no transformation | **Confirmed** (D6) |
+| `uid` storage | Its own PostgreSQL column; uniqueness is `PRIMARY KEY (ts_device, uid)` per partition | **Confirmed** (D8), amended by ADR-003/G2 |
+| Retention timestamp | **`ts.device`** | **Confirmed** (D9) |
+| Payload logging | Permitted, but configurable and with secrets redacted | **Confirmed** (D2) |
+| Log destination | Java logger → Docker stdout; format is ours to choose | **Confirmed** (D1) |
+| Message acknowledgement | After successful DB transaction, never before | Ours (D7) — ratify in ADR-005 |
+| Write mode | Individual inserts first, behind a batch-shaped interface; bounded micro-batching (100–500 records or 50–200 ms) with single-record fallback is the target | Ours (D11, amended by G3) |
+| `from` later than `to` | 400, not an empty result | Ours (D12) |
+| Health checks | Separate liveness and readiness | Ours (D13) |
+| Unexpected extra payload fields | Accept and preserve unknown `data` fields; reject invalid envelope fields; log at DEBUG | Ours (**D14**) — decide explicitly, never via a Jackson default |
+| Consumer rate control | Prefetch count + concurrency, per type | Ours |
+| Page size | `limit`, default 100, max 1000 | **Frozen** in `docs/contracts/openapi.yaml` |
+| Sort order | Always applied, indexed, newest first, unique tie-breaker | Ours |
+| API time format | **Unix epoch seconds**, in filters and in responses — not RFC 3339, not milliseconds. It is what Heimdal sends and what retention keys on, so a value never changes meaning between ingest and read | **Frozen** in `docs/contracts/openapi.yaml` |
+| Topology declaration | Shared constants in `stats-common`; identical and idempotent | See §11 (Q3a) |
+
+### Error handling
+- Never swallow an exception. Handle, rethrow, or dead-letter.
+- Log with context: stat type, `uid`, tenant. Never log the full payload at
+  `INFO` — these records contain device identifiers.
+- Validation failures → **400** using RFC 9457 Problem Details, naming every
+  offending field and reason in one response, with `uid` echoed back for log
+  correlation. Never echo the offending *value* — payloads carry device
+  identifiers. An unrecognised stat type gets its own code
+  (`unknown_stat_type`), not a generic field error. *(STA-03A)*
+
+  ```json
+  {
+    "type": "https://<host>/errors/validation-failed",
+    "title": "Validation failed",
+    "status": 400,
+    "detail": "2 fields failed validation",
+    "instance": "/stats",
+    "statType": "lorastats",
+    "uid": "a3f1c8e2-...",
+    "errors": [
+      { "field": "ts.processor",   "code": "missing",
+        "message": "Mandatory field is absent" },
+      { "field": "data.tx_success", "code": "invalid_type",
+        "message": "Expected integer, got string" }
+    ]
+  }
+  ```
+  The Stats API reuses this same shape so the modules do not diverge.
+- Broker unavailable or confirm timeout → **503**. Heimdal owns retry from there.
+- Auth failures → **401** unauthenticated, **403** wrong role
+- Cross-tenant access → return **empty results**, not 403. A 403 confirms the
+  record exists, which is itself a leak.
+
+### Logging
+| Level | Use |
+|---|---|
+| ERROR | Something needs human attention |
+| WARN | Handled but abnormal — retry, dead-letter, validation failure |
+| INFO | Lifecycle: startup, config loaded, migration applied |
+| DEBUG | Per-message detail, full payloads. Off in production. |
+
+Never log secrets, tokens, private keys, or full payloads at `INFO` or above.
+
+**Structured logging.** All three modules emit JSON to stdout with the same field
+names, so one record can be traced end to end *(D1, NFR-02)*:
+
+```
+uid          — correlation ID across all three modules
+statType     — lorastats | ltestats | sysstats | netstats | omsstats
+tenant       — for filtering; never the full payload
+gateway      — source device
+module       — input | writer | api
+event        — validation_failed | published | persisted | retried | dead_lettered
+```
+
+**What may be logged on failure** *(D2, NFR-03)*: the business permits payload
+logging. Keep it **configurable**, redact tokens and secrets always, and default
+full payloads to `DEBUG`. These records contain device identifiers (IMSI, MAC),
+and Docker log retention does not share the database's 90-day policy — so log
+retention and access must be configured explicitly, not inherited by accident.
+
+**Log retention** *(D1)*: must exceed the realistic time-to-notice for a problem.
+A rejected message exists nowhere else — the log line is the only record that it
+ever arrived.
+
+---
+
+## 8. Git workflow
+
+### Branches
+```
+feature/STA-21-lorastats-table
+fix/dlq-retry-limit-not-applied
+chore/pin-spring-boot-version
+```
+
+### Commits
+Reference the requirement and the governing ADR:
+```
+feat(writer): add lorastats table with tenant/gateway/device index
+
+Implements STA-21A (table per stat type) and supports STA-35A (tenant
+separation) via a compound index on (tenant, gateway, ts_device, uid).
+
+Refs: STA-21A, STA-21C, STA-35A, ADR-003
+```
+
+### Pull requests
+- [ ] Requirement IDs and governing ADR named in the description
+- [ ] Tests added — see SKILLS.md Skill 3
+- [ ] **If it touches queries, controllers, or security: SKILLS.md Skill 2 run**
+- [ ] Migration added and reversible, if the schema changed
+- [ ] OpenAPI spec updated if the API changed *(STA-37A)*
+- [ ] No new dependency without justification
+- [ ] No hard-coded config
+- [ ] No MongoDB, no `_id`, no TTL index, no "collection"
+
+---
+
+## 9. Definition of done
+
+A stat type is done when:
+
+- [ ] Valid records are accepted and stored in their own table
+- [ ] Invalid records return 400 with Problem Details, and nothing is published *(STA-03A)*
+- [ ] 2xx is returned only after publisher confirm; broker down returns 503 *(STA-04A, STA-06A)*
+- [ ] Forced write failure lands in that type's DLQ *(STA-12A)*
+- [ ] A duplicate `uid` redelivery is a harmless no-op *(STA-25A)*
+- [ ] A poison message in this type does not stall any other type *(STA-10B)*
+- [ ] Data is readable via GET, tenant-scoped *(STA-33A, STA-35A)*
+- [ ] Non-GET verbs return 405 *(STA-32A)*
+- [ ] Retention configured on `ts.device` and boundary-verified *(STA-23A, STA-23B)*
+- [ ] Pagination works and is stable *(STA-36A)*
+- [ ] OpenAPI spec updated *(STA-37A)*
+- [ ] Metrics exposed, including queue depth and DLQ depth *(STA-27A)*
+- [ ] **No existing stat type's code was modified** *(STA-22)*
+
+---
+
+## 10. Troubleshooting
+
+| Symptom | Likely cause |
+|---|---|
+| Messages published but queue stays empty | Routing key does not match the binding |
+| Queue grows, never drains | Consumer down, or PostgreSQL unreachable — see SKILLS.md Skill 4 |
+| Same message retried forever | Retry limit not configured; DLQ not bound |
+| `RESOURCE_LOCKED` / declaration error on startup | Two modules declaring the same topology with different arguments — use the shared constants in `stats-common` |
+| API returns 401 with a valid-looking token | Issuer URI mismatch, or expired token |
+| API returns empty for data that exists | Tenant filter — check `tenant` vs `maintenant` |
+| Timestamps show as 1970 | Seconds treated as milliseconds |
+| Data expires far too early | Expected for late-arriving records — retention keys on `ts.device` by design. Confirm it is not a units bug before calling it a defect. |
+| Nothing ever expires | Retention job not scheduled, or every replica lost the advisory-lock race and skipped the run |
+| Insert fails with "no partition of relation found" | Partition pre-creation fell behind, or the record's `ts_device` predates the oldest live partition — see the late-arrival policy in ADR-003 |
+| Retention job runs but the table keeps growing | Unbounded `DELETE` causing bloat — needs bounded batches or partition drop |
+| Deletes get slower over time | Index/table bloat; check `autovacuum` and consider partitioning |
+| Same record appears on two pages | Pagination without a deterministic sort and unique tie-breaker |
+| Query is slow despite an index | Filter is hitting a JSON path scan instead of an indexed column |
+| Heimdal reports success but data is missing | 2xx returned before publisher-confirm; message lost in the gap |
+| Duplicate key violation on `uid` | Expected on redelivery — must be handled as an idempotent no-op, not a DLQ |
+| Writer writes but API cannot see it | API pointed at a different database, or its read-only grants are missing |
+
+---
+
+## 11. Before you start coding
+
+The v1.0 blockers are closed, and so are the six §2b items of 18 August 2026
+(`docs/decisions/2B-ANSWERS-18AUG2026.md`). What follows is what genuinely remains.
+
+### Blocks the build
+
+Nothing. Q1a is closed — there is no internal reference repo, Spring Boot 3.5.16 is
+pinned, and the conventions it would have supplied are defined in ADR-001.
+
+### Risk accepted, not answered — re-read before any shared deployment
+
+| Ref | State |
+|---|---|
+| **Q8a-2** | Inbound Heimdal auth is **deferred by decision**. Until ZC answers, anything that can reach the Input port can write. `stats.input.auth.mode` has no default in code, `none` logs a `WARN` on every startup, and a test refuses to start under `prod`. Fine on a dev stack, nowhere else. |
+| **D5a** | No RPO/RTO number exists. ADR-003 D5 has the framing to take to product and operations: *"if we lost the last 15 minutes of statistics, or needed 8 hours to restore, what actually breaks?"* |
+
+### Blocks a specific area
+
+| Ref | Blocks |
+|---|---|
+| **Q8b-2** | ZC's confirmation of the Keycloak realm/client/issuer/audience/role/claim. The proposal is live in the dev realm and every value is a property with no default, so confirming it is a config change — it blocks *hardening sign-off*, not development. |
+| **Q13b** | Gateway report jitter. We design for a synchronised 10× burst (13,333/s); if gateways jitter across the cycle the peak drops 10× and so does the hardware. **The single most valuable open question.** |
+| **Q13c** | Agreement that Heimdal caps replay at 2× nominal. Our own rate limiting cannot substitute for Heimdal honouring it. |
+| **Q4b** | `netstats` IPv6. The schema accepts IPv4 only; one `$def` widens if IPv6 gateways exist. No code change. |
+| **Q14a** | Clock skew — accept a `ts.device` ahead of `ts.processor` into a future partition, or reject? The fixture exists (`edge/<type>-clock-skew-future.json`); the decision does not. |
+| **D5b** | Late-arrival policy. A record can arrive with no live partition. Proposal: reject, meter, ACK — a deliberate data-loss-by-design path needing product sign-off. |
+| **Q3a** | Confirm "every module declares topology" means every *broker-connected* module. Do not give `stats-api` a RabbitMQ connection. |
+| **Q5a** | Volume contradiction — "around 10 million" internally vs 115.2M/day from ZC. Settle before freezing the schema. |
+
+### Not blocked — start now
+
+`stats-common` envelope model and topology constants; the `lorastats` vertical
+slice end to end; the Input endpoint including its auth *filter seam*; the Writer
+with partitioning, retention and metered duplicate suppression; and the API
+against the drafted `docs/contracts/openapi.yaml`.
+
+See `PROJECT_STATUS_AND_PLAN.md` for the phased plan and delegation split.

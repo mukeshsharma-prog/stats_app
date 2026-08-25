@@ -1,0 +1,37 @@
+{
+  "uid": "e5e5e5e5-e5004-4e504-8e504-e5e5e5e5e5e5",
+  "tenant": "tenant-alpha",
+  "maintenant": "management-parent",
+  "gateway": "04B6481037E9",
+  "type": "netstats",
+  "ts": {
+    "processor": 1787053520,
+    "device": 1787053500
+  },
+  "data": {
+    "eth0": {
+      "apipa": "169.254.154.202",
+      "gw": "192.168.178.1",
+      "tx": "9223372036854775807",
+      "rx": "139303320",
+      "ip": "192.168.178.10",
+      "dns": [
+        "192.168.178.1"
+      ],
+      "mask": "255.255.255.0"
+    },
+    "wwan": {
+      "gw": "10.119.110.117",
+      "tx": "350407",
+      "rx": "325926",
+      "ip": "10.119.110.116",
+      "dns": [
+        "8.8.8.8",
+        "8.8.4.4"
+      ],
+      "mask": "255.255.255.248"
+    },
+    "timespan": 0
+  },
+  "$comment": "Counters at the signed 64-bit BIGINT maximum - the largest value that stores without overflow. The over-max case is invalid/netstats-counter-overflow.json."
+}

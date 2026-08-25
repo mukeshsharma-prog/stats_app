@@ -1,0 +1,254 @@
+{
+  "realm": "${env.STATS_REALM_NAME:statsapp}",
+  "enabled": true,
+  "displayName": "${env.STATS_REALM_DISPLAY_NAME:Datahub Core - Stats App (development)}",
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "accessTokenLifespan": 900,
+  "ssoSessionIdleTimeout": 1800,
+  "roles": {
+    "realm": [
+      {
+        "name": "${env.STATS_READ_ONLY_ROLE:stats.readOnly}",
+        "description": "Read tenant-scoped statistics through the Stats API. GET only."
+      },
+      {
+        "name": "${env.STATS_INGEST_ROLE:stats.ingest}",
+        "description": "Publish statistics through the Stats Input endpoint. Service accounts only."
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "${env.STATS_API_CLIENT_ID:stats-api}",
+      "name": "Stats API (resource server)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "bearerOnly": false,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "secret": "${env.STATS_API_CLIENT_SECRET:dev-only-stats-api-secret}",
+      "protocolMappers": [
+        {
+          "name": "tenant",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "${env.STATS_TENANT_CLAIM:tenant}",
+            "claim.name": "${env.STATS_TENANT_CLAIM:tenant}",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "multivalued": "false"
+          }
+        }
+      ],
+      "attributes": {
+        "post.logout.redirect.uris": "+"
+      }
+    },
+    {
+      "clientId": "${env.STATS_INPUT_CLIENT_ID:stats-input}",
+      "name": "Stats Input (Heimdal ingress)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "bearerOnly": false,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "secret": "${env.STATS_INPUT_CLIENT_SECRET:dev-only-stats-input-secret}",
+      "protocolMappers": [
+        {
+          "name": "audience-stats-input",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "${env.STATS_INPUT_CLIENT_ID:stats-input}",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "${env.STATS_DEV_CLI_CLIENT_ID:stats-dev-cli}",
+      "name": "Local token helper (password grant)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "bearerOnly": false,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "protocolMappers": [
+        {
+          "name": "tenant",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "${env.STATS_TENANT_CLAIM:tenant}",
+            "claim.name": "${env.STATS_TENANT_CLAIM:tenant}",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "multivalued": "false"
+          }
+        },
+        {
+          "name": "audience-stats-api",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "${env.STATS_API_CLIENT_ID:stats-api}",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "${env.STATS_ALPHA_READER_USERNAME:alpha-reader}",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "${env.STATS_ALPHA_READER_USERNAME:alpha-reader}",
+      "email": "${env.STATS_ALPHA_READER_USERNAME:alpha-reader}@${env.STATS_USER_EMAIL_DOMAIN:stats.local}",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${env.STATS_ALPHA_READER_PASSWORD:alpha}",
+          "temporary": false
+        }
+      ],
+      "attributes": {
+        "tenant": [
+          "${env.STATS_TENANT_A_ID:tenant-alpha}"
+        ]
+      },
+      "realmRoles": [
+        "${env.STATS_READ_ONLY_ROLE:stats.readOnly}"
+      ]
+    },
+    {
+      "username": "${env.STATS_BETA_READER_USERNAME:beta-reader}",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "${env.STATS_BETA_READER_USERNAME:beta-reader}",
+      "email": "${env.STATS_BETA_READER_USERNAME:beta-reader}@${env.STATS_USER_EMAIL_DOMAIN:stats.local}",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${env.STATS_BETA_READER_PASSWORD:beta}",
+          "temporary": false
+        }
+      ],
+      "attributes": {
+        "tenant": [
+          "${env.STATS_TENANT_B_ID:tenant-beta}"
+        ]
+      },
+      "realmRoles": [
+        "${env.STATS_READ_ONLY_ROLE:stats.readOnly}"
+      ]
+    },
+    {
+      "username": "${env.STATS_NO_ROLE_USERNAME:no-role}",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "${env.STATS_NO_ROLE_USERNAME:no-role}",
+      "email": "${env.STATS_NO_ROLE_USERNAME:no-role}@${env.STATS_USER_EMAIL_DOMAIN:stats.local}",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${env.STATS_NO_ROLE_PASSWORD:norole}",
+          "temporary": false
+        }
+      ],
+      "attributes": {
+        "tenant": [
+          "${env.STATS_TENANT_A_ID:tenant-alpha}"
+        ]
+      },
+      "realmRoles": []
+    },
+    {
+      "_comment": "NO tenant attribute at all, on purpose. A token minted for this user carries no tenant claim, and an absent claim must be rejected with 403 - it NEVER means 'all tenants'. This is a different code path from an empty claim, which is why empty-tenant below exists as a separate user: one user cannot exercise both, and ADR-006 release-gates each of them.",
+      "username": "${env.STATS_NO_TENANT_USERNAME:no-tenant}",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "${env.STATS_NO_TENANT_USERNAME:no-tenant}",
+      "email": "${env.STATS_NO_TENANT_USERNAME:no-tenant}@${env.STATS_USER_EMAIL_DOMAIN:stats.local}",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${env.STATS_NO_TENANT_PASSWORD:notenant}",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "${env.STATS_READ_ONLY_ROLE:stats.readOnly}"
+      ]
+    },
+    {
+      "_comment": "EMPTY tenant claim. Distinct from no-tenant above: the claim is present but blank. A naive `claim != null` check passes this and then filters on an empty string, which matches nothing - or, worse, is treated as unset somewhere downstream. Must be rejected with 403, fail-closed by construction rather than by a default value.",
+      "username": "${env.STATS_EMPTY_TENANT_USERNAME:empty-tenant}",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "${env.STATS_EMPTY_TENANT_USERNAME:empty-tenant}",
+      "email": "${env.STATS_EMPTY_TENANT_USERNAME:empty-tenant}@${env.STATS_USER_EMAIL_DOMAIN:stats.local}",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${env.STATS_EMPTY_TENANT_PASSWORD:emptytenant}",
+          "temporary": false
+        }
+      ],
+      "attributes": {
+        "tenant": [
+          ""
+        ]
+      },
+      "realmRoles": [
+        "${env.STATS_READ_ONLY_ROLE:stats.readOnly}"
+      ]
+    }
+  ],
+  "_comment": [
+    "DEVELOPMENT REALM ONLY. Never reuse any value here in a deployed environment.",
+    "Proposed values pending ZC/security confirmation of Q8b - see docs/decisions/2B-ANSWERS-18AUG2026.md.",
+    "",
+    "PLACEHOLDERS. Every env-placeholder below - dollar-brace, 'env.' prefix, colon,",
+    "fallback - is resolved at import time from an environment variable, falling back",
+    "to the literal after the colon when it is unset. Values come from the",
+    "repository-root .env (gitignored; .env.example is its committed twin). The",
+    "fallbacks are the previous hard-coded literals, so this file still imports a",
+    "complete working realm with no .env present - a missing variable degrades to the dev value instead of producing a broken realm.",
+    "",
+    "VERIFY THE SUBSTITUTION ACTUALLY HAPPENED. Placeholder support has varied across",
+    "Keycloak versions, and the failure mode is silent: an unresolved placeholder is",
+    "imported as the literal placeholder text, so alpha-reader's tenant becomes that",
+    "raw string - and the cross-tenant isolation test still PASSES, because A's raw",
+    "string still differs from B's. After the first import, check the realm name and",
+    "one user's tenant attribute in the admin console before trusting any test result.",
+    "",
+    "The four users exist for specific tests. Their usernames, emails and tenant ids",
+    "are all variables, so every name in this realm is ours to change from .env - but",
+    "the SRS, docs/decisions/2B-ANSWERS-18AUG2026.md and the isolation tests refer to",
+    "them by the default names, so rename in .env and in those tests together.",
+    "alpha-reader and beta-reader are the cross-tenant isolation pair, no-role proves",
+    "an authenticated caller without the read role gets 403, and no-tenant proves a",
+    "token with no usable tenant claim fails CLOSED rather than returning everything.",
+    "no-tenant's empty tenant attribute is deliberately NOT a variable - the empty",
+    "string is the thing under test."
+  ]
+}

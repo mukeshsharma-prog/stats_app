@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zenner.example/stats-app/schemas/lorastats-v1.schema.json",
+  "title": "lorastats v1",
+  "allOf": [
+    { "$ref": "envelope-v1.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "type": { "const": "lorastats" },
+        "data": {
+          "type": "object",
+          "required": [
+            "rx_nr_pkts", "rx_crc_missing", "rx_crc_bad", "tx_success", "tx_failed",
+            "tx_peek", "tx_peek_index_zero", "tx_override", "tx_busy", "tx_dequeue_error",
+            "tx_type_beacon", "chip_comm_error", "util_fopen_failed"
+          ],
+          "properties": {
+            "rx_nr_pkts": { "type": "integer" },
+            "rx_crc_missing": { "type": "integer" },
+            "rx_crc_bad": { "type": "integer" },
+            "tx_success": { "type": "integer" },
+            "tx_failed": { "type": "integer" },
+            "tx_peek": { "type": "integer" },
+            "tx_peek_index_zero": { "type": "integer" },
+            "tx_override": { "type": "integer" },
+            "tx_busy": { "type": "integer" },
+            "tx_dequeue_error": { "type": "integer" },
+            "tx_type_beacon": { "type": "integer" },
+            "chip_comm_error": { "type": "integer" },
+            "util_fopen_failed": { "type": "integer" }
+          },
+          "additionalProperties": true
+        }
+      }
+    }
+  ],
+  "$comment": "Development draft based on SRS v1.0. Negative-counter and overflow rules require approval."
+}

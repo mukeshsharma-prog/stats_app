@@ -1,0 +1,37 @@
+{
+  "uid": "e5e5e5e5-e5005-4e505-8e505-e5e5e5e5e5e5",
+  "tenant": "tenant-alpha",
+  "maintenant": "management-parent",
+  "gateway": "A1B2C3D4E5F6",
+  "type": "netstats",
+  "ts": {
+    "processor": 1787054120,
+    "device": 1787054100
+  },
+  "data": {
+    "eth0": {
+      "apipa": "169.254.154.202",
+      "gw": "192.168.178.1",
+      "tx": "72151674",
+      "rx": "139303320",
+      "ip": "2001:db8::1",
+      "dns": [
+        "192.168.178.1"
+      ],
+      "mask": "255.255.255.0"
+    },
+    "wwan": {
+      "gw": "10.119.110.117",
+      "tx": "350407",
+      "rx": "325926",
+      "ip": "10.119.110.116",
+      "dns": [
+        "8.8.8.8",
+        "8.8.4.4"
+      ],
+      "mask": "255.255.255.248"
+    },
+    "timespan": 300
+  },
+  "$comment": "IPv6 address. v1 accepts IPv4 only - IPv6 does not appear in the supplied sample. Expect 400. If ZC confirms IPv6 gateways exist this fixture flips to valid and the ipv4 $def widens."
+}

@@ -1,0 +1,32 @@
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+out/
+bin/
+
+# OS
+.DS_Store
+
+# Secrets never belong in the repository — they come from the environment.
+# (claude/DEVELOPMENT.md §4)
+*.env
+.env
+.env.bak*
+
+# Internal working documents and AI context — kept local, not published to the repository.
+# docs/
+# claude/
+# CLAUDE.md
+# .claude/
+Stats_App_Tracker.xlsx
+~$Stats_App_Tracker.xlsx
+
+# Claude Code local machine state (the shared .claude/settings.json is tracked)
+.claude/settings.local.json

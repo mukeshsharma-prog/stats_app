@@ -1,0 +1,109 @@
+# Stats App AMQP Contract and Topology — V1 Draft
+
+**Status:** `PENDING PLATFORM APPROVAL`  
+**Applies to:** Stats Input publisher, RabbitMQ infrastructure, Stats Writer consumers.  
+**Requirements:** STA-04, STA-10 through STA-14, STA-20, STA-25 through STA-27.
+
+## 1. Canonical message
+
+The Input Module validates the common envelope and selected type schema before publication, then publishes the record **byte-identically**. There is **no normalisation of any kind**, for `omsstats` or any other type — ADR-004 is ACCEPTED and Heimdal already sends the canonical `ts.processor`. A record carrying `ts.converter` is invalid and is rejected with 400.
+
+This is load-bearing beyond ADR-004: because the published message is identical to the received record, a redelivered or replayed record carries the same `ts_device`, lands in the same daily partition, and collides with the same `(ts_device, uid)` key. If Input ever rewrote a timestamp, ADR-003's per-partition duplicate suppression would stop working and the failure would be silent.
+
+The message MUST contain a `type` whose literal matches the AMQP routing key, selected queue, schema, consumer, and persistence table.
+
+| Property | Value |
+|---|---|
+| Content type | `application/json` |
+| Delivery mode | Persistent |
+| Correlation ID | `uid` unless platform tracing supplies an approved additional ID |
+| Message body | The validated JSON record, byte-identical to what was received |
+| Routing key | Exact `type` literal |
+| Publisher guarantee | Confirm required before successful HTTP acceptance |
+| Mandatory flag | **Set.** An unroutable message is returned and treated as a failed acceptance — 503 plus `records_unroutable{type}`. A confirm alone does not cover this: the broker ACKs a message no queue wanted. |
+| Queue type | `quorum` — RabbitMQ 4 has no classic mirroring (ADR-002 §8) |
+
+## 2. Exchange and queues
+
+| Resource | Proposed name | Type / purpose | Durable | Owner |
+|---|---|---|---:|---|
+| Ingress exchange | `app_stats_input` | `TopicExchange` | Yes | Every broker-connected module declares identical topology; confirm whether `stats-api` is broker-connected. |
+| Main queue | `app_statsstore.<type>` | Main work queue per type, **`x-queue-type: quorum`** | Yes | Every broker-connected module must declare the identical durable definition; topology conflict testing required. |
+| Retry queues | `app_statsstore.<type>.retry.<tier>` | Delayed redelivery holding queues per type — **three tiers**, `x-queue-type: quorum`, delays externalised (starting values 30 s / 5 min / 30 min) via `x-message-ttl` + DLX | Yes | Same sole owner. Immediate requeue is never used for a persistent failure. |
+| Dead-letter queue | `app_statsstore.<type>.dlq` | Final failed messages per type, `x-queue-type: quorum` | Yes | Same sole owner |
+| Dead-letter exchange | `app_stats_dlx` | Route failures/retry paths | Yes | Same sole owner |
+
+`<type>` is one of the five V1 types: `lorastats`, `ltestats`, `sysstats`, `omsstats`, and `netstats`. All five have strict, normative schemas in `docs/schemas/`; `netstats` was finalised by Q4a on 18 August 2026.
+
+## 3. Main flow
+
+```text
+HTTP Input
+  -> validate schema and authenticated source
+  -> publish persistent JSON to app_stats_input using routing key <type>
+  -> receive publisher confirm
+  -> return 2xx accepted response
+
+app_stats_input
+  -> app_statsstore.<type>
+  -> dedicated <type> consumer
+  -> idempotent PostgreSQL persistence
+  -> manual ACK after success
+```
+
+## 4. Failure and retry flow
+
+| Failure class | Example | Proposed handling | Approval needed |
+|---|---|---|---|
+| Input validation | Missing field, wrong type, unknown stat type | Return 400; safe log; no publish. | Error contract approval |
+| Input auth | Invalid Heimdal identity | 401/403; no publish. | Security approval |
+| Broker publish | Broker unavailable or confirm timeout | Return 503; safe metric/log; rely on upstream retry/replay. | **DECIDED (ADR-005)** |
+| Unroutable publish | No queue bound for the routing key — new type, typo, half-applied topology | Message is **returned** (mandatory flag). Return 503, increment `records_unroutable{type}`, log at `ERROR` with the routing key. **Never a 2xx:** the confirm succeeded, so without this the record is lost behind a success. | **DECIDED (ADR-002 §9)** |
+| Transient persistence | PostgreSQL timeout/temporary unavailable | Route to the next per-type retry tier (30 s → 5 min → 30 min). **Never an immediate requeue** — that is a hot loop against a failing database. | **DECIDED (G4)** |
+| Duplicate | Redelivery after write/ACK gap | `ON CONFLICT (ts_device, uid) DO NOTHING`; ACK; **increment `records_duplicate_suppressed{type}`** — a suppressed row that meters nothing is a bug. | **DECIDED (ADR-005)** |
+| Permanent persistence | Schema mapping failure, violated invariant | Route to type DLQ; safe error log and metric. | Error taxonomy approval |
+| Retry exhausted | Repeated transient failure | Move to type DLQ; alert. | **DECIDED (G4)** — three tiers, then `<type>.dlq` |
+
+The retry policy is fixed by G1/G4 (18 August 2026): **three tiers per stat type**, fixed delays rather than a multiplier, all values externalised and never hard-coded. Immediate requeue is never used for a persistent failure.
+
+```properties
+# stats-writer. Starting values — tune against measurement, never hard-code.
+stats.amqp.retry.tier1-delay=PT30S
+stats.amqp.retry.tier2-delay=PT5M
+stats.amqp.retry.tier3-delay=PT30M
+stats.amqp.max-retries=3          # one attempt per tier; exhausted -> <type>.dlq
+stats.amqp.dlq-retention-ms=PENDING   # DLQ retention still needs an operations decision
+```
+
+There is no `retry-multiplier` and no `retry-max-delay-ms`: the tiers are explicit, not derived from a backoff curve. An exhausted message goes to `app_statsstore.<type>.dlq`.
+
+**Ordering hazard (ADR-005).** Publish to the retry or dead-letter destination, wait for the publisher confirm on *that* publish, and only then ACK the original. The tempting order — ACK the failed message, then publish it onward — opens a window in which the original is gone and the copy does not exist yet, and a crash inside it loses the record *silently*.
+
+## 5. Required consumer configuration
+
+| Setting | Requirement |
+|---|---|
+| Consumer binding | Exactly one type per listener/binding. |
+| Acknowledgement | Manual, after successful idempotent write. |
+| Concurrency | Per type; external configuration. |
+| Prefetch | Per type; external configuration and capacity-tested. |
+| Error classification | Explicit mapping from exception category to retry, DLQ, or alert. |
+| Graceful shutdown | Stop intake, complete in-flight work within grace period, return unacknowledged work safely to queue. |
+| Metrics | Per type: receive, success, duplicate, retry, DLQ, processing duration, consumer availability, queue depth. |
+
+## 6. Redrive/runbook contract
+
+Only an authorized operations role may inspect or replay DLQ messages. Redrive must be explicit, traceable, rate-limited, and scoped per type. Before redrive, operators must identify and resolve the root cause; blind automatic replay is not permitted. The final operations runbook must define access, payload masking, audit evidence, maximum replay rate, and success verification.
+
+## 7. Contract tests
+
+The automated integration suite must prove all of the following for each type:
+
+1. A validated message uses the correct routing key and reaches only its type queue.
+1. **A message published with a routing key no queue is bound to returns 503 and increments `records_unroutable`** — asserting only the publisher confirm would pass while the record is silently discarded.
+2. Main/retry/DLQ queues are durable and accepted messages survive broker restart.
+3. A database outage follows the approved retry path; it does not discard or pre-ACK a message.
+4. A permanent failure reaches only the appropriate type DLQ.
+5. A poison message in one type does not prevent a different type from persisting.
+6. A redelivery after persistence does not produce duplicate data.
+7. All metrics and logs identify the stat type and `uid` without sensitive payload leakage.

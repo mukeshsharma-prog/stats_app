@@ -1,0 +1,27 @@
+{
+  "uid": "b2b2b2b2-b2004-4b204-8b204-b2b2b2b2b2b2",
+  "tenant": "tenant-alpha",
+  "maintenant": "management-parent",
+  "gateway": "04B6481037E9",
+  "type": "lorastats",
+  "ts": {
+    "processor": 1787053520,
+    "device": 1787053500
+  },
+  "data": {
+    "rx_nr_pkts": 0,
+    "rx_crc_missing": 0,
+    "rx_crc_bad": 0,
+    "tx_success": 9223372036854775807,
+    "tx_failed": 0,
+    "tx_peek": 0,
+    "tx_peek_index_zero": 0,
+    "tx_override": 0,
+    "tx_busy": 0,
+    "tx_dequeue_error": 0,
+    "tx_type_beacon": 0,
+    "chip_comm_error": 0,
+    "util_fopen_failed": 0
+  },
+  "$comment": "All counters at zero except tx_success at the signed 64-bit BIGINT maximum. Proves the column is BIGINT and not INTEGER - a 32-bit column silently wraps this value with no error."
+}
