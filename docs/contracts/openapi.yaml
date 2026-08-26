@@ -558,7 +558,7 @@ components:
             `additionalProperties: false` on this object is evaluated per subschema,
             so a member that `allOf` composition adds later but this object never
             names is rejected as an unexpected property.
-      additionalProperties: false
+      additionalProperties: true
 
     StatRecord:
       description: |
