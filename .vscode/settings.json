@@ -10,7 +10,7 @@
     "**/.gradle": true,
     "**/build": true
   },
-  "java.configuration.updateBuildConfiguration": "interactive",
+  "java.configuration.updateBuildConfiguration": "automatic",
   "java.gradle.buildServer.enabled": true,
   "java.test.defaultConfig": "",
   "editor.formatOnSave": false,
