@@ -14,6 +14,9 @@ bin/
 # OS
 .DS_Store
 
+# Local Python tooling environment. Java/Gradle still use the repository wrapper.
+.venv/
+
 # Secrets never belong in the repository — they come from the environment.
 # (claude/DEVELOPMENT.md §4)
 *.env
