@@ -2,10 +2,10 @@
   "uid": "b2b2b2b2-b2004-4b204-8b204-b2b2b2b2b2b2",
   "tenant": "tenant-alpha",
   "maintenant": "management-parent",
-  "gateway": "04B6481037E9",
+  "clsbox": "04B6481037E9",
   "type": "lorastats",
   "ts": {
-    "processor": 1787053520,
+    "server": 1787053520,
     "device": 1787053500
   },
   "data": {

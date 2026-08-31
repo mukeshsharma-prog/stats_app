@@ -1,0 +1,31 @@
+{
+  "uid": "CLSCON-2df16519-b7a4-4272-8fe6-fa2505572246",
+  "tenant": "mzc",
+  "maintenant": "mzc",
+  "clsbox": "04B6481064FA",
+  "type": "ltestats",
+  "version": 1,
+  "ts": {
+    "server": 1787834180,
+    "datastore": 1787834180,
+    "converter": 1787834180,
+    "device": 1787834180,
+    "expiresOn": "2026-08-27T12:36:20.284Z"
+  },
+  "data": {
+    "rssi": "-67",
+    "rsrq": "-13",
+    "access_Technology": "4G",
+    "plmn": "26203",
+    "rsrp": "-103",
+    "timespan": "1800",
+    "imsi": "214074306308819",
+    "operator": "o2 - de",
+    "lac": "55F3",
+    "cid": "61D93D"
+  },
+  "status": [
+    "conversion ok"
+  ],
+  "$comment": "Production record, 29 Aug 2026, UNMODIFIED. Proves the two corrections that each alone dead-lettered 100% of ltestats traffic: every numeric is a STRING on the wire, and the field is access_Technology with a CAPITAL T. NOTE: production sends tenant == maintenant == \"mzc\", which is exactly the trap in claude/CLAUDE.md §6. This fixture is kept byte-faithful because its job is to be a production regression guard; it is NOT an isolation test. The *-tenant-isolation-pair.json fixtures, where the two values deliberately differ, remain the only isolation guards."
+}

@@ -1,11 +1,14 @@
 package com.zenner.datahub.stats.common.amqp;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.entry;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.zenner.datahub.stats.common.model.StatType;
+import java.time.Duration;
 import java.util.LinkedHashSet;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
@@ -25,6 +28,84 @@ class AmqpTopologyTest {
         assertThat(AmqpTopology.X_DEAD_LETTER_EXCHANGE)
                 .isEqualTo("x-dead-letter-exchange");
         assertThat(AmqpTopology.X_MESSAGE_TTL).isEqualTo("x-message-ttl");
+        assertThat(AmqpTopology.X_DEAD_LETTER_ROUTING_KEY)
+                .isEqualTo("x-dead-letter-routing-key");
+    }
+
+    // === Declaration arguments =============================================
+    // Two modules declaring the same queue with different arguments is a
+    // RESOURCE_LOCKED startup failure, not a warning, and a quorum queue's type is
+    // fixed at declaration. These assertions pin the maps so the cross-module test
+    // in T-032 compares one source rather than two hand-built ones. (ADR-002 §8, trap 8)
+
+    @Test
+    void declaresMainQueuesAsQuorumAndNothingElse() {
+        assertThat(AmqpTopology.mainQueueArguments())
+                .containsExactly(entry(AmqpTopology.X_QUEUE_TYPE, AmqpTopology.QUORUM));
+    }
+
+    @ParameterizedTest
+    @EnumSource(StatType.class)
+    void declaresRetryTiersWithTheDelayAsTtlAndABounceBackToTheType(StatType type) {
+        Map<String, Object> arguments =
+                AmqpTopology.retryQueueArguments(type, 1, Duration.ofSeconds(30));
+
+        assertThat(arguments).containsOnly(
+                entry(AmqpTopology.X_QUEUE_TYPE, AmqpTopology.QUORUM),
+                entry(AmqpTopology.X_MESSAGE_TTL, 30_000L),
+                entry(AmqpTopology.X_DEAD_LETTER_EXCHANGE, AmqpTopology.DEAD_LETTER_EXCHANGE),
+                entry(AmqpTopology.X_DEAD_LETTER_ROUTING_KEY, type.wireName()));
+    }
+
+    @Test
+    void rejectsARetryDelayThatWouldMakeTheTierAnImmediateRequeue() {
+        assertThatThrownBy(() -> AmqpTopology.retryQueueArguments(
+                        StatType.LORASTATS, 1, Duration.ZERO))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("must be positive");
+        assertThatThrownBy(() -> AmqpTopology.retryQueueArguments(
+                        StatType.LORASTATS, 1, Duration.ofSeconds(-1)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("must be positive");
+    }
+
+    /**
+     * Trap 17. A TTL on the dead-letter queue looks like disk hygiene and is silent
+     * data loss: the message has already survived three retry tiers and is the only
+     * remaining copy of a record Heimdal believes it delivered. A dead-letter exchange
+     * on a DLQ is the same failure wearing a different name — the last copy leaves and
+     * nothing says so. Asserting the map exactly is what stops either being added
+     * later "to bound broker disk". (ADR-002 §12, rule 9)
+     */
+    @Test
+    void declaresDeadLetterQueuesWithNoExpiryAndNoOnwardRoute() {
+        Map<String, Object> arguments = AmqpTopology.deadLetterQueueArguments();
+
+        assertThat(arguments)
+                .containsExactly(entry(AmqpTopology.X_QUEUE_TYPE, AmqpTopology.QUORUM))
+                .doesNotContainKey(AmqpTopology.X_MESSAGE_TTL)
+                .doesNotContainKey(AmqpTopology.X_DEAD_LETTER_EXCHANGE)
+                .doesNotContainKey(AmqpTopology.X_DEAD_LETTER_ROUTING_KEY);
+    }
+
+    @Test
+    void declaresEveryQueueKindAsQuorum() {
+        assertThat(AmqpTopology.mainQueueArguments())
+                .containsEntry(AmqpTopology.X_QUEUE_TYPE, AmqpTopology.QUORUM);
+        assertThat(AmqpTopology.retryQueueArguments(
+                        StatType.LORASTATS, 3, Duration.ofMinutes(30)))
+                .containsEntry(AmqpTopology.X_QUEUE_TYPE, AmqpTopology.QUORUM);
+        assertThat(AmqpTopology.deadLetterQueueArguments())
+                .containsEntry(AmqpTopology.X_QUEUE_TYPE, AmqpTopology.QUORUM);
+    }
+
+    @Test
+    void returnsArgumentMapsThatCannotBeMutatedByACaller() {
+        assertThatThrownBy(() -> AmqpTopology.mainQueueArguments().put("x-max-length", 1))
+                .isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> AmqpTopology.deadLetterQueueArguments()
+                        .put(AmqpTopology.X_MESSAGE_TTL, 1L))
+                .isInstanceOf(UnsupportedOperationException.class);
     }
 
     @ParameterizedTest
@@ -75,6 +156,23 @@ class AmqpTopologyTest {
         assertThatThrownBy(() -> AmqpTopology.deadLetterQueue(null))
                 .isInstanceOf(NullPointerException.class)
                 .hasMessage("Stat type must not be null");
+        assertThatThrownBy(() -> AmqpTopology.retryQueueArguments(
+                        null, 1, Duration.ofSeconds(30)))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage("Stat type must not be null");
+        assertThatThrownBy(() -> AmqpTopology.retryQueueArguments(
+                        StatType.LORASTATS, 1, null))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage("Retry tier delay must not be null");
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {-1, 0, 4, 100})
+    void rejectsRetryTiersOutsideTheContractedRangeWhenBuildingArguments(int tier) {
+        assertThatThrownBy(() -> AmqpTopology.retryQueueArguments(
+                        StatType.LORASTATS, tier, Duration.ofSeconds(30)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Retry tier must be between 1 and 3");
     }
 
     private static Set<String> allQueueNames() {

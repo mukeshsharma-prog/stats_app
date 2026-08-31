@@ -4,7 +4,7 @@ How to build, run, test, and contribute to the Stats App.
 
 > **Version 1.2 — 16 August 2026.** Rewritten for **PostgreSQL**. The v1.0 version
 > of this file documented a MongoDB stack and said retention keys on
-> `ts.processor`; both are wrong. Retention keys on **`ts.device`**.
+> `ts.server`; both are wrong. Retention keys on **`ts.device`**.
 >
 > **Status:** the remaining `TBC` items are listed in §11 and in `CLAUDE.md` §7.
 > Where a section says TBC, do not guess; raise it.
@@ -83,7 +83,7 @@ The `openapi.yaml` we owe ZC goes in `docs/contracts/` alongside its design inpu
 Each application module builds its own Docker image — three images, answered (Q2).
 
 ### Why `stats-common`
-The envelope (`uid`, `tenant`, `maintenant`, `gateway`, `type`, `ts`) is identical
+The envelope (`uid`, `tenant`, `maintenant`, `clsbox`, `type`, `ts`) is identical
 across all three modules, as are the exchange/queue/routing-key names. Defining
 them once prevents drift, and — for the topology constants specifically — prevents
 the `RESOURCE_LOCKED` failure that happens when two modules declare the same
@@ -103,7 +103,8 @@ communicate only through the database and the broker. If you find yourself wanti
 a direct dependency, the boundary is wrong.
 
 `stats-api` has **no RabbitMQ dependency at all** — it is a read-only PostgreSQL
-consumer. See §11 (Q3a) for the one open thread on this.
+consumer. Q3a closed on 29 Aug 2026: only **broker-connected** modules declare topology,
+and the API is not one of them (ADR-002 §11).
 
 ---
 
@@ -198,6 +199,11 @@ stats.amqp.confirm-timeout-ms=5000
 
 stats.exchange.name=app_stats_input
 
+# Clock skew — Q14a, decided 29 Aug 2026 (ADR-003 D9). A ts.device more than this
+# ahead of ts.server is a 400 with the field code clock_skew_exceeded, metered as
+# records_clock_skew_rejected{type}. Cross-field, so it cannot live in the schema.
+stats.input.validation.max-clock-skew=PT5M
+
 # Request limits — STA-06B
 stats.input.max-request-bytes=TBC
 stats.input.request-timeout-ms=TBC
@@ -211,7 +217,7 @@ spring.datasource.username=${POSTGRES_USER:stats}
 spring.datasource.password=${POSTGRES_PASSWORD:stats}
 
 # Retention — STA-23A/STA-23B. Default 90 days, overridable per type.
-# Keys on ts.device, NOT ts.processor. See the caveat below.
+# Keys on ts.device, NOT ts.server. See the caveat below.
 stats.retention.default-days=90
 # stats.retention.lorastats-days=90
 # stats.retention.sysstats-days=30
@@ -236,7 +242,10 @@ stats.amqp.retry.tier1-delay=PT30S
 stats.amqp.retry.tier2-delay=PT5M
 stats.amqp.retry.tier3-delay=PT30M
 stats.amqp.max-retries=3
-# stats.amqp.dlq-retention-ms=TBC   # still needs an operations decision
+# There is deliberately NO DLQ retention property. The DLQ never expires messages:
+# a TTL'd dead-letter queue is silent data loss (ADR-002 §12, 29 Aug 2026). Bounding
+# broker disk is an alerting and disposition problem — alert on DLQ depth > 0 and on
+# oldest-message age, dispose manually within 14 days.
 
 # Per-type consumer controls — STA-11A. Prefetch starts at 500 (Q13a, 2B §5):
 # above the 100-500 micro-batch band so a batch can always be filled, low enough
@@ -250,7 +259,7 @@ stats.consumer.lorastats.prefetch=500
 > three weeks delivers records that are already 21 days into their 90-day window,
 > and a gateway offline for 91 days delivers records that expire almost
 > immediately. This is the **answered and accepted business rule**. Do not
-> "correct" it to `ts.processor`. Document it, and cover it with a late-arrival
+> "correct" it to `ts.server`. Document it, and cover it with a late-arrival
 > boundary test.
 
 ### Module 3 — Stats API
@@ -399,8 +408,8 @@ CREATE TABLE <stat_type> (
     uid           text        NOT NULL,
     tenant        text        NOT NULL,
     maintenant    text        NOT NULL,
-    gateway       text        NOT NULL,
-    ts_processor  timestamptz NOT NULL,
+    clsbox       text        NOT NULL,
+    ts_server  timestamptz NOT NULL,
     ts_device     timestamptz NOT NULL,
     received_at   timestamptz NOT NULL DEFAULT now(),
     -- typed payload columns; bigint for counters, never integer
@@ -410,8 +419,8 @@ CREATE TABLE <stat_type> (
 
 -- Created on the parent; PostgreSQL propagates it to every partition.
 -- Dominant query pattern (STA-21C), with a unique tie-breaker for keyset paging
-CREATE INDEX idx_<stat_type>_tenant_gateway_device_uid
-    ON <stat_type> (tenant, gateway, ts_device DESC, uid DESC);
+CREATE INDEX idx_<stat_type>_tenant_clsbox_device_uid
+    ON <stat_type> (tenant, clsbox, ts_device DESC, uid DESC);
 
 -- One partition per day, pre-created ahead of ingestion
 CREATE TABLE <stat_type>_2026_08_16 PARTITION OF <stat_type>
@@ -438,7 +447,7 @@ The idempotent write is:
 INSERT INTO <stat_type> (...) VALUES (...) ON CONFLICT (ts_device, uid) DO NOTHING;
 ```
 
-Dominant filters — `tenant`, `gateway`, `ts_device` — must never require a JSON
+Dominant filters — `tenant`, `clsbox`, `ts_device` — must never require a JSON
 path scan.
 
 ### Behavioural defaults
@@ -464,7 +473,7 @@ These were open in v1.0. Most are now **answered** and are no longer proposals.
 | Page size | `limit`, default 100, max 1000 | **Frozen** in `docs/contracts/openapi.yaml` |
 | Sort order | Always applied, indexed, newest first, unique tie-breaker | Ours |
 | API time format | **Unix epoch seconds**, in filters and in responses — not RFC 3339, not milliseconds. It is what Heimdal sends and what retention keys on, so a value never changes meaning between ingest and read | **Frozen** in `docs/contracts/openapi.yaml` |
-| Topology declaration | Shared constants in `stats-common`; identical and idempotent | See §11 (Q3a) |
+| Topology declaration | Shared constants in `stats-common`; identical and idempotent; **broker-connected modules only** — Input and Writer, never the API | **Decided** (Q3a, ADR-002 §11, 29 Aug 2026) |
 
 ### Error handling
 - Never swallow an exception. Handle, rethrow, or dead-letter.
@@ -486,7 +495,7 @@ These were open in v1.0. Most are now **answered** and are no longer proposals.
     "statType": "lorastats",
     "uid": "a3f1c8e2-...",
     "errors": [
-      { "field": "ts.processor",   "code": "missing",
+      { "field": "ts.server",   "code": "missing",
         "message": "Mandatory field is absent" },
       { "field": "data.tx_success", "code": "invalid_type",
         "message": "Expected integer, got string" }
@@ -548,7 +557,7 @@ Reference the requirement and the governing ADR:
 feat(writer): add lorastats table with tenant/gateway/device index
 
 Implements STA-21A (table per stat type) and supports STA-35A (tenant
-separation) via a compound index on (tenant, gateway, ts_device, uid).
+separation) via a compound index on (tenant, clsbox, ts_device, uid).
 
 Refs: STA-21A, STA-21C, STA-35A, ADR-003
 ```
@@ -562,6 +571,11 @@ Refs: STA-21A, STA-21C, STA-35A, ADR-003
 - [ ] No new dependency without justification
 - [ ] No hard-coded config
 - [ ] No MongoDB, no `_id`, no TTL index, no "collection"
+- [ ] No main-source file names an individual stat type — `StatTypeFanOutTest` fails on
+      the enum constant or the quoted wire literal outside its documented whitelist
+      *(STA-22, trap 15)*
+- [ ] Queue arguments come from `AmqpTopology`'s maps, never hand-assembled
+      *(ADR-002 §12, trap 17)*
 
 ---
 
@@ -624,7 +638,7 @@ pinned, and the conventions it would have supplied are defined in ADR-001.
 | Ref | State |
 |---|---|
 | **Q8a-2** | Inbound Heimdal auth is **deferred by decision**. Until ZC answers, anything that can reach the Input port can write. `stats.input.auth.mode` has no default in code, `none` logs a `WARN` on every startup, and a test refuses to start under `prod`. Fine on a dev stack, nowhere else. |
-| **D5a** | No RPO/RTO number exists. ADR-003 D5 has the framing to take to product and operations: *"if we lost the last 15 minutes of statistics, or needed 8 hours to restore, what actually breaks?"* |
+| **D5a** | No RPO/RTO number exists. ADR-003 D5 has the framing to take to product and operations: *"if we lost the last 15 minutes of statistics, or needed 8 hours to restore, what actually breaks?"* Engineering's proposal, waiting on a decision: **RPO ≤ 5 min** via continuous WAL archiving, **RTO 1 h per partition / 24 h full cluster**. RPO is the tight one because a record we 200'd and then lost is unrecoverable — Heimdal only retries on a non-2xx. |
 
 ### Blocks a specific area
 
@@ -634,10 +648,17 @@ pinned, and the conventions it would have supplied are defined in ADR-001.
 | **Q13b** | Gateway report jitter. We design for a synchronised 10× burst (13,333/s); if gateways jitter across the cycle the peak drops 10× and so does the hardware. **The single most valuable open question.** |
 | **Q13c** | Agreement that Heimdal caps replay at 2× nominal. Our own rate limiting cannot substitute for Heimdal honouring it. |
 | **Q4b** | `netstats` IPv6. The schema accepts IPv4 only; one `$def` widens if IPv6 gateways exist. No code change. |
-| **Q14a** | Clock skew — accept a `ts.device` ahead of `ts.processor` into a future partition, or reject? The fixture exists (`edge/<type>-clock-skew-future.json`); the decision does not. |
-| **D5b** | Late-arrival policy. A record can arrive with no live partition. Proposal: reject, meter, ACK — a deliberate data-loss-by-design path needing product sign-off. |
-| **Q3a** | Confirm "every module declares topology" means every *broker-connected* module. Do not give `stats-api` a RabbitMQ connection. |
-| **Q5a** | Volume contradiction — "around 10 million" internally vs 115.2M/day from ZC. Settle before freezing the schema. |
+| **D5b** | Late-arrival policy: skip the write, meter `records_expired_on_arrival`, ACK. **Engineering agreed 29 Aug 2026 and added a non-zero-counter alert; the product signature is still owed.** T-026 stays BLOCKED — it is a deliberate data-loss-by-design path. |
+
+### Decided 29 August 2026 — do not reopen
+
+| Ref | Decision |
+|---|---|
+| **Q14a** | Clock skew — **rejected at Input** when `ts.device` exceeds `ts.server` by more than `stats.input.validation.max-clock-skew` (default `PT5M`). 400, field code `clock_skew_exceeded`, metered as `records_clock_skew_rejected{type}`. Cross-field, so it is a code check in Input; the five `edge/<type>-clock-skew-future.json` fixtures stay schema-valid and carry `$expect: "input-reject"` (ADR-003 D9). |
+| **Q3a** | Topology is declared by **broker-connected modules only** — Input and Writer. `stats-api` never gets a RabbitMQ connection. T-032 is the enforcement (ADR-002 §11). |
+| **Q5a** | **115.2M records/day** across five types. The internal "around 10 million" is withdrawn. It never blocked freezing the schema — every schema decision is identical at both figures. |
+| **DLQ retention** | **No TTL, ever.** Alert on depth > 0 and oldest-message age; manual disposition within 14 days; redrive by an authorised ops role, per type, at ≤ 2× nominal, root cause first (ADR-002 §12). |
+| **`pg_partman`** | Never a dependency. Partition pre-creation is a scheduled task in `stats-writer` behind the D3 advisory lock (ADR-003 D1). |
 
 ### Not blocked — start now
 

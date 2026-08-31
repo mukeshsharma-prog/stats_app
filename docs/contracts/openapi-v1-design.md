@@ -37,7 +37,7 @@ The `{type}` path parameter is an enumeration: `lorastats`, `ltestats`, `sysstat
 | `type` | path | enum | Yes | Stat type. |
 | `from` | query | RFC 3339 UTC date-time | No | Inclusive start of the approved query timestamp. |
 | `to` | query | RFC 3339 UTC date-time | No | Inclusive end of the approved query timestamp. |
-| `gateway` | query | string | No | Exact canonical gateway filter. |
+| `clsbox` | query | string | No | Exact canonical gateway filter. |
 | `cursor` | query | opaque string | No | Keyset page continuation token. |
 | `pageSize` | query | integer | No | Default 100; hard maximum 1000, pending approval. |
 
@@ -72,10 +72,10 @@ The repository query must use both the token-derived `tenant` and the `uid`. A r
       "uid": "2deb420f-56c8-452e-bdfd-53c9d455a9f9",
       "tenant": "<caller-visible tenant>",
       "maintenant": "<managing tenant>",
-      "gateway": "04B648102511",
+      "clsbox": "04B648102511",
       "type": "lorastats",
       "ts": {
-        "processor": "2026-08-13T10:15:30Z",
+        "server": "2026-08-13T10:15:30Z",
         "device": "2026-08-13T10:15:20Z"
       },
       "data": {}

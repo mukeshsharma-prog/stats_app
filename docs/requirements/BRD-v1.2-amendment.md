@@ -53,7 +53,7 @@ No API operation, index, or aggregation should be created solely because it seem
 | BR-31 | A tenant may see only statistics belonging to that tenant. | Approve the token claim that identifies the tenant and handling of tenantless records. |
 | BR-32 | Data records, logs, DLQs, and backups may contain device identifiers and potentially IMSI. | Approve classification, access, retention, deletion, and audit requirements. |
 | BR-33 | All records beyond the approved retention period are automatically removed. | Approve whether 90 days is a default or hard maximum, the timestamp basis, and per-type overrides. |
-| BR-34 | A record that cannot be processed remains visible for operational follow-up. | Approve DLQ ownership, review cadence, redrive authority, and resolution target. |
+| BR-34 | A record that cannot be processed remains visible for operational follow-up, **and stays visible — the DLQ has no expiry** (ADR-002 §12, 29 Aug 2026). | Approve DLQ **ownership** and review cadence. Redrive authority and the retention position are decided: an authorized role only, per type, ≤ 2× nominal, root cause first, manual disposition within 14 days. |
 | BR-35 | The service must remain useful as data volume grows. | Approve capacity envelope, end-to-end delay target, API response target, and backlog/replay objective. |
 
 ## 5. Business acceptance criteria

@@ -234,13 +234,14 @@ the whole story. Fixture: `fixtures/edge/<type>-late-arrival.json`.
 
 **Answer:** *"make it."* Done — `docs/schemas/fixtures/`, **68 files across four directories**, replacing the two
 combined bundles (both kept, so nothing referencing them breaks). `docs/schemas/validate-fixtures.py`
-asserts the whole set: **71 assertions, 0 failures**, and it exits non-zero so CI can gate on it.
+asserts the whole set: **76 assertions, 0 failures**, and it exits non-zero so CI can gate on it.
+*(As of 29 August 2026 the gate is **87 assertions** over 77 fixtures — see ADR-007.)*
 
 | Directory | Files | What it proves |
 |---|---|---|
 | `valid/` | `<type>-valid`, `<type>-boundary`, `<type>-tenant-isolation-pair` per type, plus three netstats cases | The happy path, the edges of each numeric range, and the tenant pair |
 | `invalid/` | `<type>-missing-required`, `<type>-wrong-type` per type, six envelope failures, four netstats failures | Every rejection returns 400 and publishes nothing |
-| `edge/` | `late-arrival`, `retention-boundary-inside`, `replay-duplicate`, `clock-skew-future` per type | The cases that pass validation and still need a decision |
+| `edge/` | `late-arrival`, `retention-boundary-inside`, `replay-duplicate`, `clock-skew-future` per type | The cases that pass schema validation and carry a behavioural decision. `clock-skew-future` is decided (29 Aug 2026) and marked `$expect: "input-reject"`; `late-arrival` still awaits the D5b signature |
 | `malformed/` | Eight non-schema inputs | The parser layer, before validation runs |
 
 **The fixtures that matter most,** because each one catches a failure that is invisible in a naive
@@ -256,12 +257,19 @@ test:
 - **`envelope-oms-ts-converter.json`** — ADR-004 says a record carrying `ts.converter` is invalid,
   but `ts` accepted unknown members, so it passed. The envelope now carries an explicit
   `not: {required: [converter]}`.
+  > **REVERSED 29 August 2026 (ADR-007 §2).** Production sends `ts.converter` on **100% of
+  > records**, so this "fix" rejected every record Heimdal sends. The `not` clause is removed
+  > and the fixture moved to `valid/omsstats-ts-converter-present.json`. Worth keeping as a
+  > record of how a schema gap found by a fixture was closed in the wrong direction — the
+  > fixture was right that the rule was unenforced, and wrong that the rule was correct.
 - **`netstats-counter-overflow.json`** — the 20-digit counter the Writer must range-check.
 - **`<type>-boundary.json` for lorastats** — every counter at zero except `tx_success` at the signed
   64-bit maximum. A 32-bit column wraps this silently; that is the whole point of the fixture.
 - **`<type>-clock-skew-future.json`** — a gateway with a bad clock reports `ts.device` an hour ahead
-  of `ts.processor`. **This one has no answer yet:** accept into a future partition, or reject? It is
-  filed under `edge/` and flagged rather than guessed.
+  of `ts.server`. **Answered on 29 Aug 2026 (Q14a, ADR-003 D9): rejected at Input** with 400 and
+  the field code `clock_skew_exceeded`, beyond a configurable tolerance of five minutes. The files
+  stay under `edge/` and stay schema-valid — the check compares two fields, which JSON Schema cannot
+  do — and now carry an explicit `$expect: "input-reject"` marker that the CI gate asserts.
 
 Three of these fixtures found real schema gaps when first run — `ts.converter`, millisecond
 timestamps, and the counter ceiling all validated clean against the schemas as they stood. The
@@ -278,6 +286,6 @@ schemas were tightened; that is the fixtures earning their keep before a line of
 | netstats IPv6 | ZC | Schema accepts IPv4 only; one `$def` widens if IPv6 exists. |
 | Gateway report jitter | ZC / Heimdal | Worth 10× on hardware. The single most valuable outstanding question. |
 | Heimdal replay rate cap at 2× nominal | ZC / Heimdal | Needs agreement, not just our own rate limiting. |
-| Clock-skew policy — accept or reject a future `ts.device` | Product + engineering | Fixture exists, decision does not. |
-| Late-arrival `expired_on_arrival` sign-off | Product | Unchanged — D5b. |
+| ~~Clock-skew policy — accept or reject a future `ts.device`~~ | ~~Product + engineering~~ | **CLOSED 29 Aug 2026 (Q14a, ADR-003 D9).** Rejected at Input beyond `stats.input.validation.max-clock-skew` (default `PT5M`): 400, field code `clock_skew_exceeded`, metered. It was an engineering decision, not a product one. |
+| Late-arrival `expired_on_arrival` sign-off | Product | Unchanged — D5b. Engineering agreed the behaviour on 29 Aug 2026 and added a non-zero-counter alert; the signature is still outstanding. |
 | Volume arithmetic confirmation | Product + Heimdal | Unchanged — D-11 / O-01. |

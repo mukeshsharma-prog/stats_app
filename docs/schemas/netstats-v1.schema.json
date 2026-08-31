@@ -3,15 +3,11 @@
   "$id": "https://zenner.example/stats-app/schemas/netstats-v1.schema.json",
   "title": "netstats v1",
   "allOf": [
-    {
-      "$ref": "envelope-v1.schema.json"
-    },
+    { "$ref": "envelope-v1.schema.json" },
     {
       "type": "object",
       "properties": {
-        "type": {
-          "const": "netstats"
-        },
+        "type": { "const": "netstats" },
         "data": {
           "type": "object",
           "required": [
@@ -37,7 +33,7 @@
             }
           },
           "additionalProperties": true,
-          "$comment": "Q4a answered 18 Aug 2026: eth0 and wwan are MANDATORY. Additional interfaces are allowed and are validated against the same interface shape via patternProperties, so a new interface name never requires a schema change (STA-14A)."
+          "$comment": "Q4a answered 18 Aug 2026 and confirmed by production: eth0 and wwan are MANDATORY. Additional interfaces are allowed and are validated against the same interface shape via patternProperties, so a new interface name never requires a schema change (STA-14A)."
         }
       }
     }
@@ -46,53 +42,46 @@
     "interface": {
       "type": "object",
       "required": [
-        "gw",
         "tx",
-        "rx",
-        "ip",
-        "dns",
-        "mask"
+        "rx"
       ],
       "properties": {
-        "gw": {
-          "$ref": "#/$defs/ipv4"
-        },
-        "ip": {
-          "$ref": "#/$defs/ipv4"
-        },
-        "mask": {
-          "$ref": "#/$defs/ipv4"
-        },
+        "gw": { "$ref": "#/$defs/ipv4" },
+        "ip": { "$ref": "#/$defs/ipv4" },
+        "mask": { "$ref": "#/$defs/ipv4" },
+        "apipa": { "$ref": "#/$defs/ipv4" },
         "dns": {
           "type": "array",
           "minItems": 0,
-          "items": {
-            "$ref": "#/$defs/ipv4"
-          }
+          "items": { "$ref": "#/$defs/ipv4" }
         },
-        "tx": {
-          "$ref": "#/$defs/counter"
+        "tx": { "$ref": "#/$defs/counter" },
+        "rx": { "$ref": "#/$defs/counter" },
+        "driver": { "type": "string", "minLength": 1 },
+        "mtu": { "$ref": "#/$defs/counter" },
+        "fail_count": { "$ref": "#/$defs/counter" },
+        "plmn": { "type": "string", "pattern": "^[0-9]{5,6}$" },
+        "plmn_list": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[0-9]{5,6}$" }
         },
-        "rx": {
-          "$ref": "#/$defs/counter"
-        },
-        "apipa": {
-          "$ref": "#/$defs/ipv4"
-        }
+        "need_init": { "type": "string", "minLength": 1 },
+        "last_forced_reset": { "$ref": "#/$defs/counter" },
+        "last_powercycle": { "$ref": "#/$defs/counter" }
       },
       "additionalProperties": true,
-      "$comment": "apipa is OPTIONAL and deliberately so: in the only sample ZC supplied, eth0 carries apipa and wwan does not. Requiring it would reject ZC's own record. additionalProperties stays true per D14 - unknown data fields are accepted and preserved."
+      "$comment": "ONLY tx and rx are required. gw, ip, mask and dns were required before 29 Aug 2026, which dead-lettered every record from an interface that had not come up - production record CLSCON-ba223c05 is a wwan with need_init:'qmi', fail_count and last_forced_reset and NO address at all. A modem that is down is a legitimate device state, and it is precisely the record ops most needs to see, so requiring an address is corrected here rather than dead-lettered (ADR-007 §5). Strictness is kept where it earns its place: every address that IS present must still be a well-formed IPv4, and every counter must still be digits. apipa stays optional - in ZC's own sample eth0 carries it and wwan does not. additionalProperties stays true per D14."
     },
     "ipv4": {
       "type": "string",
       "pattern": "^((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\\.){3}(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])$",
-      "$comment": "IPv4 only in v1. IPv6 is not in the sample and is not accepted; see the open item in docs/decisions/2B-ANSWERS-18AUG2026.md."
+      "$comment": "IPv4 only in v1. IPv6 is not in the sample and is not accepted; see Q4b."
     },
     "counter": {
       "type": "string",
       "pattern": "^(0|[1-9][0-9]{0,18})$",
-      "$comment": "Counters stay STRINGS on the wire because that is what Heimdal sends, but they are constrained to digits only so a non-numeric value fails at ingest with a 400 rather than failing a cast at query time. Capped at 19 digits, which rejects anything above 9999999999999999999. The remaining gap between the signed BIGINT maximum 9223372036854775807 and that ceiling cannot be expressed as a regex, so the Writer MUST range-check before conversion - an unchecked overflow corrupts the value with no error."
+      "$comment": "Counters stay STRINGS on the wire because that is what Heimdal sends, but they are constrained to digits only so a non-numeric value dead-letters at the Writer rather than failing a cast at query time. Capped at 19 digits, which rejects anything above 9999999999999999999. The remaining gap between the signed BIGINT maximum 9223372036854775807 and that ceiling cannot be expressed as a regex, so the Writer MUST range-check before conversion - an unchecked overflow corrupts the value with no error."
     }
   },
-  "$comment": "Q4a answered 18 August 2026. Strict validation: eth0/wwan mandatory, other interfaces allowed, apipa optional, counters remain strings on the wire and are stored as BIGINT."
+  "$comment": "Re-derived from the 29 Aug 2026 production sample (ADR-007). Q4a's answer holds - eth0/wwan mandatory, other interfaces allowed, apipa optional, counters strings stored as BIGINT - but its strictness was derived from ONE healthy sample and required four address fields per interface. Production shows a down modem, so the interface required-set is now tx/rx. driver, mtu, fail_count, plmn, plmn_list, need_init, last_forced_reset and last_powercycle are real production fields, now typed instead of passing unvalidated through additionalProperties."
 }

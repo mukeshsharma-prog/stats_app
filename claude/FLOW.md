@@ -1,0 +1,645 @@
+# Stats App — Execution Flow
+
+How a record actually travels, step by step, from the Heimdal Core to an
+API response — and what happens at each point where it can fail.
+
+> **Read `claude/DECISIONS.md` alongside this.** This file says *what
+> happens*; that one says *why it happens that way*. Steps here cite
+> `DL-nnn` entries rather than repeating the reasoning.
+
+---
+
+## 0. Status legend — what is built and what is specified
+
+**Most of this document describes a design that is not yet code.** The
+distinction is marked on every flow, because a specified flow and a
+running one are not the same claim.
+
+| Marker | Meaning |
+|---|---|
+| **`BUILT`** | Implemented and under test in this repository today |
+| **`SPECIFIED`** | Decided and contracted; not yet implemented |
+| **`BLOCKED`** | Cannot be built — an open question owns it |
+
+### What exists today (29 August 2026)
+
+`stats-common` only — tasks T-001 to T-004.
+
+| Component | Status |
+|---|---|
+| `StatType`, `StatsEnvelope`, `Timestamps` + epoch converters | **`BUILT`** |
+| `AmqpTopology` — names and declaration argument maps | **`BUILT`** |
+| `ErrorCode`, `FieldError`, `ProblemDetails` (RFC 9457) | **`BUILT`** |
+| `StatsSchemaValidator`, `ValidationResult` (Draft 2020-12) | **`BUILT`** |
+| `stats-input`, `stats-writer`, `stats-api` | `@SpringBootApplication` **stubs only** |
+
+So: the **shared vocabulary** is real — types, names, error shapes,
+validation. **No record has yet travelled the path below.** Phase 2 builds
+it end to end for `lorastats` first (DL-030 rationale; see
+`CODE_START_CHECKLIST.md` §B).
+
+---
+
+## 1. The whole path, at one altitude
+
+```
+   Heimdal Core
+        │  HTTP POST  (one record, JSON)
+        ▼
+┌──────────────────────────────────────────────────────────┐
+│ MODULE 1 — stats-input                          SPECIFIED│
+│   authenticate → parse → ENVELOPE-validate → skew-check  │
+│   → publish (persistent, mandatory) → await confirm      │
+│   200 only after confirm.  400 invalid.  503 broker.     │
+│   NEVER touches PostgreSQL.                              │
+└────────────────────────┬─────────────────────────────────┘
+                         │ routing key = stat type
+                         ▼
+┌──────────────────────────────────────────────────────────┐
+│ RabbitMQ  —  app_stats_input  (TopicExchange, durable)   │
+│                                                          │
+│   app_statsstore.<type>              main, quorum        │
+│   app_statsstore.<type>.retry.1|2|3  TTL 30s/5m/30m      │
+│   app_statsstore.<type>.dlq          NO TTL, EVER        │
+│   app_stats_dlx                      the bounce exchange │
+└────────────────────────┬─────────────────────────────────┘
+                         │ consume, prefetch 500
+                         ▼
+┌──────────────────────────────────────────────────────────┐
+│ MODULE 2 — stats-writer                         SPECIFIED│
+│   INSERT … ON CONFLICT (ts_device, uid) DO NOTHING       │
+│   commit → THEN manual ACK                               │
+│   Also owns: partition pre-creation, retention           │
+│   The ONLY component with database write access.         │
+└────────────────────────┬─────────────────────────────────┘
+                         │
+                         ▼
+              ┌──────────────────────────┐
+              │ PostgreSQL 17            │
+              │ one table per stat type  │
+              │ daily RANGE (ts_device)  │
+              └────────────┬─────────────┘
+                           │ read-only, tenant-scoped
+                           ▼
+┌──────────────────────────────────────────────────────────┐
+│ MODULE 3 — stats-api                            SPECIFIED│
+│   GET only.  Keycloak bearer → tenant claim →            │
+│   predicate IN THE QUERY → keyset page                   │
+│   No broker connection at all.                           │
+└────────────────────────┬─────────────────────────────────┘
+                         ▼
+                  External consumer
+```
+
+**Three properties to keep in view while reading the rest:**
+
+1. **Nothing transforms the record.** What Heimdal sent is what is
+   published and what is stored (DL-050). Duplicate suppression depends on
+   it.
+2. **Every hop confirms before it releases.** Input confirms before 200;
+   the Writer commits before ACK; a retry publish is confirmed before the
+   original is ACKed. Each is a place where the obvious order loses data
+   silently.
+3. **The stat type is the axis of everything.** Routing key, queue,
+   consumer, table, schema, metric label, endpoint parameter. Adding a type
+   is additive across all of it, or the abstraction is wrong (STA-14A).
+
+---
+
+## 2. Ingest — `stats-input`   `SPECIFIED`
+
+### 2.1 The happy path
+
+```
+POST /v1/stats            (path pending D-03 confirmation)
+Content-Type: application/json
+  │
+  ├─ 1. AUTH FILTER          mode from stats.input.auth.mode
+  │                          none | mtls | oauth2 — no default in code
+  │                          `none` ⇒ WARN on every startup
+  │                          `prod` profile + `none` ⇒ REFUSES TO START
+  │
+  ├─ 2. READ BODY            keep the ORIGINAL BYTES
+  │                          they are what gets published (DL-050)
+  │
+  ├─ 3. PARSE JSON           malformed ⇒ 400
+  │
+  ├─ 4. READ `type`          map through StatType.fromWireName
+  │                          unknown ⇒ 400, and the literal is NEVER
+  │                          echoed and NEVER used to build a resource
+  │                          name (DL-053)
+  │
+  ├─ 5. VALIDATE ENVELOPE    StatsSchemaValidator.validateEnvelope()
+  │                          THE ENVELOPE ONLY — not the payload.
+  │                          invalid ⇒ 400 + RFC 9457 Problem Details,
+  │                          field errors carry JSON Pointer + code,
+  │                          never the offending value
+  │                          The per-type payload schema is the WRITER's
+  │                          gate (step W-1a below) and a payload failure
+  │                          is a DEAD-LETTER, not a 400. Heimdal retries
+  │                          only on a non-2xx, so a 400 here would make a
+  │                          recoverable dialect mismatch unrecoverable.
+  │                          (ADR-007 §5, DL-088)
+  │
+  ├─ 6. CLOCK-SKEW CHECK     ts.device > ts.server + max-clock-skew ?
+  │                          (default PT5M, externalised)
+  │                          ⇒ 400, field code clock_skew_exceeded,
+  │                            records_clock_skew_rejected{type}++
+  │                          Cross-field, so it is CODE here, not a
+  │                          schema rule (DL-052)
+  │
+  ├─ 7. PUBLISH              exchange  app_stats_input
+  │                          routing key = type.wireName()
+  │                          persistent + mandatory=true
+  │
+  ├─ 8. AWAIT CONFIRM        stats.amqp.confirm-timeout-ms = 5000
+  │
+  └─ 9. RESPOND              2xx ONLY NOW  (200 vs 202 pending D-03)
+```
+
+**Nothing is published until step 7.** An invalid record is rejected and
+**nothing enters the broker** (rule 7, STA-03A).
+
+### 2.2 Every failure exit
+
+| Where | Condition | Response | Metric / log |
+|---|---|---|---|
+| 1 | Auth configured and fails | 401 / 403 | — |
+| 1 | `stats.input.auth.mode` unset | **App does not start** | — |
+| 3 | Malformed JSON | 400 | Problem Details |
+| 4 | Unknown stat type | 400 | literal not echoed |
+| 5 | Schema violation | 400 | field errors, pointers only |
+| 5 | `ts.converter` present | 400 | invalid by construction (DL-050) |
+| 6 | `ts.device` beyond skew tolerance | 400 `clock_skew_exceeded` | `records_clock_skew_rejected{type}` |
+| 7 | Broker unavailable | **503** | Heimdal owns retry |
+| 8 | Confirm times out | **503** | never 2xx on an unconfirmed publish |
+| 8 | **Message returned** (unroutable) | **503** | `records_unroutable{type}`, ERROR + routing key |
+
+### 2.3 The three hazards in this flow
+
+**A 200 is a promise.** If Input returns 200 before the broker confirms,
+a broker failure in that window loses the message **and** Heimdal will not
+retry, because it saw success. Hence: confirm, then respond — never the
+reverse (DL-033, STA-04A).
+
+**A confirm is not a route.** A publisher confirm says the *broker*
+accepted the message, not that any queue wanted it. With a missing
+binding the broker ACKs and **drops the message on the floor** — 200
+returned, no retry, record gone, everything reporting success. That is
+what `mandatory=true` plus a `ReturnsCallback` exists to catch, and it is
+why a returned message is a **failed** acceptance and not a warning
+(DL-033).
+
+**Input is stateless — there is no local buffer.** 503 is the
+backpressure channel and it is the mechanism working, not an incident
+(DL-082). Heimdal owns retry on any non-2xx (STA-06A).
+
+---
+
+## 3. Broker — routing, retry, and the DLQ   `SPECIFIED` (names `BUILT`)
+
+### 3.1 Topology, and who declares it
+
+Declared by **broker-connected modules only** — `stats-input` and
+`stats-writer` — from the shared constants in `AmqpTopology`.
+**`stats-api` holds no RabbitMQ connection at all** (DL-035).
+
+```
+app_stats_input                     TopicExchange, durable
+  │
+  ├── "lorastats" ──► app_statsstore.lorastats     quorum, durable
+  ├── "ltestats"  ──► app_statsstore.ltestats
+  ├── "sysstats"  ──► app_statsstore.sysstats
+  ├── "netstats"  ──► app_statsstore.netstats
+  └── "omsstats"  ──► app_statsstore.omsstats
+
+app_stats_dlx                       the bounce exchange
+  └── carries expired retry messages back to the main queue
+```
+
+Per type, four queues (all `x-queue-type: quorum`, DL-032):
+
+| Queue | Arguments | Purpose |
+|---|---|---|
+| `app_statsstore.<type>` | quorum only | main |
+| `app_statsstore.<type>.retry.1` | quorum, `x-message-ttl` 30 s, DLX + routing key | tier 1 |
+| `app_statsstore.<type>.retry.2` | quorum, `x-message-ttl` 5 min, DLX + routing key | tier 2 |
+| `app_statsstore.<type>.retry.3` | quorum, `x-message-ttl` 30 min, DLX + routing key | tier 3 |
+| `app_statsstore.<type>.dlq` | **quorum, and nothing else** | terminal |
+
+**Delays are externalised to `application.properties`, never
+hard-coded** (DL-031, G4). `AmqpTopology` owns the names and the argument
+maps; the *values* come from module configuration.
+
+**Why the arguments live in `stats-common`:** two modules declaring the
+same queue with different arguments is not a warning — RabbitMQ rejects the
+mismatched declaration with `RESOURCE_LOCKED` and **the module fails to
+start**. Quorum sharpens it: a queue's type is fixed at declaration, so
+changing one means deleting and redeclaring it (DL-032, DL-014).
+
+### 3.2 The retry mechanism — how a message moves
+
+There is no retry scheduler. It is TTL plus dead-lettering:
+
+```
+main queue ──(processing failed)──► retry.1
+                                      │  sits for 30 s (x-message-ttl)
+                                      │  TTL expires ⇒ dead-letters to
+                                      ▼  app_stats_dlx with routing key = type
+                                   app_stats_dlx
+                                      │
+                                      ▼
+                                   main queue          ← attempt 2
+                                      │
+                        (failed) ──► retry.2  →  5 min  →  main   ← attempt 3
+                        (failed) ──► retry.3  → 30 min  →  main   ← attempt 4
+                        (failed) ──► app_statsstore.<type>.dlq    TERMINAL
+```
+
+**Immediate requeue is never used for a persistent failure** — it is a hot
+loop that burns broker and database capacity and achieves nothing
+(DL-031).
+
+### 3.3 The ACK ordering hazard
+
+**Publish to the retry or DLQ destination, wait for the publisher confirm
+on *that* publish, and only then ACK the original.**
+
+The tempting order — ACK the failed message, then publish it onward —
+opens a window where the original is gone and the copy does not exist yet.
+A crash inside that window loses the record permanently, and loses it
+*silently*, because from the broker's perspective the message was
+successfully consumed (ADR-005).
+
+### 3.4 The DLQ is terminal
+
+`deadLetterQueueArguments()` returns exactly `{x-queue-type: quorum}` and
+**has no parameter to set a TTL or an onward route with** — the policy is
+unrepresentable, not merely documented (DL-034).
+
+| Control | Value |
+|---|---|
+| Alert | depth > 0 **and** oldest-message age |
+| Disposition | manual, expected within 14 days |
+| Redrive authority | authorised operations role only |
+| Redrive scope | explicit, per stat type — never blanket |
+| Redrive rate | ≤ 2× nominal (2,667/s) |
+| Precondition | root cause identified and resolved first |
+
+> **Runbook trap.** A message that sat in the DLQ long enough becomes
+> `expired_on_arrival` the moment it is redriven, because its `ts.device`
+> has aged past the 90-day retention window. **A redrive after ~90 days is
+> a no-op that increments a counter.** Operators must know this before
+> attempting one, or a failed recovery looks like a successful one
+> (DL-034, DL-083).
+
+---
+
+## 4. Persist — `stats-writer`   `SPECIFIED`
+
+### 4.1 Per-message flow
+
+```
+consume from app_statsstore.<type>      one deployment per type,
+  │                                     STAT_TYPE selects the queue
+  │                                     prefetch 500  (DL-047, DL-082)
+  ├─ 1. DESERIALISE       to StatsEnvelope
+  │
+  ├─ 1a. VALIDATE PAYLOAD StatsSchemaValidator.validate()
+  │                       THE WRITER'S GATE — envelope + per-type schema.
+  │                       invalid ⇒ DEAD-LETTER, never a 400: the record
+  │                       was already accepted, confirmed and published,
+  │                       so the caller is long gone.
+  │                       This is where the three lorastats dialects part
+  │                       company: one is encoded, two dead-letter, and
+  │                       nothing on the record discriminates them —
+  │                       all three carry version: 1.
+  │                       (ADR-007 §4/§5, DL-088, DL-089)
+  │                       ⚠ VOLUME: at 115.2M/day this is ~15M msg/day
+  │                         into a DLQ with no TTL (ADR-002 §12).
+  │                         Q15a is what closes it.
+  │
+  ├─ 2. RANGE-CHECK       netstats tx/rx: the schema permits 19 digits,
+  │                       which is WIDER than signed BIGINT. Check
+  │                       before conversion — an unchecked overflow
+  │                       corrupts the value with no error anywhere
+  │                       (DL-041, STA-04C)
+  │
+  ├─ 3. RETENTION GUARD   ts_device older than the window ⇒ no live
+  │                       partition exists.  Skip the write,
+  │                       records_expired_on_arrival++, ACK, alert.
+  │                       BLOCKED — product sign-off owed (DL-083)
+  │
+  ├─ 4. INSERT            INSERT INTO <type> (…, schema_version, received_at)
+  │                       VALUES (…)
+  │                       ON CONFLICT (ts_device, uid) DO NOTHING
+  │
+  ├─ 5. READ ROW COUNT    0 rows ⇒ records_duplicate_suppressed{type}++
+  │                       A suppressed insert is METERED, NEVER SILENT
+  │                       (DL-044, STA-27A)
+  │
+  ├─ 6. COMMIT
+  │
+  └─ 7. MANUAL ACK        only now  (D7)
+```
+
+**Steps 6 and 7 are in that order and it matters.** ACK before commit and
+a crash between them loses the record with the broker believing it was
+delivered.
+
+### 4.2 Insert shape
+
+Individual inserts **first**, behind a **batch-shaped interface**, so
+micro-batching (100–500 records or 50–200 ms) is later a benchmarked
+tuning change rather than a rewrite — with single-record fallback to
+isolate a poison record and preserve per-record DLQ precision (DL-048,
+G3).
+
+### 4.3 Failure paths
+
+| Failure | Action |
+|---|---|
+| Transient database error | Do **not** ACK. Publish to `retry.<tier>`, confirm that publish, then ACK the original (§3.3) |
+| Retries exhausted | Publish to `.dlq`, confirm, then ACK. Log ERROR, alert |
+| Duplicate `(ts_device, uid)` | Not a failure — `DO NOTHING`, meter, commit, ACK |
+| `ts_device` past retention | Skip, meter, ACK, alert (`BLOCKED`, DL-083) |
+| Counter exceeds `BIGINT` | Reject to DLQ. Never truncate silently |
+| Partition missing | **Insert fails.** Pre-creation is on the critical path (§4.4) |
+
+### 4.4 Partition and retention flow   `SPECIFIED`
+
+Both run **inside `stats-writer`**, both behind the same per-type advisory
+lock, because N replicas per type would otherwise race (DL-045).
+
+```
+scheduled tick (staggered across the five types, not fired together)
+  │
+  ├─ SELECT pg_try_advisory_lock(hashtext('stats.retention:' || :statType))
+  │     not acquired ⇒ skip this run, log DEBUG, done
+  │
+  ├─ PRE-CREATE      create daily partitions `pre-create-days` ahead
+  │                  If this fails, INSERTS FAIL. Not a nicety.
+  │                  pg_partman is NEVER a dependency (DL-027)
+  │
+  └─ RETENTION       for each partition wholly older than the window:
+                       ALTER TABLE … DETACH PARTITION … CONCURRENTLY
+                       DROP TABLE …
+                     A catalog operation — milliseconds, no dead tuples,
+                     no vacuum debt.  NOT row deletion (DL-042)
+```
+
+**Retention keys on `ts.device`, and that has a consequence.** A gateway
+that was offline delivers records whose `ts.device` is weeks older than
+`ts.server` — near expiry the moment they arrive. This is the
+**answered and accepted business rule**. Do not "fix" it by quietly
+switching to `ts.server`.
+
+### 4.5 Table shape
+
+```
+<type>  PARTITION BY RANGE (ts_device), daily partitions
+  ├─ uid            text        ─┐
+  ├─ ts_device      timestamptz  ├─ PRIMARY KEY (ts_device, uid)
+  │                              │  in THAT column order, per partition
+  ├─ tenant         text         │  (DL-043, G2)
+  ├─ maintenant     text        ─┘  deliberately NOT in the key (DL-044)
+  ├─ gateway        text
+  ├─ ts_server   timestamptz
+  ├─ received_at    timestamptz
+  ├─ schema_version smallint  NOT NULL   which schema validated it (DL-046)
+  └─ …type-specific typed columns…
+      netstats only: data.timespan typed; interface map in jsonb (DL-041)
+
+indexes
+  (tenant, clsbox, ts_device DESC, uid DESC)   the dominant query
+  (tenant, uid)                                 the uid-only lookup,
+                                                which cannot prune partitions
+```
+
+---
+
+## 5. Read — `stats-api`   `SPECIFIED`, contract `BLOCKED` on D-09
+
+### 5.1 Request flow
+
+```
+GET /v1/stats/{type}?from=…&to=…&gateway=…&limit=…&cursor=…
+Authorization: Bearer <token>
+  │
+  ├─ 1. NOT A GET?           ⇒ 405, no side effect, on EVERY route (DL-070)
+  │
+  ├─ 2. VALIDATE TOKEN       signature, exp, iss (string compare, never
+  │                          fetched), aud = stats-api
+  │                          fail ⇒ 401
+  │
+  ├─ 3. ROLE                 stats.readOnly required   ⇒ else 403
+  │
+  ├─ 4. TENANT CLAIM         single-valued String `tenant`
+  │                          absent or empty ⇒ 403 — NEVER "all tenants"
+  │                          (DL-061; note: ADR-006 wins over the 401 in
+  │                          an older openapi.yaml)
+  │
+  ├─ 5. VALIDATE QUERY       from/to REQUIRED — there is no unbounded
+  │                          query (DL-071)
+  │                          inverted range ⇒ 400 invalid_time_range
+  │                          limit 1–1000, default 100
+  │                          cursor filters ≠ request filters
+  │                                        ⇒ 400 invalid_cursor
+  │
+  ├─ 6. QUERY                tenant predicate IS IN THE SQL — always.
+  │                          Never filter across tenants in memory.
+  │                          ORDER BY ts_device DESC, uid DESC — fixed,
+  │                          always applied, never caller-negotiable
+  │                          Keyset seek from the cursor, never OFFSET
+  │                          (DL-060, DL-072)
+  │
+  └─ 7. RESPOND              200 + items + nextCursor
+                             (null/absent ⇒ last page)
+```
+
+### 5.2 The response rules that exist to prevent an oracle
+
+| Situation | Response | Why |
+|---|---|---|
+| Authenticated, no data in range | **200**, empty `items` | 403 or 404 would disclose that data exists elsewhere |
+| `uid` in another tenant | **404** | Identical in status, body, headers **and timing class** to a `uid` that does not exist at all |
+| `uid` does not exist | **404** | Same response, necessarily |
+| No `tenant` claim | **403** | Authenticated, but nothing is in scope |
+| Any non-GET | **405** | No write path exists in this module |
+
+**The information leak would be the *difference*.** A 403 for "exists but
+not yours" versus a 404 for "does not exist" turns the API into an
+enumeration oracle — an attacker learns which records exist in other
+tenants without ever reading one. Because timing is part of the
+observable, this cannot be a late check on an already-fetched row
+(DL-062).
+
+### 5.3 Pagination walk
+
+```
+page 1:  GET …?from=X&to=Y&limit=100
+         → items[100], nextCursor = "…"
+
+page 2:  GET …?from=X&to=Y&limit=100&cursor=…      ← from/to/gateway RESENT
+         → items[100], nextCursor = "…"
+
+last:    → items[n], nextCursor = null
+```
+
+The cursor **carries the filters it was issued for**. Changing one
+mid-walk returns `invalid_cursor` rather than silently returning a page
+from a different query (DL-072).
+
+---
+
+## 6. Startup flow (per module)   `SPECIFIED`
+
+```
+stats-input                    stats-writer                stats-api
+  │                              │                           │
+  ├─ load config                 ├─ load config              ├─ load config
+  ├─ auth.mode UNSET             ├─ read STAT_TYPE           ├─ Keycloak
+  │    ⇒ FAIL TO START           │  (`all` = dev only)       │   resource server
+  ├─ mode=none ⇒ WARN            │                           │
+  ├─ prod + none ⇒ REFUSE        ├─ Flyway migrate           ├─ NO broker
+  │                              │                           │   connection —
+  ├─ declare topology            ├─ declare topology         │   this absence is
+  │  from AmqpTopology           │  from AmqpTopology        │   itself an
+  │  (identical, idempotent)     │  (identical, idempotent)  │   assertion (§3.1)
+  │                              │                           │
+  ├─ publisher confirms          ├─ prefetch, manual ACK     ├─ readiness:
+  │  + ReturnsCallback           │                           │   DB only
+  ├─ readiness: BROKER only      ├─ readiness: BOTH          │
+  │  (no DB dependency, rule 2)  │  broker + DB              │
+  └─ liveness: separate          └─ liveness: separate       └─ liveness: separate
+```
+
+**Readiness sets differ per module and that is deliberate** — a copied
+readiness block is a bug (DL-026). A liveness probe that fails on a broker
+blip restarts the container instead of removing it from the load balancer
+for thirty seconds.
+
+**Topology declarations must be byte-identical between Input and Writer**,
+which is why both build their arguments from `AmqpTopology`. T-032 is the
+test that proves it (DL-035).
+
+---
+
+## 7. Build and test flow   `BUILT`
+
+```
+./gradlew build
+  │
+  ├─ stats-common processResources
+  │     copies docs/schemas/*.schema.json  →  generated output /schemas
+  │     NO second copy is checked in — a checked-in copy can drift,
+  │     and a drift means the Java and Python validators disagree
+  │     about what a valid record is, silently (DL-054)
+  │
+  ├─ test source set adds docs/schemas/fixtures as a resource dir
+  │     the 68 normative fixtures, read directly
+  │
+  ├─ systemProperty stats.repositoryRoot = <repo>
+  │     StatTypeFanOutTest reads the OTHER modules' sources to prove
+  │     no code special-cases an individual stat type (STA-22)
+  │
+  └─ tests
+        SchemaFixtureParityTest    Java validator ≡ validate-fixtures.py
+        AmqpTopologyTest           names + argument maps, incl. the
+                                   assertion that the DLQ map is exactly
+                                   {x-queue-type: quorum}
+        StatsEnvelopeFixtureTest   round-trip against real fixtures
+        TimestampsTest             seconds ↔ Instant, both directions
+        …
+```
+
+CI runs `./gradlew build` plus Testcontainers integration tests on every
+push, and **fails on a failed schema-fixture assertion** (DL-015).
+
+### Fixture layout
+
+```
+docs/schemas/fixtures/
+  valid/      the happy paths, plus tenant-isolation pairs where
+              tenant != maintenant  — a fixture with them equal proves
+              nothing about isolation (DL-060)
+  invalid/    missing fields, wrong types, ts.converter, ts in
+              milliseconds, counter overflow, IPv6
+  edge/       clock skew, late arrival, replay duplicate,
+              retention boundary — some are SCHEMA-VALID and carry
+              $expect: "input-reject", because the rule under test is
+              code in Input, not a schema rule (DL-052)
+  malformed/  truncated body, top-level array, duplicate keys,
+              deep nesting, oversized string, JSON null
+```
+
+---
+
+## 8. Where a record can be lost — the complete list
+
+Every one of these was designed against. Each row names the control and
+what happens if the control is removed.
+
+| # | Window | Control | If removed |
+|---|---|---|---|
+| 1 | 200 returned before broker confirm | Confirm, **then** respond | Broker failure in the window loses the record, and Heimdal never retries because it saw success |
+| 2 | Broker ACKs a publish no queue is bound to | `mandatory=true` + `ReturnsCallback` ⇒ 503 | Record dropped on the floor with every component reporting success |
+| 3 | ACK before the database commit | Manual ACK **after** commit | Crash between them loses the record; broker believes it was delivered |
+| 4 | ACK the original, then publish to retry | Publish → **confirm** → then ACK | Crash in the window loses it silently |
+| 5 | DLQ expiry | **No TTL, ever** — unrepresentable in the API | The last remaining copy of the record is deleted on a timer |
+| 6 | Duplicate suppressed with no counter | `records_duplicate_suppressed{type}` | A cross-tenant `uid` collision becomes invisible |
+| 7 | Late arrival, no live partition | Skip + meter + **alert** (`BLOCKED`) | Either a silent drop, or a write into a partition that does not exist |
+| 8 | Counter wider than `BIGINT` | Range-check before conversion | Silent value corruption, no error anywhere |
+| 9 | In-flight transformation of any kind | **Byte-identical publication** | Per-partition duplicate suppression stops working, silently |
+| 10 | Unsorted pagination | Fixed `(ts_device DESC, uid DESC)` | A row returned twice or skipped entirely, with no error |
+| 11 | Redrive after ~90 days | Runbook note | A no-op that increments a counter — and looks like a successful recovery |
+| 12 | **Payload validated at Input instead of the Writer** | Two gates: `validateEnvelope()` at Input, `validate()` at the Writer (ADR-007 §5) | A dialect mismatch becomes a 400. Heimdal retries only on a non-2xx, so the record is **destroyed** where a dead-letter would have been redrivable. The one loud window on this list — and loud does not mean recoverable |
+| 13 | **DLQ depth alert drowned by routine dialect volume** | Per-type DLQ thresholds, sized for `lorastats` separately (ADR-002 §12) | ~15M lorastats messages/day sit permanently above a uniform threshold, so a genuine dead-letter in another type is never noticed. The alert is still firing; nobody is still reading it |
+
+**Ten of the thirteen fail silently.** Window 12 is the exception worth
+studying: it is fully logged, fully visible, returns a correct-looking
+`400 invalid_type` — and still destroys the record, because the loss is in
+what the *caller* does with a well-formed answer. Visibility is not
+recoverability. That is the reason this project's
+rules read as strictly as they do, and the reason
+`IMPLEMENTATION_RULES.md` §9 now quizzes a change before it is made
+(DL-005).
+
+---
+
+## 9. Adding a new stat type — the additive path
+
+A new type must require **no change to any existing type** (STA-14A,
+STA-22, rule 6). Everything derives from `StatType.wireName()`.
+
+```
+1. docs/schemas/<type>-v1.schema.json       normative schema
+2. fixtures: valid / invalid / edge / malformed
+3. StatType enum entry                       ⇒ routing key, queue names,
+                                               retry + DLQ names, schema
+                                               filename, table name all
+                                               follow automatically
+4. Flyway migration: table + partitions + indexes
+5. stats-writer deployment with STAT_TYPE=<type>
+6. openapi.yaml: the type enum
+7. metrics: the {type} label appears by itself
+```
+
+**If any of this requires editing existing type handling, the abstraction
+is wrong.** That is a design smell to raise, not to work around.
+`StatTypeFanOutTest` exists to catch it.
+
+---
+
+## 10. Cross-references
+
+| For | Read |
+|---|---|
+| Why any of this is the way it is | `claude/DECISIONS.md` |
+| Project context, rules, and traps | `claude/CLAUDE.md` |
+| Whether a phase may start | `claude/CODE_START_CHECKLIST.md` |
+| What is still open, and who owns it | `claude/OPEN_QUESTIONS_STATUS_29AUG2026.md` |
+| The AMQP contract in full | `docs/contracts/amqp-topology-v1.md` |
+| The inbound HTTP contract | `docs/contracts/heimdal-input-contract-v1.md` |
+| The API contract | `docs/contracts/openapi.yaml` |
+| Repeatable procedures | `claude/SKILLS.md` |

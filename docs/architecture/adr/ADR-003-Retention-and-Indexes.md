@@ -4,12 +4,21 @@
 **Decision owner:** Data platform / Architecture Review Board
 **Requirements:** STA-21, STA-21B, STA-21C, STA-23, STA-23A/B/C, STA-24, STA-26, STA-34 through STA-36
 **Supersedes:** the `PRIMARY KEY (uid)` shape in `docs/decisions/POSTGRESQL_BASELINE.md` §2
+**Amended 29 August 2026:** `pg_partman` is no longer a conditional dependency (D1);
+clock skew is decided (D9); the late-arrival policy carries engineering agreement but
+still awaits product sign-off.
+**Amended 29 August 2026 (ADR-007):** column names follow the production wire
+format. `gateway` is now **`clsbox`** and `ts_processor` is now **`ts_server`**,
+here and everywhere else. Three envelope members that production sends and this ADR
+never modelled — `version`, `status`, and the unread `ts.datastore`/`ts.converter`/
+`ts.expiresOn` — are addressed in the DDL below. Clock skew (D9) compares
+`ts.device` against **`ts.server`**. Retention still keys on `ts_device`, unchanged.
 
 ## Context
 
 PostgreSQL is the only V1 database and the version is fixed at **PostgreSQL 17**.
 The business answer selects `ts.device` as the retention basis and identifies
-tenant, gateway, and `ts.device` as the dominant query pattern. At 160,000
+tenant, clsbox, and `ts.device` as the dominant query pattern. At 160,000
 gateways reporting every 10 minutes, the average workload is 23.04 million
 records per type per day, or 115.2 million/day across five types, before
 synchronised reporting bursts are considered.
@@ -45,10 +54,24 @@ The retention basis and the dominant query pattern are both `ts_device`, so one
 partition key serves both: retention becomes a drop, and time-ranged queries
 prune partitions. That alignment is fortunate and should not be given up lightly.
 
-Partitions must be **pre-created ahead of ingestion**, or inserts fail. Use
-`pg_partman` if the managed service offers it; otherwise a scheduled task in the
-writer creating `pre-create-days` ahead. **Action:** confirm `pg_partman`
-availability on the chosen managed PostgreSQL before Phase 2.
+Partitions must be **pre-created ahead of ingestion**, or inserts fail.
+
+**Decided 29 August 2026: pre-creation is a scheduled task inside `stats-writer`,
+creating `pre-create-days` ahead, guarded by the same `pg_try_advisory_lock` that D3
+already requires for retention. `pg_partman` is never a dependency.** If a managed
+instance happens to offer the extension, that is a convenience, not a design input.
+
+Three reasons this is not worth leaving conditional. Managed PostgreSQL frequently
+does not expose the extension, so building on it imports a platform risk for no gain.
+The advisory lock is needed regardless — D8 deploys N writer replicas per stat type,
+and N replicas racing to create tomorrow's partition is exactly the failure the lock
+exists to prevent; once the lock is there, the scheduled task is a few lines on top of
+it. And leaving the choice open was the last thing holding task T-012 in a flagged
+state for work that is otherwise ready.
+
+**The consequence to accept:** we own the pre-creation logic and its failure mode. A
+test that removes pre-creation must prove the failure is **loud** — a silent failure
+here stops ingestion for a whole stat type.
 
 ### D2 — Typed columns versus `jsonb`
 
@@ -233,6 +256,42 @@ Rationale: Spring Boot auto-configures it, and plain-SQL migrations suit
 partition DDL and `pg_partman` setup far better than Liquibase's XML
 abstraction, which fights you on anything PostgreSQL-specific.
 
+### D9 — Clock skew: a future `ts.device` is rejected at Input (29 August 2026)
+
+**Decision:** reject at `stats-input` when `ts.device > ts.server + skew tolerance`.
+Accept anything inside the tolerance. The response is **400** with a `ts.device`
+field-level error carrying the reason code `clock_skew_exceeded`, and the rejection is
+metered as `records_clock_skew_rejected{type}`.
+
+```properties
+# stats-input. Starting value — externalised like every other threshold (G4 precedent).
+stats.input.validation.max-clock-skew=PT5M
+```
+
+This closes **Q14a**, which was filed as a question for product and never was one.
+
+Rationale. Partition pre-creation is finite by definition (D1). A gateway with a 2038
+clock either demands unbounded partition creation or fails its insert deep inside the
+Writer, where the caller can no longer be told anything — and the record then occupies
+the DLQ for a fault the sender could have fixed. Rejecting at the edge is deterministic,
+testable, and hands Heimdal a 4xx it can act on, consistent with STA-03A. The tolerance
+exists because a few seconds of NTP drift is normal and must not be an outage; five
+minutes is a starting value to be tuned against measurement, never hard-coded.
+
+**Why this is not a schema rule.** The check compares two instance locations
+(`ts.device` against `ts.server`), which JSON Schema 2020-12 cannot express — there
+is no `$data` in the draft. So it is a code-level check in Input, and the five
+`edge/<type>-clock-skew-future.json` fixtures stay **schema-valid**. They now carry an
+explicit `$expect: "input-reject"` marker with an `$expectCode`, asserted by
+`docs/schemas/validate-fixtures.py` — which is why the CI gate reports **87 assertions**
+where the Java parity test expands to **80 schema cases**. That gap is deliberate: the
+Java test mirrors the schema oracle only, and the marker is not a schema case. The
+Input-side 400 is asserted by T-013. The point is that the expectation is now **stated**
+rather than inherited from a directory convention.
+Before this decision both oracles treated every `edge/` fixture as expected-valid, which
+meant the open question already had "accept" baked into ten green assertions — see trap
+16 in the tracker.
+
 ## Consequence: `uid` uniqueness cannot be global
 
 **This changed STA-21B and STA-25A. Both are amended (24 Aug 2026) — see the
@@ -295,7 +354,7 @@ measure — but it is a conscious trade, recorded here, not an accident.
 
 **Second consequence: `uid`-only lookup cannot prune.** `GET /v1/stats/{type}/{uid}`
 (`docs/contracts/openapi.yaml`) supplies no time bound, and neither the primary key
-nor the covering index `(tenant, gateway, ts_device DESC, uid DESC)` helps, because
+nor the covering index `(tenant, clsbox, ts_device DESC, uid DESC)` helps, because
 both lead on a column the caller did not give. The query therefore touches all 90
 live partitions. A non-unique secondary index on the parent turns that from 90
 sequential scans into 90 index probes:
@@ -334,31 +393,48 @@ may no longer exist, and the insert fails into the DLQ.
 data-loss-by-design path, even though it only discards data that retention would
 remove almost immediately anyway. It must be metered and logged, never silent.
 
+**Engineering agreed Option B on 29 August 2026 (Naman Vashishtha), with one
+addition: alert when `records_expired_on_arrival` is non-zero.** A systemic gateway
+backlog and a harmless one-off look identical in the raw count; only the alert
+distinguishes them. Engineering agreement is *not* the signature — **D5b still needs
+product sign-off, and T-026 stays BLOCKED until it lands.** The alternative to Option B
+is writing rows into a partition that does not exist, so there is no third path to wait
+for.
+
 ## Required table and index direction
 
 ```sql
 CREATE TABLE lorastats (
-    uid           text        NOT NULL,
-    tenant        text        NOT NULL,
-    maintenant    text        NOT NULL,
-    gateway       text        NOT NULL,
-    ts_processor  timestamptz NOT NULL,
-    ts_device     timestamptz NOT NULL,
-    received_at   timestamptz NOT NULL DEFAULT now(),
+    uid            text        NOT NULL,
+    tenant         text        NOT NULL,
+    maintenant     text        NOT NULL,
+    clsbox         text        NOT NULL,
+    ts_server      timestamptz NOT NULL,
+    ts_device      timestamptz NOT NULL,
+    received_at    timestamptz NOT NULL DEFAULT now(),
+    -- Heimdal's record version, stored as received. NOT a payload discriminator:
+    -- all three incompatible lorastats dialects carry version 1 (ADR-007 §4).
+    -- Never branch on this column.
+    record_version smallint,
     -- Which of OUR schema versions validated this row. See D7: adding a column to
     -- two billion rows later is the expensive path, and the first question of any
     -- backfill is which rows were written under which rules.
     schema_version smallint    NOT NULL,
+    -- Envelope members production sends that we preserve and never read
+    -- (ADR-007 §2). Held as one jsonb rather than three columns because nothing
+    -- queries them and ADR-004 requires the record to survive a round trip intact.
+    -- Holds ts.datastore, ts.converter, ts.expiresOn and status.
+    passthrough    jsonb,
     -- typed payload columns, bigint for counters
-    rx_nr_pkts    bigint      NOT NULL,
-    rx_crc_missing bigint     NOT NULL,
+    rx_nr_pkts     bigint      NOT NULL,
+    rx_crc_missing bigint      NOT NULL,
     -- … remaining lorastats counters
     PRIMARY KEY (ts_device, uid)
 ) PARTITION BY RANGE (ts_device);
 
 -- Created on the parent; PG propagates to every partition
-CREATE INDEX idx_lorastats_tenant_gateway_device_uid
-    ON lorastats (tenant, gateway, ts_device DESC, uid DESC);
+CREATE INDEX idx_lorastats_tenant_clsbox_device_uid
+    ON lorastats (tenant, clsbox, ts_device DESC, uid DESC);
 
 -- Supports GET /v1/stats/{type}/{uid}, which supplies no time bound and so
 -- cannot prune partitions. Index probe per partition instead of a seq scan.
@@ -368,6 +444,18 @@ CREATE INDEX idx_lorastats_tenant_uid ON lorastats (tenant, uid);
 CREATE TABLE lorastats_2026_08_16 PARTITION OF lorastats
     FOR VALUES FROM ('2026-08-16') TO ('2026-08-17');
 ```
+
+`record_version` and `passthrough` are nullable on purpose: every fixture written
+before 29 Aug 2026 omits them, and a `NOT NULL` here would make the pre-ADR-007
+corpus unwritable for no benefit. Neither is indexed — nothing queries them.
+
+**A note on typed columns and the wire types.** ADR-007 §6 confirmed that the same
+concept is encoded differently per stat type: `timespan` is an integer in
+`lorastats`, `omsstats` and `netstats` but the string `"300"` in `sysstats`, and
+every `ltestats` numeric is a string on the wire. The typed-column design is
+unaffected — the Writer parses to the column type either way — but the parse is
+now **per type**, not one shared coercion, and it must range-check before
+conversion exactly as the `netstats` counters already require.
 
 The `retention_at` column from the baseline draft is **dropped** on the partition
 path — the partition boundary is the retention mechanism, and a separate column
@@ -400,8 +488,9 @@ detach would take against the writer.
 | `uid`-only lookup path | Secondary index `(tenant, uid)` on the parent; revisit a time hint on the endpoint if Phase 5 says so | **DECIDED** |
 | Envelope columns from the ARD | `ingested_at` rejected as a rename of `received_at`; `schema_version smallint NOT NULL` adopted | **DECIDED (D7), 24 Aug 2026** |
 | Writer deployment shape | One image, one deployment per stat type via `STAT_TYPE`; retention stays behind the D3 advisory lock | **DECIDED (D8), 24 Aug 2026** |
-| Late-arrival policy | Option B, reject and meter | **PROPOSED — needs product sign-off** |
-| `pg_partman` availability on managed service | — | **ACTION before Phase 2** |
+| Late-arrival policy | Option B, reject and meter, plus an alert when the counter is non-zero | **ENGINEERING AGREED 29 Aug 2026 — still needs product sign-off (D5b)** |
+| Partition pre-creation mechanism | Scheduled task in `stats-writer` behind the D3 advisory lock; `pg_partman` never a dependency | **DECIDED (D1), 29 Aug 2026** |
+| Clock skew — a `ts.device` ahead of `ts.server` | Rejected at Input beyond a configurable tolerance (default 5 min); 400 `clock_skew_exceeded`, metered | **DECIDED (D9), 29 Aug 2026 — closes Q14a** |
 
 ## Consequences and tests
 
@@ -412,6 +501,9 @@ a simulated delete. Specifically required:
 * Boundary tests either side of the retention window, keyed on `ts_device`.
 * A late-arriving record with an old `ts_device` behaves per the approved
   late-arrival policy, and is metered rather than silently dropped.
+* A record whose `ts_device` exceeds `ts_server` by more than the configured
+  tolerance is rejected at Input with 400 `clock_skew_exceeded` and never reaches a
+  partition (D9); one just inside the tolerance is accepted.
 * Partition pre-creation runs far enough ahead that no insert ever fails for a
   missing partition; a test that removes pre-creation proves the failure is loud.
 * Duplicate `uid` redelivery is an idempotent no-op via
