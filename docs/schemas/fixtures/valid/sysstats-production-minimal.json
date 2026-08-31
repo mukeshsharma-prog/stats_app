@@ -1,0 +1,28 @@
+{
+  "uid": "CLSCON-6b3194da-8d47-4d10-9807-0f4c1e7902e6",
+  "tenant": "mzc",
+  "maintenant": "mzc",
+  "clsbox": "80029C2253EE",
+  "type": "sysstats",
+  "version": 1,
+  "ts": {
+    "server": 1787834226,
+    "datastore": 1787834226,
+    "converter": 1787834226,
+    "device": 1787834226,
+    "expiresOn": "2026-08-27T12:37:06.442Z"
+  },
+  "data": {
+    "memfree": 70916,
+    "idletime": 780249.35,
+    "load5": 0.69,
+    "runable": "1/85",
+    "load1": 0.6,
+    "uptime": 2322716.22,
+    "load15": 0.74
+  },
+  "status": [
+    "conversion ok"
+  ],
+  "$comment": "Production record, 29 Aug 2026, UNMODIFIED. A gateway with no temperature sensor: temp, rtt, wan_if, rebootcause and timespan are all absent. Proves those five fields are optional - a device state, not a dialect disagreement. NOTE: production sends tenant == maintenant == \"mzc\", which is exactly the trap in claude/CLAUDE.md §6. This fixture is kept byte-faithful because its job is to be a production regression guard; it is NOT an isolation test. The *-tenant-isolation-pair.json fixtures, where the two values deliberately differ, remain the only isolation guards."
+}

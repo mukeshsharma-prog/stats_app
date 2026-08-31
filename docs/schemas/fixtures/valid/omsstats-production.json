@@ -1,0 +1,26 @@
+{
+  "uid": "CLSCON-fb9b0c59-fbf0-41fe-b34a-22af75a7f53a",
+  "tenant": "mzc",
+  "maintenant": "mzc",
+  "clsbox": "04B648110442",
+  "type": "omsstats",
+  "version": 1,
+  "ts": {
+    "server": 1787833537,
+    "datastore": 1787833537,
+    "converter": 1787833537,
+    "device": 1787833537,
+    "expiresOn": "2026-08-27T12:25:37.071Z"
+  },
+  "data": {
+    "rx_nr_pkts": 663,
+    "rx_valid_nr_pkts": 105,
+    "rx_crc_bad": 528,
+    "timespan": 1800,
+    "device_count": 16
+  },
+  "status": [
+    "conversion ok"
+  ],
+  "$comment": "Production record, 29 Aug 2026, UNMODIFIED. omsstats was the one type the pre-ADR-007 payload schema already got right; this pins that. NOTE: production sends tenant == maintenant == \"mzc\", which is exactly the trap in claude/CLAUDE.md §6. This fixture is kept byte-faithful because its job is to be a production regression guard; it is NOT an isolation test. The *-tenant-isolation-pair.json fixtures, where the two values deliberately differ, remain the only isolation guards."
+}

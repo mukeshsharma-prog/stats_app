@@ -1,0 +1,38 @@
+{
+  "uid": "CLSCON-a47b270f-b075-46e2-a2e2-f0dc662d094c",
+  "tenant": "mzc",
+  "maintenant": "mzc",
+  "clsbox": "04B6481064F9",
+  "type": "lorastats",
+  "version": 1,
+  "ts": {
+    "server": 1787833797,
+    "datastore": 1787833797,
+    "converter": 1787833797,
+    "device": 1787833797,
+    "expiresOn": "2026-08-27T12:29:57.182Z"
+  },
+  "data": {
+    "rx_nr_pkts": "176",
+    "rx_type_arol": "0",
+    "rx_crc_missing": "0",
+    "rx_crc_bad": "63",
+    "tx_peek_index_zero": "0",
+    "tx_success": "0",
+    "rx_short_pkt": "181",
+    "chip_comm_error": "0",
+    "tx_failed": "0",
+    "tx_override": "0",
+    "util_fopen_failed": "0",
+    "tx_peek": "0",
+    "tx_type_beacon": "0",
+    "tx_busy": "0",
+    "tx_dequeue_error": "0"
+  },
+  "status": [
+    "conversion ok"
+  ],
+  "$comment": "Production record, 29 Aug 2026, UNMODIFIED, and DELIBERATELY NOT ACCEPTED. Bare field names but every counter is a STRING (\"176\"), plus rx_type_arol and no timespan. Passes the envelope, so Input returns 200 and publishes; fails the lorastats payload schema, so the Writer dead-letters it. That is the decision in ADR-007 §4: encode one dialect and make the disagreement visible in the DLQ rather than absorb it into a permissive union. It carries version:1, same as the canonical dialect, so nothing on the record could have discriminated it. NOTE: production sends tenant == maintenant == \"mzc\", which is exactly the trap in claude/CLAUDE.md §6. This fixture is kept byte-faithful because its job is to be a production regression guard; it is NOT an isolation test. The *-tenant-isolation-pair.json fixtures, where the two values deliberately differ, remain the only isolation guards.",
+  "$expect": "writer-dlq",
+  "$expectCode": "invalid_type"
+}

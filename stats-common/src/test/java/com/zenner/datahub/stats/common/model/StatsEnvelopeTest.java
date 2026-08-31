@@ -42,17 +42,19 @@ class StatsEnvelopeTest {
     }
 
     @Test
-    void gatewayMustBeTwelveHexadecimalCharacters() throws Exception {
+    void clsboxMustBeTwelveHexadecimalCharacters() throws Exception {
         StatsEnvelope valid = OBJECT_MAPPER.treeToValue(
                 readFixture("valid/lorastats-valid.json"), StatsEnvelope.class);
         StatsEnvelope invalid = new StatsEnvelope(
                 valid.uid(),
                 valid.tenant(),
                 valid.maintenant(),
-                "not-a-gateway",
+                "not-a-clsbox",
                 valid.type(),
+                valid.version(),
                 valid.ts(),
-                valid.data());
+                valid.data(),
+                valid.status());
 
         try (ValidatorFactory factory = Validation.buildDefaultValidatorFactory()) {
             Validator validator = factory.getValidator();
@@ -60,8 +62,45 @@ class StatsEnvelopeTest {
 
             assertThat(violations)
                     .extracting(violation -> violation.getPropertyPath().toString())
-                    .containsExactly("gateway");
+                    .containsExactly("clsbox");
         }
+    }
+
+    @Test
+    void preservesTheWholeProductionTimestampBlockThroughTheTypedView() throws Exception {
+        // ADR-004 requires publication to be byte-identical to what was received, and
+        // ADR-003's per-partition duplicate suppression depends on that. A typed view
+        // that silently dropped ts.datastore, ts.converter or ts.expiresOn would break
+        // it without failing anything. Production sends all three on every record.
+        JsonNode fixture = readFixture("valid/omsstats-ts-converter-present.json");
+        ObjectNode record = ((ObjectNode) fixture).deepCopy();
+        record.remove("$comment");
+
+        StatsEnvelope envelope = OBJECT_MAPPER.treeToValue(record, StatsEnvelope.class);
+        JsonNode roundTrip = OBJECT_MAPPER.readTree(OBJECT_MAPPER.writeValueAsBytes(envelope));
+
+        assertThat(roundTrip).isEqualTo(record);
+        assertThat(envelope.ts().converter()).isNotNull();
+        assertThat(envelope.ts().datastore()).isNotNull();
+        assertThat(envelope.ts().expiresOn()).isEqualTo("2026-08-27T12:25:37.071Z");
+        assertThat(envelope.version()).isEqualTo(1);
+        assertThat(envelope.status()).containsExactly("conversion ok");
+    }
+
+    @Test
+    void omitsAbsentOptionalMembersRatherThanSerialisingThemAsNull() throws Exception {
+        // The valid fixture set predates version/status/datastore/converter. Without
+        // JsonInclude.NON_NULL every one of those records would round-trip with four
+        // extra null members and stop matching what was received.
+        StatsEnvelope envelope = OBJECT_MAPPER.treeToValue(
+                readFixture("valid/lorastats-valid.json"), StatsEnvelope.class);
+
+        JsonNode roundTrip = OBJECT_MAPPER.readTree(OBJECT_MAPPER.writeValueAsBytes(envelope));
+
+        assertThat(roundTrip.has("version")).isFalse();
+        assertThat(roundTrip.has("status")).isFalse();
+        assertThat(roundTrip.at("/ts").has("datastore")).isFalse();
+        assertThat(roundTrip.at("/ts").has("converter")).isFalse();
     }
 
     private static JsonNode readFixture(String name) throws IOException {

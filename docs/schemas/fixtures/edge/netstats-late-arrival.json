@@ -2,10 +2,10 @@
   "uid": "e5e5e5e5-e5007-4e507-8e507-e5e5e5e5e5e5",
   "tenant": "tenant-alpha",
   "maintenant": "management-parent",
-  "gateway": "A1B2C3D4E5F6",
+  "clsbox": "A1B2C3D4E5F6",
   "type": "netstats",
   "ts": {
-    "processor": 1787054340,
+    "server": 1787054340,
     "device": 1778846400
   },
   "data": {
@@ -33,5 +33,5 @@
     },
     "timespan": 300
   },
-  "$comment": "ts.device is 95 days old while ts.processor is current - a gateway that was offline and has just reconnected. No live partition exists for this row. Expected behaviour is expired_on_arrival: meter it, DLQ it without retry, and ACK. This path is deliberate data loss and is still pending product sign-off (D5b)."
+  "$comment": "ts.device is 95 days old while ts.server is current - a gateway that was offline and has just reconnected. No live partition exists for this row. Expected behaviour is expired_on_arrival: meter it, DLQ it without retry, and ACK. This path is deliberate data loss and is still pending product sign-off (D5b)."
 }

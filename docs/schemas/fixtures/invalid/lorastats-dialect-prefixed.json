@@ -1,0 +1,39 @@
+{
+  "uid": "CLSCON-1a449bcd-39f5-45a8-97cb-f4cab954b6ed",
+  "tenant": "mzc",
+  "maintenant": "mzc",
+  "clsbox": "04B648102E76",
+  "type": "lorastats",
+  "version": 1,
+  "ts": {
+    "server": 1787833749,
+    "datastore": 1787833749,
+    "converter": 1787833749,
+    "device": 1787833749,
+    "expiresOn": "2026-08-27T12:29:09.594Z"
+  },
+  "data": {
+    "lora_tx_dequeue_error": 0,
+    "lora_tx_peek_index_zero": 0,
+    "lora_chip_comm_error": 0,
+    "lora_rx_crc_bad": 38,
+    "fsk_received": 0,
+    "lora_tx_busy": 0,
+    "timespan": 1800,
+    "lora_tx_type_beacon": 0,
+    "lora_tx_failed": 0,
+    "lora_rx_crc_missing": 0,
+    "lora_rx_short_pkt": 172,
+    "lora_rx_nr_pkts": 220,
+    "lora_tx_override": 0,
+    "lora_tx_success": 2,
+    "lora_util_fopen_failed": 0,
+    "lora_tx_peek": 0
+  },
+  "status": [
+    "conversion ok"
+  ],
+  "$comment": "Production record, 29 Aug 2026, UNMODIFIED, and DELIBERATELY NOT ACCEPTED. Every counter is lora_-prefixed (lora_rx_nr_pkts) with integer values. Passes the envelope, so Input returns 200 and publishes; fails the lorastats payload schema on 13 missing required fields, so the Writer dead-letters it. It carries version:1, same as the canonical dialect. NOTE: production sends tenant == maintenant == \"mzc\", which is exactly the trap in claude/CLAUDE.md §6. This fixture is kept byte-faithful because its job is to be a production regression guard; it is NOT an isolation test. The *-tenant-isolation-pair.json fixtures, where the two values deliberately differ, remain the only isolation guards.",
+  "$expect": "writer-dlq",
+  "$expectCode": "missing"
+}

@@ -40,8 +40,8 @@ CREATE TABLE <stat_type> (
     uid             text        NOT NULL,
     tenant          text        NOT NULL,
     maintenant      text        NOT NULL,
-    gateway         text        NOT NULL,
-    ts_processor    timestamptz NOT NULL,
+    clsbox         text        NOT NULL,
+    ts_server    timestamptz NOT NULL,
     ts_device       timestamptz NOT NULL,
     retention_at    timestamptz NOT NULL,
     data            jsonb       NOT NULL,
@@ -57,8 +57,8 @@ This is a **design draft**, not a final migration. The team must decide whether 
 The minimum read-path index for each table is:
 
 ```sql
-CREATE INDEX idx_<stat_type>_tenant_gateway_device
-    ON <stat_type> (tenant, gateway, ts_device DESC, uid DESC);
+CREATE INDEX idx_<stat_type>_tenant_clsbox_device
+    ON <stat_type> (tenant, clsbox, ts_device DESC, uid DESC);
 ```
 
 Retention support requires a strategy selected for PostgreSQL. Options include scheduled batched deletion:
@@ -101,7 +101,7 @@ Resolved in `docs/architecture/adr/ADR-003-Retention-and-Indexes.md` unless note
 | Retention job ownership and schedule | `ts.device` is the approved business basis; deletion behavior must be safe and observable. | **`stats-writer` + advisory lock, daily off-peak** (ADR-003 D3) |
 | Batch size and transaction boundaries | Needed to balance throughput, locking, retry precision, and DLQ behavior. | **Partition drop; batch values retained for fallback only** (ADR-003 D4) |
 | Connection pools and writer concurrency | Must be capacity-tested against PostgreSQL and per-type queues. | PENDING — Phase 5 load test |
-| Backup/PITR/restore targets | Required for production data recovery. | **ESCALATED** — needs RPO/RTO from product + ops (ADR-003 D5) |
+| Backup/PITR/restore targets | Required for production data recovery. | **ESCALATED** — needs RPO/RTO from product + ops (ADR-003 D5). Engineering's proposal, 29 Aug 2026: RPO ≤ 5 min, RTO 1 h per partition / 24 h full cluster |
 | Migration tool | Select Flyway, Liquibase, or platform standard; migrations are versioned and reviewed. | **Flyway** (ADR-003 D6) — final; Q1a closed 18 Aug 2026 with no reference project to override it |
 | JSONB retention/data extraction policy | Needed if payload remains semi-structured. | Applies to `netstats` only. Q4a is answered, but the `jsonb` interface map stays: fixed `eth0_*`/`wwan_*` columns would silently drop an unexpected interface such as `eth1`, which Q4a explicitly permits (ADR-003 D2) |
 | `uid` uniqueness scope | A global unique index is impossible on a partitioned table. | **`(ts_device, uid)`** — column order per G2; STA-21B and STA-25A amended 24 Aug 2026. Suppressed duplicates are metered, not silent |

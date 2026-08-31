@@ -41,6 +41,15 @@ import java.util.regex.Pattern;
  * <p>NetworkNT error messages are deliberately discarded because they may embed
  * offending values. Only JSON Pointers, machine-readable codes, and reviewed
  * {@link SafeMessage} constants cross the public boundary. (STA-03A)</p>
+ *
+ * <p><strong>There are two gates, and they have different consequences</strong>
+ * (ADR-007 §5). {@link #validateEnvelope(JsonNode)} is <em>stats-input's</em> gate:
+ * a failure is a 400 and nothing is published (STA-03A). {@link #validate(JsonNode)}
+ * additionally applies the per-type payload schema and is <em>stats-writer's</em>
+ * gate: a failure there is a dead-letter, not a 400, because the record has already
+ * been accepted, confirmed, and published. Calling the wrong one moves the failure
+ * across that boundary — validating the payload at Input turns a dead-letter into a
+ * rejected write that Heimdal will never retry.</p>
  */
 public final class StatsSchemaValidator {
 
@@ -87,10 +96,32 @@ public final class StatsSchemaValidator {
     }
 
     /**
-     * Validates one parsed JSON record. Malformed JSON belongs to the Input
-     * parser layer and never reaches this method.
+     * <strong>stats-input's gate.</strong> Validates one parsed JSON record against
+     * the common envelope only. A failure here is a 400 and nothing is published
+     * (STA-03A). Malformed JSON belongs to the Input parser layer and never reaches
+     * this method.
+     *
+     * <p>This deliberately does not look at {@code data}. The payload schemas are
+     * strict and the dialects production actually sends disagree with each other, so
+     * enforcing them at Input would 400 traffic that Heimdal will never retry.
+     * ADR-007 §5 routes that disagreement to the DLQ instead, where it is visible and
+     * recoverable.</p>
+     */
+    public ValidationResult validateEnvelope(JsonNode record) {
+        return validateAgainst(record, false);
+    }
+
+    /**
+     * <strong>stats-writer's gate.</strong> Validates one parsed JSON record against
+     * the envelope <em>and</em> the schema for its stat type. A failure here is a
+     * dead-letter, not a 400: the record was already accepted, publisher-confirmed,
+     * and published, so rejecting it now cannot reach the caller (ADR-007 §5).
      */
     public ValidationResult validate(JsonNode record) {
+        return validateAgainst(record, true);
+    }
+
+    private ValidationResult validateAgainst(JsonNode record, boolean includePayload) {
         if (record == null || record.isNull() || !record.isObject()) {
             return invalidEnvelope(FieldError.of("/", INVALID_TYPE, SafeMessage.INVALID_FIELD_TYPE));
         }
@@ -108,14 +139,15 @@ public final class StatsSchemaValidator {
             statType = StatType.fromWireName(typeNode.textValue());
         } catch (IllegalArgumentException unknownType) {
             // Fail before any schema filename, routing key, queue, or table name
-            // can be derived from the untrusted literal.
+            // can be derived from the untrusted literal. An unknown type is an
+            // envelope failure and therefore a 400 at Input, never a dead-letter.
             return invalidEnvelope(FieldError.of(
                     "/type",
                     ErrorCode.UNKNOWN_STAT_TYPE.wireCode(),
                     SafeMessage.UNSUPPORTED_STAT_TYPE));
         }
 
-        LoadedSchema selected = schemasByType.get(statType);
+        LoadedSchema selected = includePayload ? schemasByType.get(statType) : envelopeSchema;
         List<Error> validationErrors = selected.schema().validate(record);
         if (validationErrors.isEmpty()) {
             // netstats' schema rejects non-digits and values wider than 19 digits.

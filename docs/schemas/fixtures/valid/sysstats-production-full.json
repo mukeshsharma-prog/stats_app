@@ -1,0 +1,33 @@
+{
+  "uid": "CLSCON-afbbd417-40d7-4483-a01c-661df10b3242",
+  "tenant": "mzc",
+  "maintenant": "mzc",
+  "clsbox": "04B64811F934",
+  "type": "sysstats",
+  "version": 1,
+  "ts": {
+    "server": 1787834205,
+    "datastore": 1787834205,
+    "converter": 1787834205,
+    "device": 1787834205,
+    "expiresOn": "2026-08-27T12:36:45.153Z"
+  },
+  "data": {
+    "memfree": 372952,
+    "temp": 60573,
+    "wan_if": "wwan",
+    "rtt": 0,
+    "rebootcause": "reboot",
+    "load5": 1.29,
+    "idletime": 306486.74,
+    "timespan": "300",
+    "runable": "2/160",
+    "load1": 1.32,
+    "uptime": 104187.93,
+    "load15": 1.34
+  },
+  "status": [
+    "conversion ok"
+  ],
+  "$comment": "Production record, 29 Aug 2026, UNMODIFIED. Carries every optional sysstats field, and sends timespan as the STRING \"300\" where lorastats, omsstats and netstats send it as an integer. The same concept is typed differently per type on the wire; do not assume one column type across types. NOTE: production sends tenant == maintenant == \"mzc\", which is exactly the trap in claude/CLAUDE.md §6. This fixture is kept byte-faithful because its job is to be a production regression guard; it is NOT an isolation test. The *-tenant-isolation-pair.json fixtures, where the two values deliberately differ, remain the only isolation guards."
+}

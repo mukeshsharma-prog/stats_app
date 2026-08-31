@@ -4,10 +4,10 @@
     "uid": "a1a1a1a1-a1002-4a102-8a102-a1a1a1a1a1a1",
     "tenant": "tenant-alpha",
     "maintenant": "management-parent",
-    "gateway": "A1B2C3D4E5F6",
+    "clsbox": "A1B2C3D4E5F6",
     "type": "sysstats",
     "ts": {
-      "processor": 1787053820,
+      "server": 1787053820,
       "device": 1787053800
     },
     "data": {
@@ -24,10 +24,10 @@
     "uid": "a1a1a1a1-a1003-4a103-8a103-a1a1a1a1a1a1",
     "tenant": "tenant-beta",
     "maintenant": "tenant-alpha",
-    "gateway": "A1B2C3D4E5F6",
+    "clsbox": "A1B2C3D4E5F6",
     "type": "sysstats",
     "ts": {
-      "processor": 1787053820,
+      "server": 1787053820,
       "device": 1787053800
     },
     "data": {

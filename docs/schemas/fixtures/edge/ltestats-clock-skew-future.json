@@ -2,22 +2,24 @@
   "uid": "c3c3c3c3-c3009-4c309-8c309-c3c3c3c3c3c3",
   "tenant": "tenant-alpha",
   "maintenant": "management-parent",
-  "gateway": "A1B2C3D4E5F6",
+  "clsbox": "A1B2C3D4E5F6",
   "type": "ltestats",
   "ts": {
-    "processor": 1787054400,
+    "server": 1787054400,
     "device": 1787058000
   },
   "data": {
-    "rssi": -52,
-    "rsrp": -79,
-    "rsrq": -8,
-    "access_technology": "4G",
+    "rssi": "-52",
+    "rsrp": "-79",
+    "rsrq": "-8",
+    "access_Technology": "4G",
     "operator": "ExampleTel",
-    "plmn": 26201,
+    "plmn": "26201",
     "imsi": "262019999999999",
     "lac": "63AE",
     "cid": "2648604"
   },
-  "$comment": "ts.device is one hour in the future, ahead of ts.processor. A gateway with a bad clock. Decide and test explicitly: accept into a future partition, or reject. Currently unspecified - raise it rather than guessing."
+  "$comment": "ts.device is one hour in the future, ahead of ts.server. A gateway with a bad clock. DECIDED 29 Aug 2026 (Q14a, ADR-003 D9): stats-input rejects this with 400 and the field-level code clock_skew_exceeded, metered as records_clock_skew_rejected. The tolerance is stats.input.validation.max-clock-skew, default PT5M; this record is an hour out, so it is well past it. The record stays SCHEMA-VALID on purpose - the check compares ts.device against ts.server, which JSON Schema 2020-12 cannot express - so the expectation is carried by $expect and asserted by validate-fixtures.py rather than by the schema.",
+  "$expect": "input-reject",
+  "$expectCode": "clock_skew_exceeded"
 }

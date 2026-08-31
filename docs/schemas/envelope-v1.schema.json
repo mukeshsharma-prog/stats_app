@@ -7,7 +7,7 @@
     "uid",
     "tenant",
     "maintenant",
-    "gateway",
+    "clsbox",
     "type",
     "ts",
     "data"
@@ -16,7 +16,7 @@
     "uid": {
       "type": "string",
       "minLength": 1,
-      "$comment": "ADR-005 is ACCEPTED. Uniqueness is enforced in PostgreSQL by PRIMARY KEY (ts_device, uid), scoped PER PARTITION - a global unique index is not creatable on a table partitioned by ts_device (ADR-003, G2). No UUID format is enforced here: ZC guarantees uniqueness, not a format, and rejecting a non-UUID uid would reject valid data."
+      "$comment": "Production sends CLSCON-<uuid>, not a bare UUID. No format is enforced: ZC guarantees uniqueness, not a shape, and a UUID pattern would reject every record production actually sends. Uniqueness is enforced in PostgreSQL by PRIMARY KEY (ts_device, uid), scoped PER PARTITION - a global unique index is not creatable on a table partitioned by ts_device (ADR-003, G2)."
     },
     "tenant": {
       "type": "string",
@@ -26,47 +26,69 @@
       "type": "string",
       "minLength": 1
     },
-    "gateway": {
+    "clsbox": {
       "type": "string",
-      "pattern": "^[0-9A-Fa-f]{12}$"
+      "pattern": "^[0-9A-Fa-f]{12}$",
+      "$comment": "ADR-007: the device identifier is named `clsbox` on the wire, in this schema, in the Java model, in the PostgreSQL column, and in API responses. It was called `gateway` in the SRS and in every document before 29 Aug 2026; production has never used that name. One name per thing, end to end, and no rename layer that could silently swap it with `tenant` or `maintenant` (claude/CLAUDE.md §6)."
     },
     "type": {
       "type": "string",
       "enum": ["lorastats", "ltestats", "sysstats", "omsstats", "netstats"],
       "$comment": "The five approved V1 stat types, as a closed enumeration. Without this, an unrecognised type validates cleanly against the envelope and is only caught later by routing - which means the 400 depends on where the record happens to fail rather than on the contract. STA-14A: adding a type adds a member here, and changes nothing about existing types."
     },
+    "version": {
+      "type": "integer",
+      "minimum": 1,
+      "$comment": "Production sends version:1 on every record. It is accepted and stored, and it is NOT a payload discriminator: all three incompatible lorastats payload dialects observed on 29 Aug 2026 carry version:1. Never branch a parser on this field (ADR-007 §4)."
+    },
+    "status": {
+      "type": "array",
+      "items": { "type": "string" },
+      "$comment": "Production sends [\"conversion ok\"]. Accepted and stored verbatim; the Stats App does not interpret it. It is a Heimdal converter annotation, not a Stats App state."
+    },
     "ts": {
       "type": "object",
       "required": [
-        "processor",
+        "server",
         "device"
       ],
       "properties": {
-        "processor": {
-          "type": "integer",
-          "minimum": 946684800,
-          "maximum": 4102444800,
-          "$comment": "Unix epoch SECONDS. Bounded to 2000-01-01 .. 2100-01-01 so a millisecond timestamp fails validation with a 400 instead of silently landing ~53,000 years in the future where retention never reaches it. Answered 18 Aug 2026."
+        "server": {
+          "$ref": "#/$defs/epochSeconds",
+          "$comment": "The canonical arrival clock (ADR-007 §3). This is what the SRS called ts.processor. Clock skew is measured against this field, and the API exposes it as the processing time. Chosen over ts.datastore because ts.datastore is the legacy Mongo store's write clock and describes a system we are replacing."
         },
         "device": {
-          "type": "integer",
-          "minimum": 946684800,
-          "maximum": 4102444800,
-          "$comment": "Unix epoch SECONDS. Bounded to 2000-01-01 .. 2100-01-01 so a millisecond timestamp fails validation with a 400 instead of silently landing ~53,000 years in the future where retention never reaches it. Answered 18 Aug 2026."
+          "$ref": "#/$defs/epochSeconds",
+          "$comment": "Unix epoch SECONDS. Retention keys on this field, not on ts.server (STA-23B). In the 29 Aug 2026 production sample ts.device equals ts.server in 14 of 15 records - see the open question in ADR-007 §6 about whether this clock is genuinely device-assigned."
+        },
+        "datastore": {
+          "$ref": "#/$defs/epochSeconds",
+          "$comment": "The legacy Mongo store's write clock. Accepted and preserved, never read. It will stop being meaningful once that store is retired."
+        },
+        "converter": {
+          "$ref": "#/$defs/epochSeconds",
+          "$comment": "ADR-004 AMENDED 29 Aug 2026. Present on 100% of production records, so the previous rule - `not: {required: [converter]}`, which made the field's presence INVALID - rejected every record Heimdal sends. The field is now accepted, preserved, and never read. ADR-004's actual decision is unchanged and still binding: the Stats App performs NO timestamp normalisation. Presence is metered as records_converter_ts_present{type} so we can see if Heimdal ever stops sending it."
+        },
+        "expiresOn": {
+          "type": "string",
+          "$comment": "The legacy Mongo TTL key, an ISO-8601 instant equal to ts.device. Accepted and preserved, never read - Stats App retention is a partition detach-and-drop keyed on ts_device (ADR-003 D1), not a TTL. Deliberately NOT typed as an epoch integer: production sends a date string here."
         }
       },
       "additionalProperties": true,
-      "not": {
-        "required": [
-          "converter"
-        ]
-      },
-      "$comment": "ADR-004 is ACCEPTED: Stats App performs no timestamp normalisation and a record carrying ts.converter is INVALID. Other unknown ts members are still accepted under D14 (unknown-field policy)."
+      "$comment": "Unknown ts members are accepted under D14. There is no longer any member whose presence makes a record invalid - the one exception, ts.converter, was removed on 29 Aug 2026 when production showed it on every record (ADR-007 §2)."
     },
     "data": {
       "type": "object"
     }
   },
   "additionalProperties": true,
-  "$comment": "additionalProperties stays true under the D14 unknown-field policy: unknown members are accepted and preserved rather than rejected. This is a deliberate decision (claude/CLAUDE.md §7), not a Jackson default - the alternative was considered and not chosen. Note the one asymmetry: ts.converter fails even though other unknown ts members pass, because its presence means the sender believes in a normalisation step this system does not perform (ADR-004)."
+  "$defs": {
+    "epochSeconds": {
+      "type": "integer",
+      "minimum": 946684800,
+      "maximum": 4102444800,
+      "$comment": "Unix epoch SECONDS. Bounded to 2000-01-01 .. 2100-01-01 so a millisecond timestamp fails validation with a 400 instead of silently landing ~53,000 years in the future where retention never reaches it. Answered 18 Aug 2026."
+    }
+  },
+  "$comment": "THE ENVELOPE IS THE INPUT GATE. stats-input validates a record against THIS schema only and returns 400 on failure (STA-03A); it does not validate the payload. The per-type schemas that $ref this file are the WRITER's gate, and a payload that fails them is dead-lettered, not 400'd (ADR-007 §5). additionalProperties stays true under D14: unknown members are accepted and preserved rather than rejected. Field names and types were re-derived from the 29 Aug 2026 production sample, which is the authoritative wire format (ADR-007)."
 }

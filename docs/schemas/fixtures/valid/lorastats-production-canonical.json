@@ -1,0 +1,37 @@
+{
+  "uid": "CLSCON-11d3ec4c-f6e1-403a-a9ef-b6f5fe909eee",
+  "tenant": "mzc",
+  "maintenant": "mzc",
+  "clsbox": "04B64810652B",
+  "type": "lorastats",
+  "version": 1,
+  "ts": {
+    "server": 1787833739,
+    "datastore": 1787833739,
+    "converter": 1787833739,
+    "device": 1787833739,
+    "expiresOn": "2026-08-27T12:28:59.074Z"
+  },
+  "data": {
+    "rx_nr_pkts": 219,
+    "fsk_received": 0,
+    "rx_crc_missing": 0,
+    "rx_crc_bad": 48,
+    "tx_peek_index_zero": 0,
+    "tx_success": 0,
+    "rx_short_pkt": 166,
+    "timespan": 1800,
+    "chip_comm_error": 0,
+    "tx_failed": 0,
+    "tx_override": 0,
+    "util_fopen_failed": 0,
+    "tx_peek": 0,
+    "tx_type_beacon": 0,
+    "tx_busy": 0,
+    "tx_dequeue_error": 0
+  },
+  "status": [
+    "conversion ok"
+  ],
+  "$comment": "Production record, 29 Aug 2026, UNMODIFIED. The canonical lorastats dialect: bare field names, integer values, carrying fsk_received, rx_short_pkt and timespan. This is the dialect the schema encodes; the other two observed dialects dead-letter (ADR-007 §4). NOTE: production sends tenant == maintenant == \"mzc\", which is exactly the trap in claude/CLAUDE.md §6. This fixture is kept byte-faithful because its job is to be a production regression guard; it is NOT an isolation test. The *-tenant-isolation-pair.json fixtures, where the two values deliberately differ, remain the only isolation guards."
+}

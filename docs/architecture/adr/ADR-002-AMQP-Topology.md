@@ -3,6 +3,10 @@
 **Status:** `APPROVED`
 **Decision owner:** Platform engineering / Architecture Review Board
 **Requirements:** STA-04, STA-10 through STA-14, STA-20, STA-25 through STA-27
+**Amended 29 August 2026:** Q3a closed — only broker-connected modules declare topology
+(§11); dead-letter retention and redrive authority decided (§12).
+**Amended 29 August 2026 (ADR-007 §4):** §12 gains a volume warning — the DLQ now
+receives routine traffic, not only exceptional traffic.
 
 ## Context
 
@@ -92,6 +96,81 @@ per-type Writer scales to several replicas. A dedicated instance would add a
 deployment to operate and would still need the same lock. Keep the lock; drop the
 instance.
 
+## Decisions added 29 August 2026
+
+Neither of these came from the ARD. §11 closes a question that had been open against ZC
+since the answer set; §12 closes one that had been sitting with operations.
+
+### 11. Topology is declared by **broker-connected** modules only — Q3a closed
+
+**Decision, 29 August 2026:** `stats-input` and `stats-writer` declare the topology.
+**`stats-api` holds no RabbitMQ connection at all.** Declarations come from the shared
+constants in `stats-common` and must be identical and idempotent.
+
+ZC's answer to Q3 read *"every module have to declare the exchanges, queues and
+bindings."* Taken literally that hands the read-only API a broker dependency it has no
+use for, and adds a third declaring module to a set where any argument mismatch is a
+`RESOURCE_LOCKED` startup failure rather than a warning. Read as *every broker-connected
+module*, the answer and the service boundaries agree.
+
+This is no longer treated as a blocker. The enforcement is **T-032**, the declaration
+conflict test, which proves at build time what a platform sign-off would only assert in
+prose — and quorum queues sharpen it further, because a queue's type is fixed at
+declaration (§8). Obtain the one-line platform acknowledgement as a courtesy; do not
+wait on it, and do not give the API a broker connection in the meantime.
+
+### 12. Dead-letter retention and redrive authority — no TTL, ever
+
+**Decision, 29 August 2026: the DLQ carries no `x-message-ttl` and no expiry of any
+kind.** A TTL'd dead-letter queue discards records silently, which violates rule 9
+(nothing is silently dropped) and the no-silent-error-handling rule outright. A message
+that has reached the DLQ has already survived three retry tiers; deleting it on a timer
+destroys the only remaining copy of a record Heimdal believes it delivered.
+
+| Control | Value |
+|---|---|
+| Alert | DLQ depth > 0, **and** oldest-DLQ-message age |
+| Manual disposition | Expected within 14 days |
+| Redrive authority | Authorised operations role only |
+| Redrive scope | Explicit, per stat type — never blanket |
+| Redrive rate | Capped at 2× nominal (2,667/s), the same cap as replay |
+| Precondition | Root cause identified and resolved first; blind automatic replay is not permitted |
+
+Bounding broker disk is therefore an **alerting and disposition** problem, not an expiry
+problem. Depth above zero is already an actionable signal, so an unbounded DLQ that is
+actually watched cannot grow unnoticed.
+
+> **Pressure on this decision — added 29 August 2026 (ADR-007 §4).** The paragraph
+> above assumes the DLQ receives *exceptional* traffic. It no longer does. ADR-007
+> encodes one `lorastats` payload dialect and dead-letters the other two, which at
+> 115.2M records/day is on the order of **15M messages/day accumulating with no
+> expiry**. "Depth > 0 is actionable" degrades to noise at that rate, and disposition
+> within 14 days is not achievable by hand.
+>
+> **The no-TTL rule still stands** — a TTL'd DLQ is silent data loss, and that is
+> just as true at 15M/day as at 15/day. What changes is the urgency of the cause:
+> the dialect question (ADR-007 Q15a) is the fix, and it belongs to ZC. Until it is
+> answered, DLQ depth alerting must be sized for this volume and must be in place
+> **before Phase 2 ships**, and the per-type alert thresholds cannot be uniform —
+> `lorastats` will sit permanently above whatever threshold the other four types use.
+>
+> Do not resolve this by widening the `lorastats` schema to absorb the dialects.
+> That is precisely the option ADR-007 §4 considered and rejected, and doing it here
+> as an operational expedient would silently ratify a contract nobody understands.
+
+**Enforced in code since 29 August 2026.** `AmqpTopology` owns the declaration argument
+maps as well as the names, and `deadLetterQueueArguments()` **has no parameter to set a
+TTL or a dead-letter exchange with** — the policy is unrepresentable rather than merely
+documented. `AmqpTopologyTest` asserts the map is exactly `{x-queue-type: quorum}`. The
+same move gives the modules one source for their arguments instead of two hand-built
+maps, which is what the §11 declaration-conflict test (T-032) compares.
+
+**The trap to write into the runbook:** a message that has sat in the DLQ long enough
+becomes `expired_on_arrival` the moment it is redriven, because its `ts.device` has aged
+past the 90-day retention window (ADR-003). **A redrive after roughly 90 days is not a
+recovery — it is a no-op that increments a counter.** Operators must know this before
+they attempt it, or a failed recovery will look like a successful one.
+
 ## Consequences and tests
 
 Each stat type needs a dedicated binding, consumer configuration, metrics, DLQ alarm, and isolation test. A poison message in one type must not slow delivery for another type. Every topology argument must be identical across local, test, and production environment definitions.
@@ -105,6 +184,13 @@ Added by the decisions above:
   request receives 503 and `records_unroutable` increments.** A test that asserts
   only the publisher confirm would pass while the record is silently discarded —
   which is the entire reason `mandatory` is set.
+* The declaration-conflict test (T-032) covers `stats-input` and `stats-writer` only.
+  `stats-api` starting without any broker connection is itself an assertion (§11).
+* No DLQ declaration carries `x-message-ttl` or a dead-letter exchange. **Asserted:**
+  `AmqpTopologyTest.declaresDeadLetterQueuesWithNoExpiryAndNoOnwardRoute` (§12).
+* Both broker-connected modules build their queue arguments from `AmqpTopology`'s maps
+  rather than assembling their own, so the declaration-conflict test compares one
+  source. `stats-api` starting with no broker connection is itself an assertion (§11).
 
 ## Decisions register
 
@@ -115,4 +201,6 @@ Added by the decisions above:
 | Queue type | **Quorum**, on main, retry and DLQ | **DECIDED 24 Aug 2026** |
 | Unroutable message | `mandatory=true` + `ReturnsCallback`; returned ⇒ 503 and `records_unroutable{type}` | **DECIDED 24 Aug 2026** |
 | Separate maintenance deployment | **Rejected** — ADR-003 D3's advisory lock already covers it | **DECIDED 24 Aug 2026** |
-| `stats-api` broker connection | None. Confirm the reading with platform | **OPEN (Q3a)** |
+| `stats-api` broker connection | **None.** Only broker-connected modules declare topology; platform ack is a courtesy, not a gate | **DECIDED (§11), 29 Aug 2026 — closes Q3a** |
+| Dead-letter retention | **No TTL, ever.** Alert on depth > 0 and oldest-message age; manual disposition within 14 days | **DECIDED (§12), 29 Aug 2026 — and asserted in `AmqpTopologyTest`** |
+| Redrive authority | Authorised ops role, explicit per type, rate-limited to 2× nominal, root cause resolved first | **DECIDED (§12), 29 Aug 2026** |

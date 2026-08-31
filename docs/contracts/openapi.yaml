@@ -64,7 +64,7 @@ info:
     ## Query and retention basis
 
     Both `from` and `to` filter on **`ts.device`** — the timestamp the gateway
-    reported, not the timestamp the processor handled it. Retention keys on the
+    reported, not the timestamp Heimdal handled it. Retention keys on the
     same field and defaults to **90 days** (configurable, STA-23A). Two consequences
     a consumer must plan for:
 
@@ -128,7 +128,7 @@ paths:
         contract refuses to express one.
 
         **Continuation.** Follow `nextCursor` to fetch the next page, resending
-        `from`, `to` and `gateway` unchanged. The cursor carries the filters it was
+        `from`, `to` and `clsbox` unchanged. The cursor carries the filters it was
         issued for; changing one mid-walk invalidates it (`invalid_cursor`) rather
         than silently returning a page from a different query. A `null` or absent
         `nextCursor` means the last page has been reached.
@@ -299,7 +299,7 @@ components:
       example: 1787057700
 
     Gateway:
-      name: gateway
+      name: clsbox
       in: query
       required: false
       description: |
@@ -307,8 +307,8 @@ components:
         matched case-insensitively. There is no prefix or wildcard form.
 
         Supplying it widens the permitted query window — see `query_window_exceeded`
-        — because `(tenant, gateway, ts_device DESC, uid DESC)` is the covering
-        index and a gateway-scoped scan is bounded in a way an open one is not.
+        — because `(tenant, clsbox, ts_device DESC, uid DESC)` is the covering
+        index and a clsbox-scoped scan is bounded in a way an open one is not.
       schema:
         type: string
         pattern: '^[0-9A-Fa-f]{12}$'
@@ -372,9 +372,13 @@ components:
 
     Unauthorized:
       description: |
-        No token, or a token that is malformed, expired, wrongly issued, wrongly
-        audienced, or carries no usable tenant claim. An empty tenant claim fails
-        closed and lands here — it is never read as "all tenants".
+        No token, or a token that is malformed, expired, wrongly issued, or wrongly
+        audienced — an authentication failure.
+
+        A token that authenticates but carries **no usable tenant claim** is a
+        different case and returns **403**, not 401: the caller proved who they are
+        and has no tenant to be scoped to. An absent claim and an empty claim both
+        fail closed there, and neither is ever read as "all tenants". (ADR-006)
       headers:
         WWW-Authenticate:
           description: Bearer challenge, per RFC 6750.
@@ -390,7 +394,8 @@ components:
 
     Forbidden:
       description: |
-        The token is valid but the caller lacks the read-only role.
+        The token is valid but the caller lacks the read-only role, **or carries no
+        usable `tenant` claim** — absent and empty both fail closed here (ADR-006).
 
         `403` means "you are authenticated and not permitted to use this operation".
         It never means "that data belongs to someone else" — a cross-tenant read is
@@ -485,37 +490,59 @@ components:
     Timestamps:
       type: object
       description: |
-        Both members are Unix seconds. The Stats App performs **no timestamp
-        normalisation** — Heimdal already sends the canonical `ts.processor`
-        (ADR-004, ACCEPTED). A `ts.converter` member does not exist in this system;
-        a record carrying one is invalid at ingest and cannot be read back.
-      required: [processor, device]
+        The production `ts` block. `server`, `device`, `datastore` and `converter`
+        are Unix seconds; `expiresOn` is an ISO-8601 string. The Stats App performs
+        **no timestamp normalisation** — Heimdal already sends the canonical
+        `ts.server` (ADR-004, ACCEPTED, amended 29 Aug 2026).
+
+        `converter`, `datastore` and `expiresOn` are stored and returned verbatim
+        and are never read. Until 29 Aug 2026 this schema declared a record carrying
+        `ts.converter` invalid; production sends it on 100% of records, so that rule
+        rejected everything Heimdal sends and was removed (ADR-007 §2).
+      required: [server, device]
       properties:
-        processor:
+        server:
           allOf:
             - $ref: '#/components/schemas/UnixSeconds'
-          description: When Heimdal processed the record.
+          description: |
+            When Heimdal processed the record — **the canonical arrival clock**
+            (ADR-007 §3). This is what the SRS called `ts.processor`. Clock skew is
+            measured against it.
         device:
           allOf:
             - $ref: '#/components/schemas/UnixSeconds'
           description: |
             When the gateway measured the record. **This is the field `from`/`to`
             filter on, the field results sort on, and the field retention keys on.**
-            It can be substantially older than `processor` for a gateway that was
+            It can be substantially older than `server` for a gateway that was
             offline.
+        datastore:
+          allOf:
+            - $ref: '#/components/schemas/UnixSeconds'
+          description: |
+            The legacy Mongo store's write clock. Preserved and returned, never read;
+            it will stop being meaningful once that store is retired.
+        converter:
+          allOf:
+            - $ref: '#/components/schemas/UnixSeconds'
+          description: |
+            Heimdal's converter clock. Preserved and returned, never read. Presence is
+            metered at ingest as `records_converter_ts_present{type}`.
+        expiresOn:
+          type: string
+          description: |
+            The legacy Mongo TTL key, an ISO-8601 instant equal to `device`. Preserved
+            and returned, never read — Stats App retention is a partition
+            detach-and-drop keyed on `ts_device` (ADR-003 D1), not a TTL. Deliberately
+            a string, not a Unix-seconds integer: that is what production sends.
       additionalProperties: true
-      not:
-        required: [converter]
-      # ADR-004 made machine-checkable rather than only prose. Other unknown `ts`
-      # members are accepted under D14; `converter` specifically is not, because
-      # accepting it would imply a normalisation step this system does not perform.
 
     Envelope:
       type: object
       description: |
         The fields present on every record regardless of type. Only `data` differs
         between types.
-      required: [uid, tenant, maintenant, gateway, type, ts, data]
+      required: [uid, tenant, maintenant, clsbox, type, ts, data]
       properties:
         uid:
           type: string
@@ -539,12 +566,23 @@ components:
             The *managing* tenant. Stored and returned for completeness and
             **never used for isolation or filtering**. Frequently identical to
             `tenant` in sample data; that resemblance is the trap, not the rule.
-        gateway:
+        clsbox:
           type: string
           pattern: '^[0-9A-Fa-f]{12}$'
-          description: The reporting device identifier, 12 hexadecimal characters.
+          description: |
+            The reporting device identifier, 12 hexadecimal characters. Named
+            `clsbox` on the wire, in the database column, and here — the SRS called
+            it `gateway`, a name no production record has ever used (ADR-007 §1).
         type:
           $ref: '#/components/schemas/StatType'
+        version:
+          type: integer
+          minimum: 1
+          description: |
+            Heimdal's record version, stored and returned as received. **Not a payload
+            discriminator** — all three mutually incompatible lorastats payload
+            dialects observed in production carry `version: 1` (ADR-007 §4). Never
+            branch on it.
         ts:
           $ref: '#/components/schemas/Timestamps'
         data:
@@ -558,6 +596,14 @@ components:
             `additionalProperties: false` on this object is evaluated per subschema,
             so a member that `allOf` composition adds later but this object never
             names is rejected as an unexpected property.
+        status:
+          type: array
+          items:
+            type: string
+          description: |
+            Heimdal converter annotations, e.g. `["conversion ok"]`. Stored and
+            returned verbatim and never interpreted — this is upstream state, not
+            Stats App state.
       additionalProperties: true
 
     StatRecord:
@@ -631,6 +677,14 @@ components:
         LoRa radio counters. Every counter is stored as `BIGINT` — a 32-bit column
         would wrap silently on a long-lived gateway and corrupt the value with no
         error anywhere.
+
+        **This schema encodes ONE of three dialects production actually sends**
+        (ADR-007 §4): bare field names with integer values. The other two — bare names
+        with string values (`"176"`), and `lora_`-prefixed names (`lora_rx_nr_pkts`) —
+        are dead-lettered by the Writer rather than absorbed into a permissive union,
+        so the disagreement stays visible. All three carry `version: 1`, so nothing on
+        the record discriminates them. This is an assumption pending ZC's answer, not
+        a settled contract.
       required:
         [rx_nr_pkts, rx_crc_missing, rx_crc_bad, tx_success, tx_failed, tx_peek,
          tx_peek_index_zero, tx_override, tx_busy, tx_dequeue_error, tx_type_beacon,
@@ -649,6 +703,10 @@ components:
         tx_type_beacon: { type: integer, format: int64 }
         chip_comm_error: { type: integer, format: int64 }
         util_fopen_failed: { type: integer, format: int64 }
+        rx_short_pkt: { type: integer, format: int64, description: 'Optional. Observed in production; not on every record.' }
+        fsk_received: { type: integer, format: int64, description: 'Optional. Observed in production; not on every record.' }
+        rx_type_arol: { type: integer, format: int64, description: 'Optional. Observed in production on the string-valued dialect only.' }
+        timespan: { type: integer, format: int64, minimum: 0, description: 'Optional. Reporting window in seconds, as an integer here.' }
       additionalProperties: true
 
     LtestatsRecord:
@@ -671,17 +729,22 @@ components:
         some consumers is **not settled** — it needs the same consumer/security
         review that closes ADR-006. Treated as returned-in-full here so the question
         is visible rather than quietly decided.
-      required: [rssi, rsrp, rsrq, access_technology, operator, plmn, imsi, lac, cid]
+        **Every numeric here is a STRING**, and the technology field carries a
+        capital T: `access_Technology`. Both were corrected against production on
+        29 Aug 2026 (ADR-007) — the previous integer/lowercase declaration came from
+        the SRS and each mistake alone dead-lettered 100% of ltestats traffic.
+      required: [rssi, rsrp, rsrq, access_Technology, operator, plmn, imsi, lac, cid]
       properties:
-        rssi: { type: integer, format: int32, description: Received signal strength, dBm. }
-        rsrp: { type: integer, format: int32, description: Reference signal received power, dBm. }
-        rsrq: { type: integer, format: int32, description: Reference signal received quality, dB. }
-        access_technology: { type: string, minLength: 1 }
+        rssi: { type: string, pattern: '^-?(0|[1-9][0-9]{0,18})$', description: 'Received signal strength, dBm, as a string, e.g. "-67".' }
+        rsrp: { type: string, pattern: '^-?(0|[1-9][0-9]{0,18})$', description: 'Reference signal received power, dBm, as a string.' }
+        rsrq: { type: string, pattern: '^-?(0|[1-9][0-9]{0,18})$', description: 'Reference signal received quality, dB, as a string.' }
+        access_Technology: { type: string, minLength: 1, description: 'Note the capital T. Production spelling; the lowercase form has never appeared on the wire.' }
         operator: { type: string, minLength: 1 }
-        plmn: { type: integer, format: int32, description: Public land mobile network code. }
-        imsi: { type: string, minLength: 1, description: 'SENSITIVE — masking policy pending review.' }
-        lac: { type: string, minLength: 1, description: Location area code, as reported. }
-        cid: { type: string, minLength: 1, description: Cell identifier, as reported. }
+        plmn: { type: string, pattern: '^[0-9]{5,6}$', description: Public land mobile network code, as a string. }
+        imsi: { type: string, pattern: '^[0-9]{1,20}$', description: 'SENSITIVE — masking policy pending review.' }
+        lac: { type: string, pattern: '^[0-9A-Fa-f]{1,16}$', description: Location area code, hexadecimal, as reported. }
+        cid: { type: string, pattern: '^[0-9A-Fa-f]{1,16}$', description: Cell identifier, hexadecimal, as reported. }
+        timespan: { type: string, pattern: '^(0|[1-9][0-9]{0,18})$', description: 'Reporting window in seconds, as a string. Optional — production omits it on some records.' }
       additionalProperties: true
 
     SysstatsRecord:
@@ -696,7 +759,13 @@ components:
 
     SysstatsData:
       type: object
-      description: Gateway operating-system health.
+      description: |
+        Gateway operating-system health.
+
+        The five optional members below are real production fields that went
+        unmodelled until 29 Aug 2026. They are optional because a gateway legitimately
+        omits them — that is a device state, not a dialect disagreement, so it is
+        accommodated rather than dead-lettered (ADR-007 §5).
       required: [memfree, uptime, idletime, load1, load5, load15, runable]
       properties:
         memfree: { type: integer, format: int64, description: Free memory, kilobytes. }
@@ -707,9 +776,36 @@ components:
         load15: { type: number, format: double }
         runable:
           type: string
+          pattern: '^[0-9]+/[0-9]+$'
           description: |
-            Runnable/total process count as reported by the gateway, e.g. `"2/139"`.
-            A string, not a number, and the spelling is the SRS's.
+            Runnable/total process count as reported by the gateway, e.g. `"2/152"`.
+            A string, not a number, and the spelling is the SRS's — production agrees.
+        temp:
+          type: integer
+          format: int32
+          description: |
+            **Optional.** Millidegrees Celsius (`62269` = 62.3 °C). Absent on gateways
+            without a temperature sensor.
+        rtt:
+          type: integer
+          format: int32
+          description: '**Optional.** Round-trip time as measured by the gateway.'
+        wan_if:
+          type: string
+          minLength: 1
+          description: '**Optional.** Active WAN interface, e.g. `wwan`.'
+        rebootcause:
+          type: string
+          minLength: 1
+          description: '**Optional.** Reason for the last restart, e.g. `reboot`.'
+        timespan:
+          type: string
+          pattern: '^(0|[1-9][0-9]{0,18})$'
+          description: |
+            **Optional, and a STRING here** (`"300"`) where `lorastats`, `omsstats` and
+            `netstats` send the same concept as an integer (`1800`, `3600`). The wire
+            encoding differs per type; do not assume one column type across types
+            (ADR-007 §5).
       additionalProperties: true
 
     OmsstatsRecord:
@@ -777,8 +873,17 @@ components:
 
     NetworkInterface:
       type: object
-      description: One network interface's addressing and byte counters.
-      required: [gw, tx, rx, ip, dns, mask]
+      description: |
+        One network interface's addressing and byte counters.
+
+        **Only `tx` and `rx` are required.** `gw`, `ip`, `mask` and `dns` were
+        required until 29 Aug 2026, which dead-lettered every record from an
+        interface that had not come up — production sends a `wwan` with
+        `need_init: "qmi"`, a `fail_count`, and no address at all. A modem that is
+        down is a legitimate device state and precisely the record ops most needs
+        to see (ADR-007 §5). Strictness is kept where it earns its place: an
+        address that IS present must still be a well-formed IPv4.
+      required: [tx, rx]
       properties:
         gw:
           $ref: '#/components/schemas/IPv4'
@@ -800,6 +905,31 @@ components:
         tx:
           $ref: '#/components/schemas/ByteCounter'
         rx:
+          $ref: '#/components/schemas/ByteCounter'
+        driver:
+          type: string
+          minLength: 1
+          description: Modem driver, e.g. `qmi`. Production field, wwan only.
+        mtu:
+          $ref: '#/components/schemas/ByteCounter'
+        fail_count:
+          $ref: '#/components/schemas/ByteCounter'
+        plmn:
+          type: string
+          pattern: '^[0-9]{5,6}$'
+        plmn_list:
+          type: array
+          items:
+            type: string
+            pattern: '^[0-9]{5,6}$'
+          description: Networks the modem is permitted to attach to.
+        need_init:
+          type: string
+          minLength: 1
+          description: Set when the interface requires re-initialisation, e.g. `qmi`.
+        last_forced_reset:
+          $ref: '#/components/schemas/ByteCounter'
+        last_powercycle:
           $ref: '#/components/schemas/ByteCounter'
       additionalProperties: true
 
@@ -898,8 +1028,8 @@ components:
             | `invalid_time_range` | 400 | `from >= to`. |
             | `query_window_exceeded` | 400 | `to - from` exceeds the permitted window. |
             | `invalid_cursor` | 400 | Cursor is malformed, expired, tampered with, or issued for different filters. |
-            | `unauthorized` | 401 | Missing, malformed, expired token, or no usable tenant claim. |
-            | `forbidden` | 403 | Authenticated, but lacks the read-only role. |
+            | `unauthorized` | 401 | Missing, malformed, expired, wrongly issued or wrongly audienced token. |
+            | `forbidden` | 403 | Authenticated, but lacks the read-only role **or has no usable `tenant` claim** — absent and empty both fail closed here (ADR-006). |
             | `record_not_found` | 404 | No such `uid` **in the caller's tenant**. |
             | `method_not_allowed` | 405 | Non-GET method on a read-only API. |
             | `service_unavailable` | 503 | A dependency is unavailable; the read is safe to retry. |
@@ -916,16 +1046,26 @@ components:
   examples:
 
     LorastatsRecord:
-      summary: One lorastats record
+      summary: One lorastats record, in the production wire shape
+      description: |
+        The full `ts` block as production sends it — five members, of which only
+        `server` and `device` are ever read — plus `version` and `status`. Note that
+        `uid` is `CLSCON-`-prefixed, not a bare UUID.
       value:
-        uid: b2b2b2b2-b2001-4b201-8b201-b2b2b2b2b2b2
+        uid: CLSCON-11d3ec4c-f6e1-403a-a9ef-b6f5fe909eee
         tenant: tenant-alpha
         maintenant: management-parent
-        gateway: A1B2C3D4E5F6
+        clsbox: 04B64810652B
         type: lorastats
+        version: 1
         ts:
-          processor: 1787054120
-          device: 1787054100
+          server: 1787833739
+          device: 1787833739
+          datastore: 1787833739
+          converter: 1787833739
+          expiresOn: '2026-08-27T12:28:59.074Z'
+        status:
+          - conversion ok
         data:
           rx_nr_pkts: 1487
           rx_crc_missing: 12
@@ -951,10 +1091,10 @@ components:
           - uid: b2b2b2b2-b2001-4b201-8b201-b2b2b2b2b2b2
             tenant: tenant-alpha
             maintenant: management-parent
-            gateway: A1B2C3D4E5F6
+            clsbox: A1B2C3D4E5F6
             type: lorastats
             ts:
-              processor: 1787054120
+              server: 1787054120
               device: 1787054100
             data:
               rx_nr_pkts: 1487
@@ -1016,20 +1156,20 @@ components:
       summary: Range wider than the permitted window
       description: |
         `PROVISIONAL — pending consumer confirmation and load testing.` The
-        current limits are **7 days with a `gateway` filter** and **1 hour
-        without one**. Narrow the range, or add `gateway` to widen it.
+        current limits are **7 days with a `clsbox` filter** and **1 hour
+        without one**. Narrow the range, or add `clsbox` to widen it.
       value:
         type: https://stats.example/errors/query-window-exceeded
         title: Query window exceeded
         status: 400
-        detail: Range spans 172800 seconds; the maximum without a gateway filter is 3600.
+        detail: Range spans 172800 seconds; the maximum without a clsbox filter is 3600.
         instance: /v1/stats/lorastats
         statType: lorastats
         traceId: 44c1e0b7f2a68d39
         errors:
           - field: to
             code: query_window_exceeded
-            message: Narrow the range or supply a gateway filter.
+            message: Narrow the range or supply a clsbox filter.
 
     ProblemUnauthorized:
       summary: Missing or unusable token
@@ -1042,12 +1182,12 @@ components:
         traceId: 9f2c74a1b5083e6d
 
     ProblemForbidden:
-      summary: Authenticated without the read-only role
+      summary: Authenticated without the read-only role or without a usable tenant claim
       value:
         type: https://stats.example/errors/forbidden
         title: Forbidden
         status: 403
-        detail: The token does not grant the required role.
+        detail: The token does not grant the required role or carries no usable tenant claim.
         instance: /v1/stats/lorastats
         traceId: 6a08d3f95c1b427e
 
