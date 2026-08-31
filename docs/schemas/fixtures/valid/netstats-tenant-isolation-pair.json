@@ -4,10 +4,10 @@
     "uid": "e5e5e5e5-e5002-4e502-8e502-e5e5e5e5e5e5",
     "tenant": "tenant-alpha",
     "maintenant": "management-parent",
-    "gateway": "A1B2C3D4E5F6",
+    "clsbox": "A1B2C3D4E5F6",
     "type": "netstats",
     "ts": {
-      "processor": 1787053820,
+      "server": 1787053820,
       "device": 1787053800
     },
     "data": {
@@ -40,10 +40,10 @@
     "uid": "e5e5e5e5-e5003-4e503-8e503-e5e5e5e5e5e5",
     "tenant": "tenant-beta",
     "maintenant": "tenant-alpha",
-    "gateway": "A1B2C3D4E5F6",
+    "clsbox": "A1B2C3D4E5F6",
     "type": "netstats",
     "ts": {
-      "processor": 1787053820,
+      "server": 1787053820,
       "device": 1787053800
     },
     "data": {

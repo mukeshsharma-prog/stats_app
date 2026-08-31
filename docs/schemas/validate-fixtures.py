@@ -5,6 +5,25 @@
     invalid/             -> MUST fail validation
     malformed/           -> not schema-testable; exercised by the Input endpoint's parser tests
 
+A fixture may additionally declare "$expect" with a "$expectCode":
+
+    "input-reject"  schema-valid, but rejected by stats-input on a rule the schema
+                    cannot express (a cross-field comparison). Q14a's clock-skew
+                    fixtures are the case this exists for -- ADR-003 D9 rejects a
+                    ts.device more than the configured tolerance ahead of ts.server,
+                    and JSON Schema 2020-12 cannot compare two instance locations.
+
+    "writer-dlq"    ACCEPTED by the envelope (so stats-input returns 200 and
+                    publishes) but REJECTED by the per-type payload schema (so
+                    stats-writer dead-letters it). Added 29 Aug 2026 with ADR-007:
+                    the envelope is Input's gate and the payload schema is the
+                    Writer's, so "invalid" no longer implies "400". Without this
+                    marker the lorastats dialect fixtures would sit in invalid/
+                    asserting a 400 that will never happen.
+
+Without a marker an edge/ fixture silently asserts "accepted", which is how an
+undecided question ended up with a default answer baked into ten green assertions.
+
 Run from this directory:  python3 validate-fixtures.py
 Exit code is non-zero on any mismatch, so CI can gate on it.
 
@@ -48,6 +67,8 @@ def main():
     envelope = Draft202012Validator(schemas["envelope-v1.schema.json"], registry=registry)
 
     checked = failures = 0
+    input_rejects = []
+    writer_dlqs = []
     for path in sorted(glob.glob("fixtures/**/*.json", recursive=True)):
         if "/malformed/" in path:
             continue
@@ -55,6 +76,39 @@ def main():
         expect_valid = ("/valid/" in path or "/edge/" in path) and not path.endswith(
             "validation-failures.json"
         )
+        marker = doc.get("$expect") if isinstance(doc, dict) else None
+        if marker is not None:
+            checked += 1
+            if marker not in ("input-reject", "writer-dlq"):
+                print(f"FAIL {path}: unknown $expect value {marker!r}")
+                failures += 1
+            elif not doc.get("$expectCode"):
+                print(f"FAIL {path}: $expect declared without a $expectCode")
+                failures += 1
+            elif marker == "input-reject" and not expect_valid:
+                print(f"FAIL {path}: $expect input-reject belongs on a schema-VALID "
+                      f"fixture; this one is expected to fail validation")
+                failures += 1
+            elif marker == "writer-dlq" and expect_valid:
+                print(f"FAIL {path}: $expect writer-dlq belongs on a fixture that FAILS "
+                      f"its per-type schema; this one is expected to validate")
+                failures += 1
+            elif marker == "writer-dlq":
+                # The whole point of the marker: Input must ACCEPT it. If the envelope
+                # rejects it too, the record 400s and never reaches a queue, so calling
+                # it a dead-letter case would be a lie.
+                envelope_errors = list(envelope.iter_errors(
+                    {k: v for k, v in doc.items() if not k.startswith("$")}))
+                if envelope_errors:
+                    print(f"FAIL {path}: $expect writer-dlq requires the ENVELOPE to accept "
+                          f"the record (Input returns 200 and publishes), but it does not:")
+                    for e in envelope_errors[:3]:
+                        print(f"       {'.'.join(map(str, e.path)) or '<root>'}: {e.message}")
+                    failures += 1
+                else:
+                    writer_dlqs.append((path, doc["$expectCode"]))
+            else:
+                input_rejects.append((path, doc["$expectCode"]))
         for label, record in records(path, doc):
             stat_type = record.get("type")
             if stat_type not in TYPES:
@@ -81,6 +135,16 @@ def main():
                 for e in errors[:3]:
                     print(f"       {'.'.join(map(str, e.path)) or '<root>'}: {e.message}")
 
+    if input_rejects:
+        print(f"\n{len(input_rejects)} fixture(s) are schema-valid but must be rejected "
+              f"by stats-input:")
+        for path, code in input_rejects:
+            print(f"       {path}  ->  400 {code}")
+    if writer_dlqs:
+        print(f"\n{len(writer_dlqs)} fixture(s) pass the envelope but must be dead-lettered "
+              f"by stats-writer (Input returns 200 and publishes them):")
+        for path, code in writer_dlqs:
+            print(f"       {path}  ->  DLQ {code}")
     print(f"\n{checked} assertions checked, {failures} failed")
     return 1 if failures else 0
 

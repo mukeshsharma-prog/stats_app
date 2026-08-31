@@ -6,7 +6,7 @@
 
 ## 1. Canonical message
 
-The Input Module validates the common envelope and selected type schema before publication, then publishes the record **byte-identically**. There is **no normalisation of any kind**, for `omsstats` or any other type — ADR-004 is ACCEPTED and Heimdal already sends the canonical `ts.processor`. A record carrying `ts.converter` is invalid and is rejected with 400.
+The Input Module validates the **common envelope** before publication, then publishes the record **byte-identically**. It does **not** validate the per-type payload — that is the Writer's gate, and a payload failure is a dead-letter rather than a 400 (ADR-007 §5). There is **no normalisation of any kind**, for `omsstats` or any other type — ADR-004 is ACCEPTED and Heimdal already sends the canonical `ts.server`. A record carrying `ts.converter` is **valid**: production sends it on 100% of records, and the rule that rejected it was withdrawn on 29 Aug 2026 (ADR-007 §2). It is stored, returned verbatim, and never read.
 
 This is load-bearing beyond ADR-004: because the published message is identical to the received record, a redelivered or replayed record carries the same `ts_device`, lands in the same daily partition, and collides with the same `(ts_device, uid)` key. If Input ever rewrote a timestamp, ADR-003's per-partition duplicate suppression would stop working and the failure would be silent.
 
@@ -72,7 +72,7 @@ stats.amqp.retry.tier1-delay=PT30S
 stats.amqp.retry.tier2-delay=PT5M
 stats.amqp.retry.tier3-delay=PT30M
 stats.amqp.max-retries=3          # one attempt per tier; exhausted -> <type>.dlq
-stats.amqp.dlq-retention-ms=PENDING   # DLQ retention still needs an operations decision
+# There is deliberately NO dlq TTL property. The DLQ never expires messages -- see §6.
 ```
 
 There is no `retry-multiplier` and no `retry-max-delay-ms`: the tiers are explicit, not derived from a backoff curve. An exhausted message goes to `app_statsstore.<type>.dlq`.
@@ -91,9 +91,23 @@ There is no `retry-multiplier` and no `retry-max-delay-ms`: the tiers are explic
 | Graceful shutdown | Stop intake, complete in-flight work within grace period, return unacknowledged work safely to queue. |
 | Metrics | Per type: receive, success, duplicate, retry, DLQ, processing duration, consumer availability, queue depth. |
 
-## 6. Redrive/runbook contract
+## 6. Dead-letter retention and redrive contract — **DECIDED (ADR-002 §12, 29 August 2026)**
 
-Only an authorized operations role may inspect or replay DLQ messages. Redrive must be explicit, traceable, rate-limited, and scoped per type. Before redrive, operators must identify and resolve the root cause; blind automatic replay is not permitted. The final operations runbook must define access, payload masking, audit evidence, maximum replay rate, and success verification.
+**The DLQ carries no `x-message-ttl` and no expiry of any kind.** A TTL'd dead-letter queue discards records silently, which violates rule 9 and the no-silent-error-handling rule. A message that reached the DLQ has already survived three retry tiers; deleting it on a timer destroys the only remaining copy of a record Heimdal believes it delivered. Bounding broker disk is an alerting and disposition problem, not an expiry problem.
+
+| Control | Value |
+|---|---|
+| Message expiry | **None.** No `x-message-ttl` and no `x-dead-letter-exchange` on any `<type>.dlq`. Enforced by construction: `AmqpTopology.deadLetterQueueArguments()` takes no parameter for either, and `AmqpTopologyTest` asserts the map exactly |
+| Alert | DLQ depth > 0, **and** oldest-DLQ-message age |
+| Manual disposition | Expected within 14 days |
+| Redrive authority | Authorized operations role only |
+| Redrive scope | Explicit, traceable, scoped per stat type — never blanket |
+| Redrive rate | Capped at 2× nominal (2,667/s), the same cap as replay |
+| Precondition | Root cause identified and resolved first; blind automatic replay is not permitted |
+
+The operations runbook must additionally define access, payload masking, audit evidence, and success verification.
+
+**Two things the runbook must state outright.** A 503 during redrive or replay is the backpressure channel working, not an incident. And a message that has sat in the DLQ long enough becomes `expired_on_arrival` the moment it is redriven, because its `ts.device` has aged past the 90-day retention window — **a redrive after roughly 90 days is not a recovery, it is a no-op that increments a counter.**
 
 ## 7. Contract tests
 

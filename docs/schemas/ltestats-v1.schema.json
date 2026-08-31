@@ -10,22 +10,47 @@
         "type": { "const": "ltestats" },
         "data": {
           "type": "object",
-          "required": ["rssi", "rsrp", "rsrq", "access_technology", "operator", "plmn", "imsi", "lac", "cid"],
+          "required": ["rssi", "rsrp", "rsrq", "access_Technology", "operator", "plmn", "imsi", "lac", "cid"],
           "properties": {
-            "rssi": { "type": "integer" },
-            "rsrp": { "type": "integer" },
-            "rsrq": { "type": "integer" },
-            "access_technology": { "type": "string", "minLength": 1 },
+            "rssi": { "$ref": "#/$defs/signedNumericString" },
+            "rsrp": { "$ref": "#/$defs/signedNumericString" },
+            "rsrq": { "$ref": "#/$defs/signedNumericString" },
+            "access_Technology": {
+              "type": "string",
+              "minLength": 1,
+              "$comment": "NOTE THE CAPITAL T. Production sends access_Technology. Every document in this repository said access_technology before 29 Aug 2026; that spelling came from the SRS and has never appeared on the wire. Under ADR-007 production is the authoritative wire format, so the capital is correct and the lowercase spelling is the bug."
+            },
             "operator": { "type": "string", "minLength": 1 },
-            "plmn": { "type": "integer" },
-            "imsi": { "type": "string", "minLength": 1, "$comment": "Sensitive identifier; exact format and masking policy are pending approval." },
-            "lac": { "type": "string", "minLength": 1 },
-            "cid": { "type": "string", "minLength": 1 }
+            "plmn": { "type": "string", "pattern": "^[0-9]{5,6}$" },
+            "imsi": {
+              "type": "string",
+              "pattern": "^[0-9]{1,20}$",
+              "$comment": "Sensitive identifier. Charset is constrained but length is deliberately not: rejecting a valid IMSI on a guessed length would dead-letter real traffic. Masking policy is still pending approval."
+            },
+            "lac": { "$ref": "#/$defs/hexString" },
+            "cid": { "$ref": "#/$defs/hexString" },
+            "timespan": { "$ref": "#/$defs/unsignedNumericString" }
           },
           "additionalProperties": true
         }
       }
     }
   ],
-  "$comment": "Development draft based on SRS v1.0. Signal-value ranges, max lengths, and unknown-field policy require approval."
+  "$defs": {
+    "signedNumericString": {
+      "type": "string",
+      "pattern": "^-?(0|[1-9][0-9]{0,18})$",
+      "$comment": "Signal values are STRINGS on the wire - production sends \"rssi\": \"-67\", not -67. Constrained to an optionally-signed integer so a non-numeric value dead-letters at the Writer rather than failing a cast at query time. The Writer parses to INTEGER and MUST range-check before conversion."
+    },
+    "unsignedNumericString": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$"
+    },
+    "hexString": {
+      "type": "string",
+      "pattern": "^[0-9A-Fa-f]{1,16}$",
+      "$comment": "lac and cid are hexadecimal strings (55F3, 61D93D, 28DC413). Width is left generous on purpose; only the charset is asserted."
+    }
+  },
+  "$comment": "Re-derived from the 29 Aug 2026 production sample (ADR-007). TWO corrections against the previous SRS-derived draft, each of which alone dead-lettered 100% of ltestats traffic: every numeric is a STRING on the wire, not an integer; and the field is access_Technology with a capital T. timespan is optional - one of the three production records omits it."
 }

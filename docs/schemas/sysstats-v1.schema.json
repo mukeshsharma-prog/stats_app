@@ -18,12 +18,25 @@
             "load1": { "type": "number" },
             "load5": { "type": "number" },
             "load15": { "type": "number" },
-            "runable": { "type": "string", "$comment": "Field spelling comes from SRS; regex/semantic format is pending approval." }
+            "runable": {
+              "type": "string",
+              "pattern": "^[0-9]+/[0-9]+$",
+              "$comment": "Spelling comes from the SRS and production agrees. Format is runnable/total (\"2/152\")."
+            },
+            "temp": { "type": "integer", "$comment": "Millidegrees Celsius (62269 = 62.3 C). OPTIONAL: absent on gateways without a temperature sensor - one of the three production records omits it along with rtt, wan_if and rebootcause." },
+            "rtt": { "type": "integer" },
+            "wan_if": { "type": "string", "minLength": 1 },
+            "rebootcause": { "type": "string", "minLength": 1 },
+            "timespan": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,18})$",
+              "$comment": "A STRING here (\"300\") but an INTEGER in lorastats, omsstats and netstats (1800, 3600). The same concept is encoded differently per type on the wire; do not assume one column type across types (ADR-003)."
+            }
           },
           "additionalProperties": true
         }
       }
     }
   ],
-  "$comment": "Development draft based on SRS v1.0. Numeric ranges and unknown-field policy require approval."
+  "$comment": "Re-derived from the 29 Aug 2026 production sample (ADR-007). The seven required fields were already correct and all three production records validate against them. The change is the OPTIONAL block: temp, rtt, wan_if, rebootcause and timespan are real production fields that were previously unmodelled, and they are optional because a gateway legitimately omits them - that is a device state, not a dialect disagreement, so it is corrected here rather than dead-lettered."
 }

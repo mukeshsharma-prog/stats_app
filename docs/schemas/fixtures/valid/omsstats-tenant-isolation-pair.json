@@ -4,10 +4,10 @@
     "uid": "d4d4d4d4-d4002-4d402-8d402-d4d4d4d4d4d4",
     "tenant": "tenant-alpha",
     "maintenant": "management-parent",
-    "gateway": "A1B2C3D4E5F6",
+    "clsbox": "A1B2C3D4E5F6",
     "type": "omsstats",
     "ts": {
-      "processor": 1787053820,
+      "server": 1787053820,
       "device": 1787053800
     },
     "data": {
@@ -22,10 +22,10 @@
     "uid": "d4d4d4d4-d4003-4d403-8d403-d4d4d4d4d4d4",
     "tenant": "tenant-beta",
     "maintenant": "tenant-alpha",
-    "gateway": "A1B2C3D4E5F6",
+    "clsbox": "A1B2C3D4E5F6",
     "type": "omsstats",
     "ts": {
-      "processor": 1787053820,
+      "server": 1787053820,
       "device": 1787053800
     },
     "data": {

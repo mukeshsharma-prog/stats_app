@@ -2,10 +2,10 @@
   "uid": "d4d4d4d4-d4008-4d408-8d408-d4d4d4d4d4d4",
   "tenant": "tenant-alpha",
   "maintenant": "management-parent",
-  "gateway": "A1B2C3D4E5F6",
+  "clsbox": "A1B2C3D4E5F6",
   "type": "omsstats",
   "ts": {
-    "processor": 1787054340,
+    "server": 1787054340,
     "device": 1779364800
   },
   "data": {

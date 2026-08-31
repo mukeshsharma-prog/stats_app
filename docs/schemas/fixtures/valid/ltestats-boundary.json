@@ -2,19 +2,19 @@
   "uid": "c3c3c3c3-c3004-4c304-8c304-c3c3c3c3c3c3",
   "tenant": "tenant-alpha",
   "maintenant": "management-parent",
-  "gateway": "04B6481037E9",
+  "clsbox": "04B6481037E9",
   "type": "ltestats",
   "ts": {
-    "processor": 1787053520,
+    "server": 1787053520,
     "device": 1787053500
   },
   "data": {
-    "rssi": -113,
-    "rsrp": -140,
-    "rsrq": -20,
-    "access_technology": "2G",
+    "rssi": "-113",
+    "rsrp": "-140",
+    "rsrq": "-20",
+    "access_Technology": "2G",
     "operator": "ExampleTel",
-    "plmn": 26201,
+    "plmn": "26201",
     "imsi": "262019999999999",
     "lac": "0000",
     "cid": "0"
