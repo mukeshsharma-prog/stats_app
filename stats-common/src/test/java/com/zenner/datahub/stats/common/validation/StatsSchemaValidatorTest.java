@@ -70,33 +70,78 @@ class StatsSchemaValidatorTest {
     void mapsRequiredTypeAndParameterFailuresToPointersAndStaticMessages() throws IOException {
         ValidationResult missing = validator.validate(readFixture("invalid/ltestats-missing-required.json"));
         ValidationResult wrongType = validator.validate(readFixture("invalid/ltestats-wrong-type.json"));
-        ValidationResult badPattern = validator.validate(readFixture("invalid/envelope-gateway-not-hex.json"));
+        ValidationResult badPattern = validator.validate(readFixture("invalid/envelope-clsbox-not-hex.json"));
         ValidationResult outOfRange = validator.validate(readFixture("invalid/envelope-ts-in-milliseconds.json"));
-        ValidationResult forbiddenConverter = validator.validate(readFixture("invalid/envelope-oms-ts-converter.json"));
 
         assertThat(missing.errors()).contains(FieldError.of(
                 "/data/rsrp", "missing", FieldError.SafeMessage.MANDATORY_FIELD_ABSENT));
         assertThat(wrongType.errors()).contains(FieldError.of(
-                "/data/plmn", "invalid_type", FieldError.SafeMessage.INVALID_FIELD_TYPE));
+                "/data/rssi", "invalid_type", FieldError.SafeMessage.INVALID_FIELD_TYPE));
         assertThat(badPattern.errors()).contains(FieldError.of(
-                "/gateway", "invalid_parameter", FieldError.SafeMessage.INVALID_PARAMETER));
+                "/clsbox", "invalid_parameter", FieldError.SafeMessage.INVALID_PARAMETER));
         assertThat(outOfRange.errors())
                 .extracting(FieldError::field, FieldError::code)
                 .contains(org.assertj.core.groups.Tuple.tuple("/ts/device", "invalid_parameter"));
-        assertThat(forbiddenConverter.errors()).contains(FieldError.of(
-                "/ts", "invalid_parameter", FieldError.SafeMessage.INVALID_PARAMETER));
+    }
+
+    @Test
+    void acceptsTheLegacyConverterTimestampThatUsedToBeRejected() throws IOException {
+        // ADR-004 once declared a record carrying ts.converter INVALID. Production
+        // sends it on 100% of records, so that rule rejected everything Heimdal sends
+        // (ADR-007 §2). The fixture moved from invalid/ to valid/ on 29 Aug 2026 and
+        // this test is the guard against the rule being reinstated.
+        ValidationResult result =
+                validator.validate(readFixture("valid/omsstats-ts-converter-present.json"));
+
+        assertThat(result.valid()).isTrue();
+        assertThat(result.errors()).isEmpty();
+    }
+
+    @Test
+    void envelopeGateAcceptsPayloadDialectsThatTheWriterGateDeadLetters() throws IOException {
+        // The two gates have different consequences (ADR-007 §5). These are unmodified
+        // production lorastats records in a dialect the payload schema does not encode.
+        // Input MUST accept them - a 400 here is unrecoverable, because Heimdal only
+        // retries on a non-2xx and would never resend. The Writer MUST reject them, so
+        // the disagreement lands in the DLQ where it is visible and redrivable.
+        for (String fixture : List.of(
+                "invalid/lorastats-dialect-prefixed.json",
+                "invalid/lorastats-dialect-string-values.json")) {
+            JsonNode record = readFixture(fixture);
+
+            assertThat(validator.validateEnvelope(record).valid())
+                    .as("%s must pass the Input gate", fixture)
+                    .isTrue();
+            assertThat(validator.validate(record).valid())
+                    .as("%s must fail the Writer gate", fixture)
+                    .isFalse();
+        }
+    }
+
+    @Test
+    void envelopeGateDoesNotLookAtThePayloadAtAll() throws Exception {
+        // Guards the split itself: if validateEnvelope ever started applying the
+        // per-type schema, every dialect disagreement would silently become a 400.
+        JsonNode emptyPayload = OBJECT_MAPPER.readTree("""
+                {"uid": "CLSCON-1", "tenant": "mzc", "maintenant": "mzc",
+                 "clsbox": "04B6481064F9", "type": "lorastats",
+                 "ts": {"server": 1787833797, "device": 1787833797}, "data": {}}
+                """);
+
+        assertThat(validator.validateEnvelope(emptyPayload).valid()).isTrue();
+        assertThat(validator.validate(emptyPayload).valid()).isFalse();
     }
 
     @Test
     void discardsLibraryMessagesAndRejectedRuntimeValues() throws Exception {
         JsonNode fixture = readFixture("invalid/ltestats-wrong-type.json");
-        String offendingValue = fixture.at("/data/plmn").asText();
+        String offendingValue = fixture.at("/data/rssi").asText();
         String imsi = fixture.at("/data/imsi").asText();
 
         ValidationResult result = validator.validate(fixture);
         String json = OBJECT_MAPPER.writeValueAsString(result);
 
-        assertThat(json).contains("/data/plmn", "invalid_type", "Field has an invalid type.");
+        assertThat(json).contains("/data/rssi", "invalid_type", "Field has an invalid type.");
         assertThat(json).doesNotContain(offendingValue);
         assertThat(json).doesNotContain(imsi);
         assertThat(json).doesNotContain("must be integer", "Exception", "SELECT", "app_statsstore", "tenant-beta");

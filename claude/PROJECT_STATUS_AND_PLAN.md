@@ -1,6 +1,6 @@
 2# Stats App — Status and Implementation Plan
 
-**Owner:** Naman (SSE) · **Date:** 18 August 2026 · **Status:** working document
+**Owner:** Naman (SSE) · **Date:** 18 August 2026, last updated 29 August 2026 · **Status:** working document
 
 Consolidates `Stats_App_Answers_v1_0.docx`, the Aug 15 v1.2 amendment pack,
 `Stats_App_Internal_Decisions_v1.0.docx`, and the ARD (v1.1) into one picture:
@@ -18,7 +18,7 @@ AI — would have built the wrong thing. All four are now updated to v1.2.
 |---|---|---|
 | `CLAUDE.md` (root) | MongoDB primary; C1, Q17, Q21, Q39, D15 listed as unresolved — all answered | **Rewritten.** PostgreSQL, per-type queues, `ts.device` retention, open questions reduced to what is genuinely open and split by owner. |
 | `IMPLEMENTATION_RULES.md` (was `CLAUDE.md — Stats App Implementation Rules.md`) | §1 called MongoDB an infrastructure dependency; §3 said "collection"; §5 blocked on Mongo retention and on decisions since answered | **Updated and renamed.** Mongo residue removed; §5 split into *blocked*, *already decided*, and *ours to decide*. |
-| `DEVELOPMENT.md` | Mongo Compose stack, Mongo URIs, TTL-index guidance, and **retention keyed on `ts.processor`** — the opposite of the answer | **Rewritten** for PostgreSQL, Flyway, Testcontainers, per-type queue naming, `ts.device` retention, answered behavioural defaults. |
+| `DEVELOPMENT.md` | Mongo Compose stack, Mongo URIs, TTL-index guidance, and **retention keyed on `ts.server`** — the opposite of the answer | **Rewritten** for PostgreSQL, Flyway, Testcontainers, per-type queue naming, `ts.device` retention, answered behavioural defaults. |
 | `SKILLS.md` | TTL-index retention procedure, "collection", PyMongo, C1/Q10/Q23 treated as open | **Updated.** Skill 1 and Skill 5 rewritten for PostgreSQL; day-one trap briefing added to Skill 7. |
 
 Authority order, in case of any remaining disagreement: this document and the
@@ -73,7 +73,11 @@ migration, so they were living only in this paragraph. Their real status:
 profile), or D14 (unknown fields — the ARD does not address it at all). **All of
 those except D14 were then closed the same day by `2B-ANSWERS-18AUG2026.md`.** It
 proposes but cannot ratify D5a (99.9% / RPO~0 / RTO 30 min) and D5b
-(`expired_on_arrival` → DLQ); both still need product sign-off.
+(`expired_on_arrival` → DLQ); both still need product sign-off. **On 29 Aug 2026
+engineering agreed D5b** (adding a non-zero-counter alert) **and put a counter-proposal
+to product on D5a: RPO ≤ 5 min, RTO 1 h per partition / 24 h full cluster.** The ARD's
+`RPO~0 / RTO 30 min` is not achievable at multi-terabyte scale and was never costed;
+neither number is signed yet.
 
 ~~**Chase:** the ARD references `Stats_App_OpenAPI_v1_draft.yaml` as "delivered
 separately".~~ **Closed 21 Aug 2026.** It was never delivered, and it was always
@@ -103,7 +107,7 @@ pending ZC confirmation and it gates Phase 4.
 |---|---|
 | V1 stat types | `lorastats`, `ltestats`, `sysstats`, `omsstats`, `netstats` — all five |
 | `omsstats` | In scope. Its absence from the STA-21/STA-33 lists was a typo. |
-| `omsstats` timestamp | Heimdal already sends `ts.processor`. **No normalisation on our side.** `ts.converter` handling is dead. |
+| `omsstats` timestamp | Heimdal already sends `ts.server`. **No normalisation on our side.** `ts.converter` handling is dead. |
 | `netstats` schema | **Strict and final** (Q4a, 18 Aug 2026): `eth0`/`wwan` mandatory, other interfaces allowed, `apipa` optional, counters digit-only strings stored as `BIGINT`. The Writer must range-check against the signed `BIGINT` maximum. Only IPv6 (Q4b) is open, and it widens one `$def`. |
 | Every record has a tenant | Yes. A missing tenant is a validation failure, not a placeholder write. |
 | Isolation field | `tenant`, never `maintenant` |
@@ -129,7 +133,7 @@ pending ZC confirmation and it gates Phase 4.
 |---|---|
 | Endpoint definitions | None exist. **We draft the OpenAPI; ZC confirms or declines it.** This is an action on us, not a wait. |
 | Error shape | RFC 9457 Problem Details — confirmed |
-| Dominant query pattern | `(tenant, gateway, ts.device)` |
+| Dominant query pattern | `(tenant, clsbox, ts.device)` |
 | Roles | **`stats.readOnly`** (read) and `stats.ingest` (ingest), realm roles in `statsapp`. Engineering proposal, live in the dev realm; ZC confirmation (Q8b-2) is a config change. Not the bare `readOnly` placeholder. |
 
 ### Capacity
@@ -161,7 +165,7 @@ Hasan explicitly returned these to engineering. Each needs an ADR, not an email.
 | Individual vs batched writes (D11) | **Amended (G3).** Bounded micro-batching (100–500 records or 50–200 ms) with single-record fallback is the target; the fallback preserves per-record DLQ precision. Build individual inserts first behind a batch-shaped interface so batching is a benchmarked tuning change, not a rewrite | Writer |
 | Invalid filter combinations (D12) | 400 `invalid_time_range` on inverted ranges; document the max query window | API |
 | Health checks (D13) | Separate liveness/readiness; readiness probes only the dependencies that module actually needs | All three |
-| Log format (D1) | Structured JSON to stdout, `uid` as correlation ID, `module`/`event`/`statType`/`tenant`/`gateway` fields | All three |
+| Log format (D1) | Structured JSON to stdout, `uid` as correlation ID, `module`/`event`/`statType`/`tenant`/`clsbox` fields | All three |
 | Unknown payload fields (**D14**, was mislabelled `D6`) | Accept and preserve unknown `data` fields; reject unknown/invalid envelope fields. Never let a Jackson default decide this silently. | Input |
 | Gradle DSL, package layout, CI shape | **Ours — Q1a closed, there is nothing to match.** Kotlin DSL, version catalog, `com.zenner.datahub.stats.<module>`, `./gradlew build` plus Testcontainers on every push, build fails on a failed fixture assertion (ADR-001) | Foundation |
 
@@ -177,8 +181,8 @@ close alone:
 | Item | Needs |
 |---|---|
 | `uid` uniqueness becomes `(ts_device, uid)` — in that column order — scoped per partition — a global unique index is not possible on a partitioned table | A formal amendment to **STA-21B**. Redelivery still cannot duplicate, because a redelivered record carries the same `ts_device`. |
-| Late-arriving records have no live partition to land in | **Product sign-off** on rejecting and metering them, rather than writing rows that retention removes minutes later |
-| Backup / PITR / restore targets | **An RPO/RTO from product + operations.** ADR-003 D5 has the framing to take into that conversation. |
+| Late-arriving records have no live partition to land in | **Product sign-off** on rejecting and metering them, rather than writing rows that retention removes minutes later. Engineering agreed the policy on 29 Aug 2026 and added a non-zero-counter alert; the signature is still outstanding (D5b) |
+| Backup / PITR / restore targets | **An RPO/RTO from product + operations.** ADR-003 D5 has the framing. Engineering's proposal to put in front of them: **RPO ≤ 5 min** via continuous WAL archiving, **RTO 1 h single partition / 24 h full cluster** — RPO tight because lost data is unrecoverable, RTO loose because this is 90-day telemetry (D5a). |
 
 ### 2b. Was "needs ZC" — ANSWERED 18 August 2026
 
@@ -195,7 +199,7 @@ decision are in `docs/decisions/2B-ANSWERS-18AUG2026.md`. **Do not reopen these.
 | Keycloak realm and claims | **Proposed by engineering and live in the dev realm.** Realm `statsapp`; clients `stats-api` / `stats-input` / `stats-dev-cli`; audience `stats-api`; read role `stats.readOnly`; ingest role `stats.ingest`; tenant claim `tenant`, **single-valued String** — because a multi-valued claim turns isolation into `tenant IN (...)` and one misconfigured user then reads several tenants with every test still green. |
 | Burst profile | **Assume the worst until measured.** Synchronised 10-minute boundaries: 800,000 records per cycle, design target **13,333/s** (10× average). Input sized for peak, Writer for drain (~2,000/s per type), prefetch 500, `max_wal_size` for the burst. **Alert on oldest message age, never on queue depth** — a depth spike each cycle is the buffer working. |
 | Replay burst | **Ask Heimdal to cap replay at 2× nominal (2,667/s).** A 6-hour outage is 28.8M messages and ~3 hours of replay at that cap, holding total ingest at 4,000/s. A 503 during replay is the backpressure channel working, not an incident. |
-| Realistic samples | **Built.** 68 fixtures across `valid/`, `invalid/`, `edge/`, `malformed/`; `validate-fixtures.py` asserts 71 and exits non-zero for CI. Three of them found real schema gaps on first run. |
+| Realistic samples | **Built, then rebuilt on production 29 Aug 2026 (ADR-007).** 77 fixtures across `valid/`, `invalid/`, `edge/`, `malformed/`, including 9 byte-faithful production records; `validate-fixtures.py` asserts 87 and exits non-zero for CI. The production sample invalidated every envelope field name and four of the five payload schemas. |
 
 ### 2b-2. What is genuinely still open with ZC
 
@@ -206,22 +210,23 @@ decision are in `docs/decisions/2B-ANSWERS-18AUG2026.md`. **Do not reopen these.
 | **Q13b** — gateway report jitter | Worth 10× on hardware. **The single most valuable outstanding question.** | Capacity sizing |
 | **Q13c** — agreement on the 2× replay cap | Our own rate limiting cannot substitute for Heimdal honouring it | Replay runbook |
 | **Q4b** — `netstats` IPv6 | One `$def` widens if yes; no code change | Nothing |
-| **Q14a** — clock skew: accept a future `ts.device` or reject? | Fixture exists, decision does not | Writer partition routing |
-| **Q5a** — volume contradiction: "around 10 million" internally vs 115.2M/day | Sizing and schema | Freezing the schema |
 
-### 2c. Still genuinely conflicted — one item
+**Q14a and Q5a were removed from this table on 29 August 2026** — both were decided, not answered. See §2d.
 
-**Q3 answer vs. service boundaries.** Hasan answered "every module have to declare
-the exchanges, queues and bindings." Taken literally that gives `stats-api` a
-RabbitMQ dependency it has no use for, and any argument mismatch between three
-declaring modules produces a `RESOURCE_LOCKED` failure at startup.
+### 2c. Decided 29 August 2026 — was "conflicted" or misfiled
 
-Read it as *every broker-connected module* — Input and Writer — declaring identical,
-idempotent topology from shared constants in `stats-common`, with an integration test
-that proves the declarations match. Confirm that reading with the platform team; do
-not give the API a broker connection.
+Six items, four of which were never anyone else's to answer. **Approver:** Naman
+Vashishtha. Full reasoning, and the framing to take into the two conversations that
+remain: `claude/OPEN_QUESTIONS_STATUS_29AUG2026.md`.
 
-
+| Ref | Decision | Lands in |
+|---|---|---|
+| **Q3a** | **Only broker-connected modules declare topology** — Input and Writer, from `stats-common` constants. `stats-api` gets no RabbitMQ connection. Read literally, Hasan's "every module have to declare the exchanges, queues and bindings" hands the read-only API a broker dependency it has no use for and makes a third declaring module a `RESOURCE_LOCKED` risk. The platform ack is a courtesy; **T-032 is the enforcement**, and it proves at build time what prose only asserts | ADR-002 §11 |
+| **Q14a** | **Clock skew: reject at Input** beyond `stats.input.validation.max-clock-skew` (default `PT5M`). 400 with the field code `clock_skew_exceeded`, metered as `records_clock_skew_rejected{type}`. Partition pre-creation is finite, so a 2038 clock either demands unbounded partitions or fails deep in the Writer where the caller cannot be told. The check is cross-field and unexpressible in JSON Schema, so the five clock-skew fixtures stay schema-valid with an explicit `$expect: "input-reject"` marker | ADR-003 D9; input contract §2/§4; T-013 |
+| **Q5a** | **115.2M records/day.** 160k gateways × 6/h × 24h × 5 types is arithmetic; "around 10 million" reads as an early single-type estimate and is withdrawn. It never blocked freezing the schema — daily `RANGE` partitions, `BIGINT`, `(ts_device, uid)` and the composite index are identical at both figures. The delta is hardware, not rework | ADR-003; §1 capacity table |
+| **DLQ retention** | **No TTL, ever.** A TTL'd dead-letter queue is silent data loss, and a DLQ message has already survived three retry tiers. Alert on depth > 0 and oldest-message age; manual disposition within 14 days; redrive by an authorised ops role, per type, capped at 2× nominal, root cause first | ADR-002 §12; `amqp-topology-v1.md` §6 |
+| **`pg_partman`** | **Never a dependency.** Pre-creation is a scheduled task in `stats-writer` behind the D3 advisory lock — needed anyway, because D8 puts N replicas per type and N replicas racing to create tomorrow's partition is what the lock exists to prevent | ADR-003 D1 |
+| **D5b** | **Engineering agrees** the late-arrival policy — skip, meter `records_expired_on_arrival`, ACK — and adds an **alert when the counter is non-zero**, because a systemic gateway backlog and a one-off look identical in the raw count. **The product signature is still owed; T-026 stays BLOCKED** | ADR-003 |
 
 ---
 
@@ -261,7 +266,7 @@ The whole path for exactly one type. Input validates against the JSON Schema and
 publishes with publisher confirms; per-type durable topology with retry and DLQ;
 Writer consumes, writes to PostgreSQL, manual-ACKs after commit; `PRIMARY KEY
 (ts_device, uid)` with metered `ON CONFLICT DO NOTHING`; the
-`(tenant, gateway, ts_device DESC, uid DESC)` index; retention job keyed on
+`(tenant, clsbox, ts_device DESC, uid DESC)` index; retention job keyed on
 `ts.device`; per-type metrics.
 
 Decide typed columns vs `jsonb` here — everything else inherits it.
@@ -273,7 +278,8 @@ is a harmless no-op; retention boundary test passes on both sides.
 ### Phase 3 — Type fan-out (juniors, parallel)
 
 `ltestats`, `sysstats`, `omsstats` — one per junior, each an additive copy of the
-Phase 2 pattern. `netstats` last, once §2b answers land. If any of these requires
+Phase 2 pattern. `netstats` last — its schema was finalised by Q4a on 18 Aug 2026, so
+nothing gates it but the reference slice. If any of these requires
 editing Phase 2 code, the abstraction is wrong — that comes back to you.
 
 **Exit:** all approved types ingesting; poison-message isolation test proves one bad

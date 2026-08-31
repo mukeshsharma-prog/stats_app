@@ -2,10 +2,10 @@
   "uid": "e5e5e5e5-e5005-4e505-8e505-e5e5e5e5e5e5",
   "tenant": "tenant-alpha",
   "maintenant": "management-parent",
-  "gateway": "A1B2C3D4E5F6",
+  "clsbox": "A1B2C3D4E5F6",
   "type": "netstats",
   "ts": {
-    "processor": 1787054120,
+    "server": 1787054120,
     "device": 1787054100
   },
   "data": {
@@ -20,7 +20,15 @@
       ],
       "mask": "255.255.255.0"
     },
-    "timespan": 300
+    "timespan": 300,
+    "wwan": {
+      "gw": "10.119.110.117",
+      "ip": "10.119.110.116",
+      "dns": [
+        "8.8.8.8"
+      ],
+      "mask": "255.255.255.248"
+    }
   },
-  "$comment": "Mandatory data.wwan removed. Expect 400 with code 'missing' on that field, and NOTHING published."
+  "$comment": "RETARGETED 29 Aug 2026 (ADR-007 §5). This fixture used to remove data.wwan entirely, which duplicated netstats-missing-wwan.json. The interface required-set is now tx/rx ONLY - gw, ip, mask and dns became optional because production sends a down modem with no address at all. So this fixture now asserts the surviving interface-level requirement: a wwan that is fully addressed but reports no counters. Expect code 'missing' on /data/wwan/tx and /data/wwan/rx."
 }

@@ -56,7 +56,7 @@ These rules derive from the SRS and cannot be relaxed by a coding shortcut.
 | Tenant isolation is server-side. | Derive the effective tenant solely from the validated access token; add it to every repository query; never trust a request tenant parameter, header, or body. |
 | Per-type isolation is required. | Every stat type has its own routing key, durable queue `app_statsstore.<type>`, three retry tiers `app_statsstore.<type>.retry.<tier>`, DLQ `app_statsstore.<type>.dlq`, consumer, PostgreSQL table, indexes, retention configuration, metrics labels, and endpoint operation. |
 | New types are additive. | Adding a type must not modify code handling existing types. Extend through a registry/plugin-style adapter and add a new isolated artifact/configuration. |
-| Retention keys on `ts.device`. | This is the answered business rule. A late-arriving record may be near expiry on arrival; that consequence is accepted, documented, and boundary-tested — not silently corrected to `ts.processor`. |
+| Retention keys on `ts.device`. | This is the answered business rule. A late-arriving record may be near expiry on arrival; that consequence is accepted, documented, and boundary-tested — not silently corrected to `ts.server`. |
 | `uid` is a first-class column. | Store `uid` as its own PostgreSQL column. Never a database-generated identifier. Uniqueness is `PRIMARY KEY (ts_device, uid)` — in that column order (G2) — scoped **per partition**; a unique index on `uid` alone is not creatable on a table partitioned by `ts_device` (ADR-003). |
 | Invalid ingress is visible. | Return 400 for validation failure, log safe metadata, publish nothing, and expose an error response that does not contain device-identifying values. |
 | Write failure is visible. | Apply the approved retry policy and send permanently failed records to a DLQ; never swallow exceptions or drop a message. |
@@ -73,9 +73,9 @@ All record types use the common envelope:
   "uid": "<unique record id>",
   "tenant": "<assigned tenant>",
   "maintenant": "<managing tenant>",
-  "gateway": "<12-character hexadecimal gateway MAC>",
+  "clsbox": "<12-character hexadecimal gateway MAC>",
   "type": "<stat type>",
-  "ts": { "processor": 0, "device": 0 },
+  "ts": { "server": 0, "device": 0 },
   "data": {}
 }
 ```
@@ -86,7 +86,7 @@ Treat `tenant` and `maintenant` as different business fields. The approved query
 
 **The Writer must range-check counters.** The schema caps them at 19 digits, which is wider than the signed `BIGINT` maximum. The gap is not expressible as a regex, so an unchecked conversion overflows and corrupts the value with no error anywhere. Fixture: `invalid/netstats-counter-overflow.json`.
 
-**OMS timestamps — ADR-004 is ACCEPTED.** Heimdal already sends the canonical `ts.processor`. The Stats App performs no timestamp transformation, and there is no `ts.converter` handling anywhere. A record carrying `ts.converter` is invalid.
+**OMS timestamps — ADR-004 is ACCEPTED, amended 29 Aug 2026 by ADR-007 §2.** Heimdal already sends the canonical `ts.server`. The Stats App performs no timestamp transformation and there is no `ts.converter`-driven logic anywhere. But a record carrying `ts.converter` is **valid** — production sends it on every record, and the rule calling it invalid rejected 100% of ingest. It is accepted, preserved, never read, and metered as `records_converter_ts_present{type}`. Accepting a field is not the same as acting on it.
 
 ## 5. Decisions that code must not invent
 
@@ -100,12 +100,14 @@ since 18 August.
 | Inbound Heimdal authentication and identity | **DEFERRED BY DECISION (Q8a).** Config-selected filter, no default in code, `WARN` on `none`, `prod` refuses `none`. **Risk accepted: the Input port is unauthenticated** | Nothing today. **Blocks any shared deployment** (Q8a-2) |
 | `netstats` nested-interface rules | **CLOSED (Q4a).** Schema is strict. Residual: the Writer must range-check counters against the signed `BIGINT` maximum | Nothing. IPv6 (Q4b) widens one `$def` |
 | Keycloak realm/client/issuer/audience/role and tenant claim | **CLOSED (Q8b, ADR-006).** Realm `statsapp`, audience `stats-api`, read role `stats.readOnly`, tenant claim `tenant` single-valued String; live in the dev realm | Nothing. ZC confirmation (Q8b-2) is a config change, because none of these has a default in code |
-| Retry count, backoff, DLQ policy | **CLOSED (G1/G4, ADR-002).** Three tiers, fixed delays 30 s / 5 min / 30 min, externalised, never a multiplier | DLQ *retention* and the redrive runbook still need an operations decision |
+| Retry count, backoff, DLQ policy | **CLOSED (G1/G4, ADR-002).** Three tiers, fixed delays 30 s / 5 min / 30 min, externalised, never a multiplier. **DLQ retention closed 29 Aug 2026 (ADR-002 §12): no TTL, ever** — alert on depth > 0 and oldest-message age, manual disposition within 14 days, redrive by an authorised ops role per type at ≤ 2× nominal | Nothing. The redrive *runbook* is still to be written (T-052), but its policy is decided |
 | PostgreSQL version, typed columns vs `jsonb`, partition key, migration tool | **CLOSED (ADR-003).** PG17, daily `RANGE (ts_device)`, typed for four types with a `jsonb` hybrid for `netstats`, Flyway | Nothing |
 | Approved OpenAPI | **DRAFTED** — `docs/contracts/openapi.yaml`, 21 Aug 2026, awaiting ZC confirm/decline | Freezing the contract. Controllers wait on confirmation |
-| Capacity/SLO, burst profile, deployment sizing | **PARTIAL (Q13a).** Design target 13,333/s, prefetch 500, Writer sized for drain | **RPO/RTO (D5a)** blocks production readiness. Q13b jitter is worth 10× on hardware |
-| Late-arrival policy | **PROPOSED** — reject, meter, ACK (ADR-003) | Writer, Phase 2. Needs product sign-off (D5b) |
-| Clock skew — future `ts.device` | **OPEN (Q14a).** Fixture exists, decision does not | Writer partition routing |
+| Capacity/SLO, burst profile, deployment sizing | **PARTIAL (Q13a).** Design target 13,333/s, prefetch 500, Writer sized for drain. **Volume closed at 115.2M/day (Q5a, 29 Aug 2026)** | **RPO/RTO (D5a)** blocks production readiness — engineering's proposal is RPO ≤ 5 min, RTO 1 h per partition / 24 h full cluster. Q13b jitter is worth 10× on hardware |
+| Late-arrival policy | **ENGINEERING AGREED 29 Aug 2026** — skip the write, meter `records_expired_on_arrival`, ACK, and alert when the counter is non-zero (ADR-003) | Writer, Phase 2. **Still needs the product signature (D5b); T-026 stays BLOCKED** |
+| Clock skew — future `ts.device` | **CLOSED 29 Aug 2026 (Q14a, ADR-003 D9).** Rejected at Input beyond `stats.input.validation.max-clock-skew` (default `PT5M`): 400, field code `clock_skew_exceeded`, metered as `records_clock_skew_rejected{type}`. Cross-field, so it is code in Input — not a schema rule | Nothing. Implement in T-013 |
+| Partition pre-creation mechanism | **CLOSED 29 Aug 2026 (ADR-003 D1).** Scheduled task in `stats-writer` behind the D3 advisory lock; `pg_partman` is never a dependency | Nothing. T-012 is unblocked |
+| Topology declaration scope | **CLOSED 29 Aug 2026 (Q3a, ADR-002 §11).** Broker-connected modules only; `stats-api` gets no broker connection. T-032 is the enforcement | Nothing. Platform ack is a courtesy |
 
 Use `PENDING APPROVAL` clearly in documentation, and **keep this table current** —
 a stale `PENDING` row is not caution, it is a blocker nobody can lift. Never
@@ -132,7 +134,7 @@ review cycle; contradicting them produces work that has to be thrown away.
 | HTTP success timing | Only after publisher confirm. |
 | Broker unavailable | Non-2xx (503). No local buffering. Heimdal owns retry. |
 | Error shape | RFC 9457 Problem Details — confirmed. |
-| Dominant query pattern | `(tenant, gateway, ts.device)`. |
+| Dominant query pattern | `(tenant, clsbox, ts.device)`. |
 | Scope | Dead-lettering, per-type metrics, and horizontal scaling are all in V1. |
 
 ### 5.2 Ours to decide — decide, record an ADR, do not escalate
@@ -154,7 +156,7 @@ accident.
 
 PostgreSQL is the only V1 persistence technology. Use PostgreSQL-compatible Spring Data/JDBC/JPA conventions only after the approved table/partition/index design exists. Use versioned migrations for every schema change. Test persistence against a real PostgreSQL Testcontainer. Do not introduce MongoDB drivers, `MongoRepository`, TTL-index code, Mongo Compose services, `_id` semantics, or Mongo-specific documentation.
 
-The dominant query pattern is `(tenant, gateway, ts.device)`. PostgreSQL indexes, partitions, and API queries must support that pattern without JSON path scans. Retention is based on `ts.device`; the retention strategy must be explicitly selected for PostgreSQL because the previous MongoDB TTL approach is no longer applicable.
+The dominant query pattern is `(tenant, clsbox, ts.device)`. PostgreSQL indexes, partitions, and API queries must support that pattern without JSON path scans. Retention is based on `ts.device`; the retention strategy must be explicitly selected for PostgreSQL because the previous MongoDB TTL approach is no longer applicable.
 
 ## 7. Code structure rules
 
@@ -181,10 +183,35 @@ For every task, follow this sequence.
 
 1. **Inspect.** Read the required source documents and relevant existing code/tests.
 2. **Plan.** State requirements, assumptions, files to change, tests, failure behavior, and decisions that block work.
-3. **Wait.** Do not edit until the user approves the plan, unless the request explicitly asks for a small, reversible documentation-only edit.
-4. **Implement minimally.** Make the narrowest change that meets the named requirements.
-5. **Test.** Run focused unit tests, then relevant integration/contract tests. Do not claim a test passed without running it.
-6. **Review.** Explain the requirement mapping, tests run and results, unresolved risks, and documentation updates.
+3. **Quiz.** Before implementing, quiz the requester on the decisions the change depends on — the trap it can fall into, what breaks if it is reversed, and which requirement or ADR governs it. A wrong or unsure answer is **not** a failure to move past: explain it, then **ask the quiz again**. Implementation starts once the quiz is passed. *(DL-005)*
+4. **Wait.** Do not edit until the user approves the plan, unless the request explicitly asks for a small, reversible documentation-only edit.
+5. **Implement minimally.** Make the narrowest change that meets the named requirements.
+6. **Test.** Run focused unit tests, then relevant integration/contract tests. Do not claim a test passed without running it.
+7. **Review.** Explain the requirement mapping, tests run and results, unresolved risks, and documentation updates.
+
+### Why the quiz step exists
+
+Nine of the eleven ways this system can lose a record fail **silently**
+(`claude/FLOW.md` §8). A query on `maintenant` passes every test written
+against the supplied samples. A timestamp read as milliseconds writes 1970
+with no error. A TTL on the DLQ deletes the last copy of a record and reports
+success. Code review does not catch these, because the code looks correct —
+only someone who already knows the trap catches them.
+
+The quiz makes that knowledge a **precondition of the change** rather than a
+hope. Ask about the specific hazard the change touches, not the general topic.
+
+| If the change touches | Ask about |
+|---|---|
+| Any query, cursor, or count | `tenant` vs `maintenant`; why in-memory filtering is not equivalent |
+| Timestamps | Unix **seconds**; `ts.device` vs `ts.server`; the retention consequence |
+| The Input response path | Why a 2xx before publisher confirm is unrecoverable; why a confirm is not a route |
+| Broker topology | `RESOURCE_LOCKED` on a mismatched declaration; why the DLQ takes no TTL |
+| Writer ACK or retry | Commit-then-ACK; publish-confirm-then-ACK on the retry hand-off |
+| Inserts or the key | `(ts_device, uid)` column order; why `tenant` is out of the key |
+| Retention or partitions | Detach-and-drop vs row deletion; what happens if pre-creation fails |
+| Pagination | Why the sort is fixed and always applied; why the cursor carries its filters |
+| A new stat type | Why it must be additive; what `StatTypeFanOutTest` proves |
 
 ## 10. Mandatory tests
 

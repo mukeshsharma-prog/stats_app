@@ -56,3 +56,10 @@ sourceSets {
         resources.srcDir(rootProject.file("docs/schemas/fixtures"))
     }
 }
+
+// StatTypeFanOutTest reads the other modules' main sources to prove no code
+// special-cases an individual stat type (STA-22, trap 15). Gradle supplies the
+// repository root rather than the test guessing it from a working directory.
+tasks.test {
+    systemProperty("stats.repositoryRoot", rootProject.projectDir.absolutePath)
+}

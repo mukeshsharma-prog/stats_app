@@ -1,11 +1,11 @@
 {
-  "uid": "a1a1a1a1-a1002-4a102-8a102-a1a1a1a1a1a1",
+  "uid": "a1a1a1a1-a1003-4a103-8a103-a1a1a1a1a1a1",
   "tenant": "tenant-alpha",
   "maintenant": "management-parent",
-  "gateway": "04B6481037E",
+  "clsbox": "04B6481037EZ",
   "type": "sysstats",
   "ts": {
-    "processor": 1787054120,
+    "server": 1787054120,
     "device": 1787054100
   },
   "data": {
@@ -17,5 +17,5 @@
     "load15": 0.38,
     "runable": "2/139"
   },
-  "$comment": "gateway is 11 hex characters, not 12. Expect 400."
+  "$comment": "gateway contains a non-hex character. Expect 400."
 }

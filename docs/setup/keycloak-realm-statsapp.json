@@ -122,6 +122,7 @@
       "enabled": true,
       "emailVerified": true,
       "firstName": "${env.STATS_ALPHA_READER_USERNAME:alpha-reader}",
+      "lastName": "dev",
       "email": "${env.STATS_ALPHA_READER_USERNAME:alpha-reader}@${env.STATS_USER_EMAIL_DOMAIN:stats.local}",
       "credentials": [
         {
@@ -144,6 +145,7 @@
       "enabled": true,
       "emailVerified": true,
       "firstName": "${env.STATS_BETA_READER_USERNAME:beta-reader}",
+      "lastName": "dev",
       "email": "${env.STATS_BETA_READER_USERNAME:beta-reader}@${env.STATS_USER_EMAIL_DOMAIN:stats.local}",
       "credentials": [
         {
@@ -166,6 +168,7 @@
       "enabled": true,
       "emailVerified": true,
       "firstName": "${env.STATS_NO_ROLE_USERNAME:no-role}",
+      "lastName": "dev",
       "email": "${env.STATS_NO_ROLE_USERNAME:no-role}@${env.STATS_USER_EMAIL_DOMAIN:stats.local}",
       "credentials": [
         {
@@ -182,11 +185,11 @@
       "realmRoles": []
     },
     {
-      "_comment": "NO tenant attribute at all, on purpose. A token minted for this user carries no tenant claim, and an absent claim must be rejected with 403 - it NEVER means 'all tenants'. This is a different code path from an empty claim, which is why empty-tenant below exists as a separate user: one user cannot exercise both, and ADR-006 release-gates each of them.",
       "username": "${env.STATS_NO_TENANT_USERNAME:no-tenant}",
       "enabled": true,
       "emailVerified": true,
       "firstName": "${env.STATS_NO_TENANT_USERNAME:no-tenant}",
+      "lastName": "dev",
       "email": "${env.STATS_NO_TENANT_USERNAME:no-tenant}@${env.STATS_USER_EMAIL_DOMAIN:stats.local}",
       "credentials": [
         {
@@ -200,11 +203,11 @@
       ]
     },
     {
-      "_comment": "EMPTY tenant claim. Distinct from no-tenant above: the claim is present but blank. A naive `claim != null` check passes this and then filters on an empty string, which matches nothing - or, worse, is treated as unset somewhere downstream. Must be rejected with 403, fail-closed by construction rather than by a default value.",
       "username": "${env.STATS_EMPTY_TENANT_USERNAME:empty-tenant}",
       "enabled": true,
       "emailVerified": true,
       "firstName": "${env.STATS_EMPTY_TENANT_USERNAME:empty-tenant}",
+      "lastName": "dev",
       "email": "${env.STATS_EMPTY_TENANT_USERNAME:empty-tenant}@${env.STATS_USER_EMAIL_DOMAIN:stats.local}",
       "credentials": [
         {
@@ -222,33 +225,5 @@
         "${env.STATS_READ_ONLY_ROLE:stats.readOnly}"
       ]
     }
-  ],
-  "_comment": [
-    "DEVELOPMENT REALM ONLY. Never reuse any value here in a deployed environment.",
-    "Proposed values pending ZC/security confirmation of Q8b - see docs/decisions/2B-ANSWERS-18AUG2026.md.",
-    "",
-    "PLACEHOLDERS. Every env-placeholder below - dollar-brace, 'env.' prefix, colon,",
-    "fallback - is resolved at import time from an environment variable, falling back",
-    "to the literal after the colon when it is unset. Values come from the",
-    "repository-root .env (gitignored; .env.example is its committed twin). The",
-    "fallbacks are the previous hard-coded literals, so this file still imports a",
-    "complete working realm with no .env present - a missing variable degrades to the dev value instead of producing a broken realm.",
-    "",
-    "VERIFY THE SUBSTITUTION ACTUALLY HAPPENED. Placeholder support has varied across",
-    "Keycloak versions, and the failure mode is silent: an unresolved placeholder is",
-    "imported as the literal placeholder text, so alpha-reader's tenant becomes that",
-    "raw string - and the cross-tenant isolation test still PASSES, because A's raw",
-    "string still differs from B's. After the first import, check the realm name and",
-    "one user's tenant attribute in the admin console before trusting any test result.",
-    "",
-    "The four users exist for specific tests. Their usernames, emails and tenant ids",
-    "are all variables, so every name in this realm is ours to change from .env - but",
-    "the SRS, docs/decisions/2B-ANSWERS-18AUG2026.md and the isolation tests refer to",
-    "them by the default names, so rename in .env and in those tests together.",
-    "alpha-reader and beta-reader are the cross-tenant isolation pair, no-role proves",
-    "an authenticated caller without the read role gets 403, and no-tenant proves a",
-    "token with no usable tenant claim fails CLOSED rather than returning everything.",
-    "no-tenant's empty tenant attribute is deliberately NOT a variable - the empty",
-    "string is the thing under test."
   ]
 }

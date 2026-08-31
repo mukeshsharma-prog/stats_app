@@ -1,10 +1,10 @@
 {
   "uid": "a1a1a1a1-a1001-4a101-8a101-a1a1a1a1a1a1",
   "maintenant": "management-parent",
-  "gateway": "A1B2C3D4E5F6",
+  "clsbox": "A1B2C3D4E5F6",
   "type": "sysstats",
   "ts": {
-    "processor": 1787054120,
+    "server": 1787054120,
     "device": 1787054100
   },
   "data": {

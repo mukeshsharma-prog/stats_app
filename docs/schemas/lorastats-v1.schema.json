@@ -19,6 +19,7 @@
             "rx_nr_pkts": { "type": "integer" },
             "rx_crc_missing": { "type": "integer" },
             "rx_crc_bad": { "type": "integer" },
+            "rx_short_pkt": { "type": "integer" },
             "tx_success": { "type": "integer" },
             "tx_failed": { "type": "integer" },
             "tx_peek": { "type": "integer" },
@@ -28,12 +29,15 @@
             "tx_dequeue_error": { "type": "integer" },
             "tx_type_beacon": { "type": "integer" },
             "chip_comm_error": { "type": "integer" },
-            "util_fopen_failed": { "type": "integer" }
+            "util_fopen_failed": { "type": "integer" },
+            "fsk_received": { "type": "integer" },
+            "rx_type_arol": { "type": "integer" },
+            "timespan": { "type": "integer", "minimum": 0 }
           },
           "additionalProperties": true
         }
       }
     }
   ],
-  "$comment": "Development draft based on SRS v1.0. Negative-counter and overflow rules require approval."
+  "$comment": "CANONICAL DIALECT: bare field names, integer values. Re-derived from the 29 Aug 2026 production sample, in which lorastats arrived in THREE mutually incompatible dialects in three consecutive records - bare/integer, bare/string ('176'), and lora_-prefixed/integer (lora_rx_nr_pkts) - all three carrying version:1, so nothing on the record discriminates them. Per ADR-007 §4 this schema encodes ONE dialect and the other two are DEAD-LETTERED rather than absorbed by a permissive union, so the disagreement is visible in the DLQ instead of being silently normalised away. Bare/integer was chosen because it matches omsstats, which shares the same converter family. THIS IS AN ASSUMPTION, NOT AN ANSWER: it rejects an estimated two thirds of lorastats traffic and is the single most urgent question for ZC (ADR-007 §6). rx_short_pkt, fsk_received and rx_type_arol are observed in production, are OPTIONAL because no record carries all three, and are typed so a dialect that sends them as strings still dead-letters. timespan is optional: the bare/string record omits it entirely."
 }

@@ -6,6 +6,55 @@ It is still auto-loaded every session: the repository-root `CLAUDE.md` is a
 pointer file whose only content is an `@claude/CLAUDE.md` import. Edit this file,
 not the pointer.
 
+> **Version 1.7 — 29 August 2026.** Rebuilds the envelope on the **production wire
+> format** after Hasan supplied 15 real records. Governing decision: **ADR-007**.
+>
+> **Changed in 1.7 — this is the largest change since MongoDB was dropped. Re-read
+> all of it:**
+>
+> * **The device field is `clsbox`, not `gateway`.** The arrival clock is
+>   **`ts.server`**, not `ts.processor`. Production has never used the SRS names.
+>   One vocabulary, end to end — wire, schema, Java, PostgreSQL column, API
+>   response. There is deliberately **no rename layer** (ADR-007 §1).
+> * **`ts.converter` is now VALID.** It is on 100% of production records, and the
+>   rule that rejected it rejected every record Heimdal sends. ADR-004's clause 3 is
+>   **withdrawn**; ADR-004's actual decision — no timestamp normalisation — is
+>   unchanged (ADR-007 §2).
+> * **`ts.datastore`, `ts.expiresOn`, `version` and `status` are real envelope
+>   members.** Accepted, preserved, never read. `ts.expiresOn` is a **string**, not
+>   epoch seconds.
+> * **There are now TWO validation gates.** Input validates the **envelope only** and
+>   a failure is a 400. The Writer validates the **payload** and a failure is a
+>   **dead-letter**. "Invalid" no longer implies "400" (ADR-007 §5).
+> * **`lorastats` arrives in three incompatible dialects** and `version` does not
+>   discriminate them. We encode one and dead-letter the rest. This is an assumption
+>   pending ZC (Q15a) and it dead-letters ~2/3 of lorastats.
+> * **`ltestats` numerics are STRINGS** on the wire, and the field is
+>   **`access_Technology`** with a capital T.
+> * **`netstats` interfaces require only `tx`/`rx`.** A down modem sends no address.
+>
+> **Version 1.6 — 29 August 2026.** Adds the six decisions of 29 Aug 2026 (§7,
+> "Decided 29 August 2026") and closes Q14a, Q3a and Q5a. Full reasoning:
+> `claude/OPEN_QUESTIONS_STATUS_29AUG2026.md`.
+>
+> **Changed in 1.6 — re-read these:**
+>
+> * **Q14a is closed.** A `ts.device` more than `stats.input.validation.max-clock-skew`
+>   (default 5 min) ahead of `ts.server` is **rejected at Input** with 400 and the
+>   field code `clock_skew_exceeded` (ADR-003 D9). It was never a product question.
+> * **Q3a is closed.** Only **broker-connected** modules declare topology. `stats-api`
+>   gets no RabbitMQ connection (ADR-002 §11).
+> * **Q5a is closed at 115.2M records/day.** The internal "around 10 million" is
+>   withdrawn. It never blocked freezing the schema.
+> * **The DLQ has no TTL, ever** (ADR-002 §12). Alert on depth > 0 and oldest-message
+>   age; disposition is manual.
+> * **`pg_partman` is not a dependency.** Partition pre-creation is a scheduled task in
+>   `stats-writer` behind the D3 advisory lock (ADR-003 D1).
+> * **`stats-common` holds five things, not four** — the Draft 2020-12 schema validator
+>   is one of them (D15). §2 now says so.
+> * **A token that authenticates but has no usable `tenant` claim is 403, not 401.**
+>   `openapi.yaml` said 401; ADR-006 wins and the contract is corrected.
+>
 > **Version 1.5 — 24 August 2026.** Incorporates the answers in
 > `Stats_App_Answers_v1_0.docx`, the v1.2 amendment set, the six gate decisions
 > (G1–G6), and a full cross-document reconciliation. The most significant change
@@ -85,7 +134,7 @@ App deployables. Never describe them as application modules.
 
 | Module | Gradle name | Responsibility |
 |---|---|---|
-| — | **stats-common** | Shared envelope model, stat-type enum, AMQP topology constants, Problem Details, shared errors. No application logic. |
+| — | **stats-common** | Five things, and only these (D15): the shared envelope model, the stat-type enum, the AMQP topology constants, RFC 9457 Problem Details with the error catalogue and safe field errors, and Draft 2020-12 schema validation against the normative catalogue in `docs/schemas/`. **No module-specific application logic**, ever. The validator lives here because the schemas are normative for the whole project and the Java oracle must stay in parity with the Python CI gate; it is a shared capability, not Input's business logic. |
 | 1 | **stats-input** | HTTP POST endpoint. Authenticates the caller, validates the payload against the schema for its stat type, then publishes to the `app_stats_input` exchange with the stat type as routing key. Returns 2xx **only after publisher confirm**. Does **not** touch the database. |
 | 2 | **stats-writer** | Consumes from the per-type RabbitMQ queues and writes to PostgreSQL. The **only** component with database write access. Owns retention/cleanup. |
 | 3 | **stats-api** | Read-only REST endpoints. Keycloak-secured, role-based, tenant-scoped. **GET only** — never writes. Has no broker role. |
@@ -123,38 +172,61 @@ Use these terms exactly. Do not invent synonyms.
 | Term | Meaning |
 |---|---|
 | **Stat type** | The classification of a record: `lorastats`, `ltestats`, `sysstats`, `netstats`, `omsstats`. Determines routing key, queue, consumer, and **table**. |
-| **Envelope** | The common fields present on every record regardless of type: `uid`, `tenant`, `maintenant`, `gateway`, `type`, `ts.processor`, `ts.device`. |
+| **Envelope** | The common fields present on every record regardless of type: `uid`, `tenant`, `maintenant`, `clsbox`, `type`, `version`, `ts`, `data`, `status`. |
 | **Payload** | The `data` object — the only part that differs between stat types. |
 | **tenant** | The tenant the gateway is assigned to. **The isolation field.** |
 | **maintenant** | The *managing* tenant. Often identical to `tenant` in sample data — **this is a trap, see §6**. Never used for isolation. |
-| **gateway** | The device identifier the statistics came from. 12 hexadecimal characters. |
+| **clsbox** | **The device identifier field.** 12 hexadecimal characters. This is the name on the wire, in the schema, in Java, in the PostgreSQL column, and in API responses (ADR-007 §1). The SRS called it `gateway`; nothing in production ever has. |
+| **gateway** | The *physical device* — used in prose only ("160,000 gateways", "a gateway with a bad clock"). **Never a field name.** Do not mechanically rewrite this word to `clsbox`. |
+| **ts.server** | The canonical **arrival** clock — Heimdal's receipt time. What the SRS called `ts.processor`. Clock skew is measured against it (ADR-007 §3). |
+| **ts.device** | When the gateway measured the record. **Retention keys on this**, not on `ts.server` (STA-23B). |
+| **Passthrough members** | `ts.datastore`, `ts.converter`, `ts.expiresOn`, `status`, `version` — accepted, stored, returned verbatim, and **never read**. |
 | **Heimdal Core** | The Datahub Core module that sends us data. Upstream, owned by ZC. Not ours. |
 | **Statsstore** | The persistence layer — Module 2. Also the queue-name prefix. |
 | **DLQ** | Dead-letter queue. Per stat type. Holds messages that failed processing after the retry limit. |
 
 ### Record shape
 
+This is the **real production shape**, from the sample of 29 August 2026. It is not
+an idealisation of it — build against this.
+
 ```json
 {
-  "uid": "<unique record id>",
-  "tenant": "<tenant>",
-  "maintenant": "<managing tenant>",
-  "gateway": "04B6481037E9",
+  "uid": "CLSCON-11d3ec4c-f6e1-403a-a9ef-b6f5fe909eee",
+  "tenant": "mzc",
+  "maintenant": "mzc",
+  "clsbox": "04B64810652B",
   "type": "lorastats",
+  "version": 1,
   "ts": {
-    "processor": 1689338206,
-    "device": 1689338200
+    "server":    1787833739,
+    "datastore": 1787833739,
+    "converter": 1787833739,
+    "device":    1787833739,
+    "expiresOn": "2026-08-27T12:28:59.074Z"
   },
-  "data": { }
+  "data": { },
+  "status": ["conversion ok"]
 }
 ```
 
-`ts.processor` and `ts.device` are **Unix timestamps in seconds**.
+`ts.server`, `ts.datastore`, `ts.converter` and `ts.device` are **Unix timestamps in
+seconds**. `ts.expiresOn` is an **ISO-8601 string** — the odd one out, and typing it
+as an epoch integer throws on every production record.
 
-> **omsstats — resolved (ADR-004, ACCEPTED).** Heimdal already sends the canonical
-> `ts.processor`. The Stats App performs **no timestamp normalisation**. There is
-> no `ts.converter` handling anywhere in the codebase; a record carrying
-> `ts.converter` is invalid. The v1.0 SRS section describing it is out of date.
+**Required:** `uid`, `tenant`, `maintenant`, `clsbox`, `type`, `ts` (with `server`
+and `device`), `data`. Everything else is optional and never read.
+
+`uid` is `CLSCON-`-prefixed, not a bare UUID. No format is enforced — ZC guarantees
+uniqueness, not a shape.
+
+> **omsstats — resolved (ADR-004, ACCEPTED; amended by ADR-007 §2).** Heimdal
+> already sends the canonical `ts.server`. The Stats App performs **no timestamp
+> normalisation** and there is no `ts.converter`-driven transformation anywhere in
+> the codebase. But a record carrying `ts.converter` is **valid** — production sends
+> it on every record, and the rule that called it invalid rejected 100% of ingest.
+> Accepting the field is not the same as acting on it. The v1.0 SRS section is out
+> of date.
 
 ---
 
@@ -178,12 +250,19 @@ a change would.
    All tier delays and the maximum attempt count are externalised to
    `application.properties` — never hard-coded — with starting values of 30 s,
    5 min, and 30 min. Immediate requeue is never used for a persistent failure.
+   **The DLQ itself carries no TTL and no expiry of any kind** — a TTL'd
+   dead-letter queue is silent data loss (ADR-002 §12, 29 Aug 2026).
    *(STA-10A, G1/G4 ratified 18 Aug 2026)*
 6. **Adding a new stat type must not require changing existing types.**
    New type = new schema + routing key + queue + consumer + table + endpoint
    operation + fixtures + metrics. *(STA-14, STA-14A, STA-22)*
-7. **Invalid records are rejected with HTTP 400 and logged.** Never silently
-   dropped, and nothing is published. *(STA-03, STA-03A)*
+7. **Records failing the ENVELOPE are rejected with HTTP 400 and logged.** Never
+   silently dropped, and nothing is published. **Records failing the per-type
+   PAYLOAD schema are dead-lettered by the Writer, not 400'd** — by then the record
+   has been accepted, publisher-confirmed, and published, and Heimdal retries only
+   on a non-2xx, so a 400 at that point would be unrecoverable data loss. Two
+   gates, two consequences: `validateEnvelope()` at Input, `validate()` at the
+   Writer. *(STA-03, STA-03A, ADR-007 §5)*
 8. **A 2xx is returned only after RabbitMQ publisher confirm.** If the broker is
    unavailable or confirmation times out, return 503. No local buffering — Input
    is stateless. Heimdal owns retry on any non-2xx. *(STA-04A, STA-06A)*
@@ -227,12 +306,12 @@ does not delay another.
 
 **Retention keys on `ts.device`, and that has a consequence.**
 A gateway that was offline delivers records whose `ts.device` is weeks older than
-`ts.processor`. Those records are near expiry the moment they arrive. This is the
+`ts.server`. Those records are near expiry the moment they arrive. This is the
 **answered and accepted business rule** — do not "fix" it by quietly switching to
-`ts.processor`. Document it and cover it with boundary tests.
+`ts.server`. Document it and cover it with boundary tests.
 
 **Unix seconds, not milliseconds.**
-`ts.processor` and `ts.device` are in **seconds**. Treating them as milliseconds
+`ts.server` and `ts.device` are in **seconds**. Treating them as milliseconds
 silently produces dates in 1970.
 
 **Unsorted pagination is not stable.**
@@ -254,6 +333,32 @@ the trade-off explicitly.
 If two modules declare the same exchange or queue with different arguments,
 RabbitMQ rejects the mismatched declaration with `RESOURCE_LOCKED`. Declarations
 must come from shared constants in `stats-common` and be identical and idempotent.
+
+**One stat type can speak several dialects at once, and nothing on the record says
+which.**
+Three consecutive production `lorastats` records used three incompatible payload
+shapes — bare names with integers, bare names with strings (`"176"`), and
+`lora_`-prefixed names. **All three carried `version: 1`.** Anything that branches
+on `version` to pick a parser is wrong. We encode one dialect and dead-letter the
+rest (ADR-007 §4); do not "fix" a DLQ spike by widening the schema to absorb them.
+
+**The SRS field names are not the wire field names.**
+Every envelope name in SRS v1.0 — `gateway`, `ts.processor` — is wrong, and the
+whole document set agreed with it consistently for months. Consistency across
+documents is not evidence of correctness when they all derive from one source. If
+you are adding a field, check it against a production record, not against another
+document.
+
+**A required field that is absent because the device is broken.**
+`netstats` required `ip`/`gw`/`mask`/`dns` on every interface, which dead-lettered
+every record from a modem that never came up — exactly the record ops most needs.
+Before making a field required, ask what the record looks like when the thing it
+describes is *failing*.
+
+**Wire types differ per stat type for the same concept.**
+`timespan` is an integer in `lorastats`/`omsstats`/`netstats` and the string
+`"300"` in `sysstats`. Every `ltestats` numeric is a string. There is no single
+coercion that is right everywhere; parse per type and range-check before conversion.
 
 **Unknown-field policy is a real decision, not a Jackson default.**
 Whether an unexpected field is accepted or rejected must be a deliberate,
@@ -280,7 +385,7 @@ derived engineering decisions, is `docs/decisions/2B-ANSWERS-18AUG2026.md`. Read
 | Q8b | **Engineering proposal, live in the dev realm** | Realm `statsapp`, clients `stats-api`/`stats-input`/`stats-dev-cli`, roles `stats.readOnly` and `stats.ingest`, tenant claim **`tenant`, single-valued String**. Working realm at `docs/setup/keycloak-realm-statsapp.json`. Single-valued on purpose: a multi-valued claim turns isolation into `tenant IN (...)`, and one misconfigured user then reads several tenants with every test still green |
 | Q13a | **Assume synchronised 10-minute boundaries** until Heimdal telemetry proves otherwise | Design target is **13,333/s** (10× average — 800,000 records per cycle landing in 60 s). Writer prefetch starts at 500; Writer is sized for drain (~2,000/s per type), not for peak. Queue depth spiking each cycle is the buffer working — alert on **oldest message age**, never on depth. `max_wal_size` sized for the burst, not the average |
 | Q13a (replay) | **Ask Heimdal to cap replay at 2× nominal (2,667/s)** | A 6-hour outage is 28.8M messages and about 3 hours of replay at that cap, holding total ingest at 4,000/s. 503 is the backpressure channel and is the mechanism working, not an incident. Replayed records are duplicates by definition and `ON CONFLICT DO NOTHING` absorbs them |
-| Q11a | **Built.** 68 fixtures across `valid/`, `invalid/`, `edge/`, `malformed/` | `docs/schemas/fixtures/`, catalogued in `MANIFEST.md`. `docs/schemas/validate-fixtures.py` asserts all 71 and exits non-zero for CI. Three of them found real schema gaps on first run — `ts.converter`, millisecond timestamps, and the counter ceiling all validated clean before the schemas were tightened |
+| Q11a | **Built**, then **rebuilt on production 29 Aug 2026 (ADR-007)**. 77 fixtures across `valid/`, `invalid/`, `edge/`, `malformed/` | `docs/schemas/fixtures/`, catalogued in `MANIFEST.md`. `docs/schemas/validate-fixtures.py` asserts **87** and exits non-zero for CI. The 18 Aug set found three real schema gaps; the 29 Aug production sample found that **four of the five payload schemas and every envelope field name were wrong**, and inverted four fixture assertions outright |
 
 ### Still needs ZC / Hasan
 
@@ -291,14 +396,31 @@ derived engineering decisions, is `docs/decisions/2B-ANSWERS-18AUG2026.md`. Read
 | Q13b | **Gateway report jitter.** Do gateways spread reporting across the 10-minute cycle, or fire on the boundary? | Worth 10× on hardware. The single most valuable outstanding question |
 | Q4b | `netstats` IPv6: do any gateways report IPv6 addresses? | One `$def` widens if yes; no code change |
 | Q13c | Agreement on the 2× replay rate cap | Our own rate limiting cannot substitute for Heimdal honouring it |
-| Q14a | Clock skew: accept a `ts.device` ahead of `ts.processor` into a future partition, or reject? | Fixture exists (`edge/<type>-clock-skew-future.json`), decision does not |
+| **Q15a** | **Which `lorastats` payload dialect is canonical, and are the others being retired?** Three consecutive production records used three incompatible shapes — bare/integer, bare/string, `lora_`-prefixed/integer — all carrying `version: 1`. Either a migration is in flight or three firmware generations are in the field. | **The most urgent open item.** Nothing is blocked — the schema assumes bare/integer — but that assumption dead-lettered ~2/3 of `lorastats` in the sample, and ADR-002 §12 forbids a DLQ TTL, so the DLQ grows until this is answered |
+| Q15b | **Is `ts.device` genuinely device-assigned?** It equals `ts.server` in 14 of 15 production records and differs by 1 second in the fifteenth. If it is stamped on arrival, retention-on-`ts.device` is retention-on-arrival | Not blocking. Would settle whether the offline-backfill trap and the late-arrival policy (D5b, T-026) describe anything real |
+| Q15c | Does Heimdal POST `_id`? It is in the supplied dump and is a Mongo artifact | Nothing — accepted under D14 either way |
+| Q15d | Is `status` ever anything but `["conversion ok"]`? If it can report a *failed* conversion, we are storing records upstream already knows are bad | Nothing today. Would justify a metric |
 
-### Still conflicted
+### Decided 29 August 2026 — do NOT reopen
 
-| Ref | Question |
-|---|---|
-| Q3a | The answer says "every module declares the exchanges, queues and bindings." Taken literally that gives `stats-api` a broker dependency it has no use for. Read as *every broker-connected module* (Input and Writer) and confirm with platform. Do not give the API a RabbitMQ connection. |
-| Q5a | Volume contradiction: the internal decisions doc records "around 10 million"; Hasan's answer works out to 23.04M per type per day and 115.2M/day across five types. Settle before freezing the schema. |
+Six items that had been filed as questions for someone else. Four were never anyone
+else's to answer. **Approver:** Naman Vashishtha. Full reasoning and the framing to take
+into the remaining conversations: `claude/OPEN_QUESTIONS_STATUS_29AUG2026.md`.
+
+| Ref | Decision | Lands in |
+|---|---|---|
+| Q14a | **Clock skew: reject at Input** when `ts.device > ts.server + stats.input.validation.max-clock-skew` (default `PT5M`). 400 with field code `clock_skew_exceeded`, metered as `records_clock_skew_rejected{type}`. Accept inside the tolerance. The check is cross-field, so it is code in Input, not a schema rule — the five `edge/<type>-clock-skew-future.json` fixtures stay schema-valid and carry `$expect: "input-reject"` | ADR-003 D9; `heimdal-input-contract-v1.md` §2/§4; T-013 |
+| Q3a | **Only broker-connected modules declare topology** — Input and Writer, from `stats-common` constants. `stats-api` gets no RabbitMQ connection. Platform ack is a courtesy; T-032 is the enforcement | ADR-002 §11 |
+| Q5a | **115.2M records/day across five types** (160k gateways × 6/h × 24h × 5). The internal "around 10 million" is withdrawn. This never blocked freezing the schema: every schema decision is identical at both figures — the delta is hardware, not rework | ADR-003; capacity tables |
+| — | **DLQ retention: no TTL, ever.** A TTL'd DLQ is silent data loss. Alert on depth > 0 and oldest-message age; manual disposition within 14 days; redrive by an authorised ops role only, per type, capped at 2× nominal, root cause first | ADR-002 §12; `amqp-topology-v1.md` §6 |
+| — | **`pg_partman` is never a dependency.** Partition pre-creation is a scheduled task in `stats-writer` behind the D3 advisory lock | ADR-003 D1 |
+| D5b | **Engineering agrees the late-arrival policy** (skip, meter `records_expired_on_arrival`, ACK) and adds an alert when the counter is non-zero. **Product sign-off is still owed** — see below | ADR-003; T-026 stays BLOCKED |
+| **ADR-007** | **The production wire format is the contract.** `clsbox` not `gateway`; `ts.server` not `ts.processor`; no rename layer anywhere. `ts.converter` accepted, preserved, metered — ADR-004's rejection clause withdrawn. Two validation gates: envelope at Input (400), payload at the Writer (dead-letter). One `lorastats` dialect encoded, the rest dead-lettered. `netstats` interfaces require only `tx`/`rx`. `ltestats` numerics are strings and the field is `access_Technology` | ADR-007; amends ADR-002 §12, ADR-003, ADR-004 |
+
+**The redrive trap to carry into the runbook:** a message that sat in the DLQ long enough
+becomes `expired_on_arrival` the moment it is redriven, because its `ts.device` has aged
+past the retention window. A redrive after ~90 days is a no-op that increments a counter,
+not a recovery.
 
 ### Ours to decide — decide deliberately, record as an ADR, do not escalate
 
@@ -326,8 +448,8 @@ silent, with `tenant` out of the key until the metric says otherwise; a
 
 | Ref | Question | Blocks |
 |---|---|---|
-| D5a | Backup, PITR, and restore targets — an RPO/RTO number. This is telemetry with 90-day retention, not financial records, and at multi-terabyte scale a tight RTO may not be achievable. Ask what actually breaks before a target is set reflexively. *(BR-30, BR-35, ADR-003 D5)* | Production readiness |
-| D5b | Late-arrival policy. A record can arrive with `ts_device` older than the retention window, so no live partition exists for it. Proposal: reject, meter, and ACK rather than write a row that retention removes minutes later — a deliberate data-loss-by-design path that needs sign-off. *(ADR-003)* | Writer, Phase 2 |
+| D5a | Backup, PITR, and restore targets — an RPO/RTO number. **Engineering proposal to take to product: RPO ≤ 5 min via continuous WAL archiving; RTO 1 h for a single partition, 24 h for a full cluster restore.** RPO is the tight one because lost data is unrecoverable — Heimdal retries only on a non-2xx, so anything we 200'd and then lost is gone. RTO is deliberately loose: this is 90-day telemetry, not financial records, and at multi-terabyte scale a tight RTO may not be purchasable. Framing: *"if we lost the last 15 minutes, or took 8 hours to come back, what actually breaks?"* *(BR-30, BR-35, ADR-003 D5)* | Production readiness; T-051 |
+| D5b | Late-arrival policy. A record can arrive with `ts_device` older than the retention window, so no live partition exists for it. Skip the write, meter `records_expired_on_arrival`, ACK — rather than write a row that retention removes minutes later. **Engineering agreed 29 Aug 2026 and added an alert when the counter is non-zero; the product signature is still owed.** It is a deliberate data-loss-by-design path, and the only implementable one: the alternative is writing into a partition that does not exist. *(ADR-003)* | Writer, Phase 2 — **T-026 stays BLOCKED** |
 
 **Answered since v1.0 — do not reopen:** database (PostgreSQL only), queue
 structure (per type), language/JDK (Java 21), deployables (one image per module),
@@ -355,7 +477,7 @@ the relevant class or method, along with the governing ADR.
 > `Datahub_Core_StatsApp_ARD_v1_1.pdf` carries its own ADR-001…010 whose numbers
 > mean **different things** — its ADR-004 is at-least-once delivery, ours is OMS
 > timestamp normalisation. When quoting the ARD anywhere in code, commits, or
-> documents, write it as **`ARD-ADR-nn`**. The repository's ADR-001…006 remain
+> documents, write it as **`ARD-ADR-nn`**. The repository's ADR-001…007 remain
 > authoritative; the ARD is a v1.0-derived proposal and does not outrank the v1.2
 > amendments.
 
@@ -364,6 +486,7 @@ the relevant class or method, along with the governing ADR.
 >
 > | Form | Means | Source |
 > |---|---|---|
+> | `DL-nnn` | **An entry in `claude/DECISIONS.md`** — the decision log | `claude/DECISIONS.md` |
 > | `STA-nn`, `NFR-nn` | Requirements | SRS + v1.2 amendment |
 > | `Dn` *(no hyphen)* | A decision question from the answer set | `Stats_App_Answers_v1_0.docx` |
 > | `D-nn` *(hyphen)* | A stop/go register row | `claude/CODE_START_CHECKLIST.md` §A |
@@ -393,10 +516,11 @@ wrong.** Reconciled 18 August 2026.
 | ADR | Subject | Status | Residual |
 |---|---|---|---|
 | ADR-001 | JVM and Spring platform baseline | **APPROVED** | Java 21; Spring Boot **pinned** at 3.5.16 (G6) — not provisional, because Q1a closed on 18 Aug 2026. There is no internal reference project, so CI, logging, secrets and deployment conventions are defined by this project (ADR-001, 2B-ANSWERS §1). No residual. |
-| ADR-002 | Per-type AMQP topology and ownership | **APPROVED** | Queue naming and three retry tiers fixed by G1/G4. Q3a still open: confirm with platform that `stats-api` gets no broker connection. |
-| ADR-003 | PostgreSQL retention, partitioning, indexes | **APPROVED** (24 Aug 2026) | PG17, daily `RANGE (ts_device)` partitions, typed columns, Flyway; key order `(ts_device, uid)` per G2, with STA-21B/STA-25A amended to match and duplicate suppression metered. Secondary index `(tenant, uid)` carries the `uid`-only lookup, which cannot prune partitions. Restore is per-partition (D5). Two rows remain open inside an approved ADR: **RPO/RTO targets** still need a number from product/ops (D5a), and the **late-arrival policy** still needs product sign-off (D5b). Approval does not close either. |
-| ADR-004 | OMS timestamp normalisation | **ACCEPTED** | No normalisation; publication is byte-identical to the received record, which is what makes ADR-003's per-partition duplicate suppression work. A record carrying `ts.converter` is invalid. Cite the ARD's different ADR-004 as `ARD-ADR-04`. |
+| ADR-002 | Per-type AMQP topology and ownership | **APPROVED** | Queue naming and three retry tiers fixed by G1/G4. **Amended 29 Aug 2026:** §11 closes Q3a — only broker-connected modules declare topology and `stats-api` gets no broker connection; §12 decides dead-letter retention — **no TTL, ever** — with alerting, 14-day manual disposition and per-type authorised redrive. No residual. |
+| ADR-003 | PostgreSQL retention, partitioning, indexes | **APPROVED** (24 Aug 2026) | PG17, daily `RANGE (ts_device)` partitions, typed columns, Flyway; key order `(ts_device, uid)` per G2, with STA-21B/STA-25A amended to match and duplicate suppression metered. Secondary index `(tenant, uid)` carries the `uid`-only lookup, which cannot prune partitions. Restore is per-partition (D5). **Amended 29 Aug 2026:** D1 makes partition pre-creation a scheduled task in `stats-writer` behind the D3 advisory lock, with `pg_partman` never a dependency; **D9 closes Q14a** — a `ts.device` beyond the configured skew tolerance is rejected at Input. Two rows remain open inside an approved ADR: **RPO/RTO targets** still need a number from product/ops (D5a), and the **late-arrival policy** has engineering agreement but still needs product sign-off (D5b). Approval does not close either. |
+| ADR-004 | OMS timestamp normalisation | **ACCEPTED — amended 29 Aug 2026 by ADR-007 §2** | No normalisation; publication is byte-identical to the received record, which is what makes ADR-003's per-partition duplicate suppression work. **Clause 3 is withdrawn:** a record carrying `ts.converter` is **valid** — production sends it on 100% of records. Accepted, preserved, never read, metered. Cite the ARD's different ADR-004 as `ARD-ADR-04`. |
 | ADR-005 | Delivery semantics and idempotency | **ACCEPTED with implementation defaults** | Writer batching amended by G3. Retry/DLQ handoff must be publish-confirmed *before* ACKing the original — ACK-then-publish opens a silent loss window. Duplicate outcome is `ON CONFLICT (ts_device, uid) DO NOTHING`, metered. Replay spikes the duplicate counter by design; do not alert on it. Q13c (2× replay cap) is not enforceable by us. |
+| ADR-007 | The production wire format is the contract | **ACCEPTED** (29 Aug 2026) | `clsbox`/`ts.server` end to end with no rename layer; `ts.converter` accepted and metered (amends ADR-004); two validation gates with different consequences; one `lorastats` dialect encoded and the rest dead-lettered. **Four open questions raised, Q15a the urgent one** — which dialect is canonical. Also amends ADR-003 (column names) and ADR-002 §12 (DLQ volume). |
 | ADR-006 | Tenant isolation and API security | **ACCEPTED** | The isolation decisions are settled and buildable; only ZC's confirmation of the Keycloak values (Q8b-2) is outstanding, and it is a config change. Proposed realm is live in dev — read role is `stats.readOnly`, **not** the bare `readOnly` placeholder. Input auth is deferred by decision (Q8a): `stats.input.auth.mode` has no default in code and `prod` must refuse `none`. |
 
 ---
@@ -407,6 +531,15 @@ wrong.** Reconciled 18 August 2026.
   which question blocks it rather than picking a plausible answer.
 - **Cite the requirement.** When implementing behaviour driven by the SRS, name
   the `STA-nn` ID and the governing ADR.
+- **Quiz before changing.** Before implementing a change, quiz the requester
+  on the decisions it depends on and the trap it can fall into. A wrong or
+  unsure answer is answered with an explanation, then the quiz is asked again.
+  Nine of the eleven ways this system can lose a record fail silently, and a
+  confident wrong mental model is what an explanation alone cannot detect.
+  *(DL-005, `IMPLEMENTATION_RULES.md` §9)*
+- **Log the decision.** A change that alters code, contract, or operational
+  behaviour adds its `DL-nnn` entry to `claude/DECISIONS.md` in the same
+  change, with the reasoning — not afterwards. *(DL-002)*
 - **Prefer the boring solution.** This is infrastructure code that will be
   maintained by people who did not write it.
 - **No silent error handling.** Every failure path either returns a meaningful
@@ -441,11 +574,14 @@ only `README.md` (the index) and a `CLAUDE.md` pointer that imports this file.
 | `README.md` (repository root) | Index and orientation for the whole repository |
 | `CLAUDE.md` (repository root) | Pointer only — a single `@claude/CLAUDE.md` import so this file auto-loads. Never holds content. |
 | `claude/CLAUDE.md` | This file — project context, non-negotiable rules, traps, open questions |
+| `claude/DECISIONS.md` | **Every meaningful decision and why it was taken** — architecture, libraries, conventions, and the small choices that never justified an ADR. `DL-nnn` IDs. Start here for *why is it like this?* |
+| `claude/FLOW.md` | **The execution flow** — how a record travels from Heimdal to an API response, every failure exit, and the eleven windows where a record could be lost. Marks what is BUILT versus SPECIFIED |
 | `claude/PROJECT_STATUS_AND_PLAN.md` | Current status, open items by owner, phased plan, delegation |
 | `claude/IMPLEMENTATION_RULES.md` | Detailed implementation rules and the required AI workflow |
 | `claude/DEVELOPMENT.md` | How to build, run, test, and contribute |
 | `claude/SKILLS.md` | Repeatable procedures: add a type, review isolation, write tests, diagnose a queue |
 | `claude/CODE_START_CHECKLIST.md` | Stop/go decision register and the approved implementation sequence |
+| `claude/OPEN_QUESTIONS_STATUS_29AUG2026.md` | Status of every open question and decision as at 29 Aug 2026, the six decisions taken that day with their reasoning, what actually blocks which task, and the tracker inconsistencies found |
 
 ### Authoritative specifications — `docs/`
 
@@ -456,7 +592,7 @@ only `README.md` (the index) and a `CLAUDE.md` pointer that imports this file.
 | `docs/requirements/ARB-v1.2-amendment.md` | Architecture decisions and ARB decision log |
 | `docs/decisions/ANSWER_RECONCILIATION.md` | Every answered question and its implementation consequence |
 | `docs/decisions/POSTGRESQL_BASELINE.md` | Persistence direction, table/index draft, sizing |
-| `docs/architecture/adr/ADR-001…006` | Platform, AMQP topology, retention/indexes, OMS timestamps, delivery/idempotency, tenant isolation |
+| `docs/architecture/adr/ADR-001…007` | Platform, AMQP topology, retention/indexes, OMS timestamps, delivery/idempotency, tenant isolation, **production wire format** |
 | `docs/architecture/Stats_App_Flow.png` | End-to-end flow diagram |
 | `docs/contracts/heimdal-input-contract-v1.md` | Inbound HTTP contract, response matrix, auth |
 | `docs/contracts/amqp-topology-v1.md` | Exchange, per-type queues, retry/DLQ, redrive |
@@ -481,7 +617,7 @@ only `README.md` (the index) and a `CLAUDE.md` pointer that imports this file.
 | `Datahub_Core_StatsApp_SRS_v1_0_EN.docx` | Original requirements. Says MongoDB; the `omsstats` section describes `ts.converter`. Both superseded. |
 | `Stats_App_Answers_v1_0.docx` / `.txt` | The answered question set — **source of every decision in §5 and §7** |
 | `Stats_App_ARB_v1.0.docx`, `Stats_App_BRD_v1.0.docx` | Superseded by the amendments above |
-| `Stats_App_Internal_Decisions_v1.0.docx` | Internal positions. Its Mongo-era items (Q41, Q42) are void; note its volume figure conflicts with Hasan's — see Q5a. |
+| `Stats_App_Internal_Decisions_v1.0.docx` | Internal positions. Its Mongo-era items (Q41, Q42) are void, and **its "around 10 million" volume figure is withdrawn** — Q5a closed at 115.2M/day on 29 Aug 2026. |
 | `Stats_App_Questions_v1_0.docx` | The questions as originally sent |
 | `netstats-supplied-sample.json` | The `netstats` sample from ZC; also a fixture under `docs/schemas/fixtures/valid/` |
 | `Stats_App_Claude_Ready_PostgreSQL_Pack.zip` | Original delivery archive. Its contents are unpacked into `docs/`; the copy of `CLAUDE.md` inside it is **stale** — do not restore from it. |

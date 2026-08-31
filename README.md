@@ -155,7 +155,8 @@ curl http://localhost:8083/actuator/health     # stats-api
 A module reporting `DOWN` while its infrastructure is stopped is **correct**:
 readiness probes only that module's real dependencies (D13), so `stats-input`
 is `DOWN` without RabbitMQ and `stats-api` is `DOWN` without PostgreSQL and
-Keycloak. `stats-api` has no broker connection at all, deliberately (Q3a).
+Keycloak. `stats-api` has no broker connection at all, deliberately — Q3a closed on 29 Aug 2026:
+only broker-connected modules declare topology (ADR-002 §11).
 
 ### Troubleshooting
 
@@ -184,12 +185,15 @@ Every working document lives in `claude/`. The repository root holds only this
 | File | What it is for |
 |---|---|
 | `claude/CLAUDE.md` | Project context, non-negotiable rules, known traps, open questions. Auto-loaded via the root `CLAUDE.md` pointer. |
+| `claude/DECISIONS.md` | **Every meaningful decision and why** — architecture, libraries, conventions, and the choices too small for an ADR. `DL-nnn` IDs. The answer to *why is it like this?* |
+| `claude/FLOW.md` | **The execution flow** — a record from Heimdal to an API response, every failure exit, and the eleven windows where one could be lost. Says what is built versus specified |
 | `claude/IMPLEMENTATION_RULES.md` | Detailed implementation rules, code structure, and the required working sequence |
 | `claude/PROJECT_STATUS_AND_PLAN.md` | What is answered, what is open and who owns it, the phased plan, and the delegation split |
 | `claude/DEVELOPMENT.md` | Build, run, test, configure, troubleshoot |
 | `claude/SKILLS.md` | Repeatable procedures — add a stat type, review tenant isolation, write tests, diagnose a queue, change retention |
 | `claude/CODE_START_CHECKLIST.md` | Stop/go decision register and phase entry criteria |
-| `Stats_App_Tracker.xlsx` (repository root) | **The working task tracker.** 56 tasks across phases 1–5 with acceptance criteria, requirement IDs and blockers; plus what is already done, the open questions by owner, every decision, the 15 known traps with the test that catches each, and a change log. Start here if you are picking up work. |
+| `claude/OPEN_QUESTIONS_STATUS_29AUG2026.md` | Every open question and decision as at 29 Aug 2026: what was decided that day and why, what actually blocks which task, and the tracker inconsistencies found |
+| `Stats_App_Tracker.xlsx` (repository root) | **The working task tracker.** 56 tasks across phases 1–5 with acceptance criteria, requirement IDs and blockers; plus what is already done, the open questions by owner, every decision, the 18 known traps with the test that catches each and whether that test exists yet, and a change log. Start here if you are picking up work. |
 
 ### Specifications — `docs/`
 
@@ -197,7 +201,7 @@ Every working document lives in `claude/`. The repository root holds only this
 |---|---|
 | `docs/requirements/` | SRS, BRD, and ARB v1.2 amendments — the normative requirements |
 | `docs/decisions/` | `ANSWER_RECONCILIATION.md` (what ZC answered), `2B-ANSWERS-18AUG2026.md` (the seven §2b answers and every decision derived from them), and the PostgreSQL baseline |
-| `docs/architecture/adr/` | ADR-001 … ADR-006. **`ADR-nnn` always means one of these.** The ARD carries its own ADR-001…010 with different meanings — cite those as `ARD-ADR-nn`. |
+| `docs/architecture/adr/` | ADR-001 … **ADR-007**. **`ADR-nnn` always means one of these.** The ARD carries its own ADR-001…010 with different meanings — cite those as `ARD-ADR-nn`. **Start with ADR-007** if you have not read this repository since 29 Aug 2026: it rebuilt the envelope on the production wire format and amends ADR-002, ADR-003 and ADR-004. |
 | `docs/architecture/Stats_App_Flow.png` | End-to-end flow diagram |
 | `docs/contracts/` | Heimdal inbound HTTP contract, AMQP topology, and **`openapi.yaml`** — the API contract, OpenAPI 3.1, GET-only, draft pending ZC confirmation |
 | `docs/schemas/` | JSON Schema catalogue, per-type schemas, and fixtures |
@@ -271,11 +275,29 @@ before any shared deployment:
    every `none` startup, and a test that refuses to start under `prod`. Until ZC
    answers, anything that can reach the Input port can write.
 2. **No RPO/RTO number exists** (D5a). ADR-003 D5 has the framing to take to
-   product and operations.
+   product and operations. Engineering's proposal, awaiting a decision: **RPO ≤ 5 min**
+   via continuous WAL archiving, **RTO 1 h per partition / 24 h full cluster**. RPO is
+   the tight one because a record we answered `200` and then lost is unrecoverable —
+   Heimdal retries only on a non-2xx.
+3. **The late-arrival policy has engineering agreement but no product signature**
+   (D5b). Skip the write, meter `records_expired_on_arrival`, ACK, and alert when the
+   counter is non-zero. It is a deliberate data-loss-by-design path, so T-026 stays
+   blocked until it is signed.
 
 The most valuable open question is **Q13b — do gateways report on synchronised
 10-minute boundaries or jitter across them?** We design for the synchronised case
-(13,333/s, 10× average). Jitter would drop the peak, and the hardware, by 10×.
+(13,333/s, 10× average). Jitter would drop the peak, and the hardware, by 10×. It is
+also *measurable* rather than askable: a histogram of `ts.server mod 600` over 24 h
+answers it.
 
-Full register: `claude/CODE_START_CHECKLIST.md` §A and
-`claude/PROJECT_STATUS_AND_PLAN.md` §2b-2.
+The one item that genuinely gates work is **ZC's confirmation of
+`docs/contracts/openapi.yaml`** — nine tasks sit behind it, essentially all of Phase 4.
+
+**Closed on 29 August 2026 — do not reopen:** Q14a (clock skew — rejected at Input
+beyond a configurable tolerance), Q3a (topology declared by broker-connected modules
+only), Q5a (volume is 115.2M/day), DLQ retention (no TTL, ever), and `pg_partman`
+(never a dependency). Reasoning:
+`claude/OPEN_QUESTIONS_STATUS_29AUG2026.md`.
+
+Full register: `claude/CODE_START_CHECKLIST.md` §A (with §A3 for the 29 Aug
+decisions) and `claude/PROJECT_STATUS_AND_PLAN.md` §2b-2 and §2c.

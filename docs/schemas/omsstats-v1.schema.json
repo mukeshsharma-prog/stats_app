@@ -23,5 +23,5 @@
       }
     }
   ],
-  "$comment": "Development draft based on SRS v1.0. This schema requires canonical ts.processor input after ADR-004 approval; counter ranges and unknown-field policy remain pending."
+  "$comment": "Re-derived from the 29 Aug 2026 production sample (ADR-007) and UNCHANGED by it - all three production records validate as written, including timespan as an integer. The only edit is to the previous $comment, which claimed this schema 'requires canonical ts.processor input after ADR-004 approval'. That is now wrong twice over: the field is ts.server (ADR-007 §3), and ADR-004's ts.converter rejection was removed because production sends ts.converter on every omsstats record."
 }

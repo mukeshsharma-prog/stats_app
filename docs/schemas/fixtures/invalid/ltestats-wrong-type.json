@@ -2,22 +2,22 @@
   "uid": "c3c3c3c3-c3006-4c306-8c306-c3c3c3c3c3c3",
   "tenant": "tenant-alpha",
   "maintenant": "management-parent",
-  "gateway": "A1B2C3D4E5F6",
+  "clsbox": "A1B2C3D4E5F6",
   "type": "ltestats",
   "ts": {
-    "processor": 1787054120,
+    "server": 1787054120,
     "device": 1787054100
   },
   "data": {
     "rssi": -52,
-    "rsrp": -79,
-    "rsrq": -8,
-    "access_technology": "4G",
+    "rsrp": "-79",
+    "rsrq": "-8",
+    "access_Technology": "4G",
     "operator": "ExampleTel",
     "plmn": "26201",
     "imsi": "262019999999999",
     "lac": "63AE",
     "cid": "2648604"
   },
-  "$comment": "data.plmn carries the wrong JSON type. Expect 400 with code 'invalid_type'. The response must NOT echo the offending value."
+  "$comment": "RETARGETED 29 Aug 2026 (ADR-007). This fixture used to assert that data.plmn as a STRING was the wrong type. Production sends every ltestats numeric as a string, so that assertion inverted: the string is now correct and the integer is the defect. data.rssi therefore carries an integer where the wire format is the string \"-52\". Expect code 'invalid_type', dead-lettered at the Writer, not 400 at Input - payload validation is the Writer's gate (ADR-007 §5). The response must NOT echo the offending value."
 }

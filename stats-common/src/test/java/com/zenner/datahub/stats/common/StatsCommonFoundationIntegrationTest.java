@@ -63,7 +63,7 @@ class StatsCommonFoundationIntegrationTest {
     void invalidRecordConnectsSchemaErrorsToProblemDetailsWithoutLeakingPayloadValues()
             throws Exception {
         JsonNode rawRecord = readFixture("invalid/ltestats-wrong-type.json");
-        String rejectedPlmn = rawRecord.at("/data/plmn").asText();
+        String rejectedRssi = rawRecord.at("/data/rssi").asText();
         String imsi = rawRecord.at("/data/imsi").asText();
 
         ValidationResult validation = validator.validate(rawRecord); // T-004
@@ -78,8 +78,8 @@ class StatsCommonFoundationIntegrationTest {
         assertThat(validation.valid()).isFalse();
         assertThat(problem.status()).isEqualTo(400);
         assertThat(problem.errors()).isEqualTo(validation.errors());
-        assertThat(responseJson).contains("/data/plmn", "invalid_type");
-        assertThat(responseJson).doesNotContain(rejectedPlmn, imsi);
+        assertThat(responseJson).contains("/data/rssi", "invalid_type");
+        assertThat(responseJson).doesNotContain(rejectedRssi, imsi);
     }
 
     private static JsonNode readFixture(String name) throws IOException {

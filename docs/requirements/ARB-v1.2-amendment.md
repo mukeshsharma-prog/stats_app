@@ -41,12 +41,12 @@ The application has **three independently deployable services**: `stats-input`, 
 
 **Decision:** PostgreSQL is the only V1 persistence technology. MongoDB is removed from the implementation scope.
 
-PostgreSQL is selected for the clarified high-volume workload, SQL query patterns, per-type tables, explicit uniqueness, and operational control over indexes, partitioning, retention, backup, and restore. The expected average workload is 23.04 million records per type per day, 92.16 million/day for four types, or 115.2 million/day for five types including `netstats`; synchronized ten-minute reporting may create a much higher burst rate.
+PostgreSQL is selected for the clarified high-volume workload, SQL query patterns, per-type tables, explicit uniqueness, and operational control over indexes, partitioning, retention, backup, and restore. The expected average workload is 23.04 million records per type per day, 92.16 million/day for four types, or **115.2 million/day for five types including `netstats` — the figure of record since Q5a closed on 29 August 2026**; synchronized ten-minute reporting may create a much higher burst rate, and the design target is 13,333/s.
 
 | PostgreSQL implementation implication | Required clarification / control |
 |---|---|
 | One table per stat type | Table naming convention: `<stat-type>`, e.g. `lorastats`; include `omsstats` and `netstats`. |
-| Dominant query pattern | Index and query design must prioritize `(tenant, gateway, ts.device)` with a deterministic unique tie-breaker. |
+| Dominant query pattern | Index and query design must prioritize `(tenant, clsbox, ts.device)` with a deterministic unique tie-breaker. |
 | Duplicate safety | `uid` is a normal PostgreSQL column. Uniqueness is `PRIMARY KEY (ts_device, uid)` scoped **per partition** (ADR-003, G2); a global unique index is not creatable on a partitioned table. Suppressed duplicates are metered, never silent. |
 | Retention | The answer selects `ts.device`; choose partition drop/detach or controlled batched deletion and document late-arrival consequences. |
 | Schema design | Decide typed columns versus `jsonb` per type; do not use JSON path scans for dominant filters. |
@@ -78,7 +78,7 @@ Each main queue must be durable. Accepted messages must be published as persiste
 | Exchange type | **TopicExchange**, while using exact type routing keys; it allows future pattern subscriptions without changing existing bindings. | ANSWERED |
 | Topology declaration | Every broker-connected module declares identical exchange/queue/binding definitions; confirm whether `stats-api` is broker-connected. | ANSWERED / CLARIFY API SCOPE |
 | Retry design | **Three** per-type retry tiers `app_statsstore.<type>.retry.<tier>`; fixed delays, not a backoff multiplier; all delays and the attempt cap externalised to `application.properties`, starting at 30 s / 5 min / 30 min. Immediate requeue is never used for a persistent failure. | **DECIDED (G1/G4, ADR-002)** |
-| DLQ design | Per-type DLQ `app_statsstore.<type>.dlq` via DLX `app_stats_dlx`, with a documented redrive process and restricted access. | **DECIDED (G1, ADR-002)** |
+| DLQ design | Per-type DLQ `app_statsstore.<type>.dlq` via DLX `app_stats_dlx`, with a documented redrive process and restricted access. **No `x-message-ttl` on any DLQ** — a TTL'd dead-letter queue is silent data loss. Alert on depth > 0 and oldest-message age; manual disposition within 14 days; redrive by an authorized role, per type, at ≤ 2× nominal, root cause first. | **DECIDED (G1, ADR-002 §12 — retention added 29 Aug 2026)** |
 | Producer success | Publisher confirm succeeds before HTTP acceptance response. Broker unavailable/time-out returns 503; no local buffering. | **DECIDED (D4, ADR-005)** |
 | Consumer acknowledgement | Manual acknowledgement after a successful PostgreSQL transaction; duplicate-safe via `ON CONFLICT (ts_device, uid) DO NOTHING`, metered. The retry/DLQ handoff must be publish-confirmed **before** the original is ACKed. | **DECIDED (D7, ADR-005)** |
 
@@ -113,7 +113,7 @@ The target API follows OAuth2/OIDC through Keycloak. The SRS also requires that 
 |---|---|
 | Capacity | Baseline is 160,000 gateways every 10 minutes: 266.67 records/sec/type, 1,066.67/sec for four types, 1,333.33/sec for five types **average**. The **design target is 13,333/s** — a 10× synchronised burst, assumed until Heimdal telemetry proves otherwise (Q13a). Input is sized for peak, the Writer for drain (~2,000/s per type), prefetch 500, `max_wal_size` for the burst. Replay is requested at a 2× cap (2,667/s). Still to validate: payload sizes and the PostgreSQL storage/index projection. **Q13b — gateway jitter — is worth 10× on hardware.** |
 | Performance | Ingestion response target, end-to-end persistence lag target, API latency/page target, max query window and page size. |
-| Availability | Target availability, planned maintenance policy, RTO, RPO, broker/database dependency availability. |
+| Availability | Target availability, planned maintenance policy, RTO, RPO, broker/database dependency availability. **Engineering proposal on the table (D5a, 29 Aug 2026): RPO ≤ 5 min via continuous WAL archiving; RTO 1 h per partition, 24 h full cluster.** Unsigned. |
 | Scaling | Replica count, consumer concurrency/prefetch per type, autoscaling signal, queue backlog budget, connection limits. |
 | Observability | Dashboard and alert owners; processed/error/duration/queue depth/DLQ-depth metric definitions and thresholds. |
 | Disaster recovery | Backup schedule, restore procedures, data-loss acceptance, routine restore testing. |

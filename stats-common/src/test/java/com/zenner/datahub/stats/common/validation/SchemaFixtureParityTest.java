@@ -47,14 +47,25 @@ class SchemaFixtureParityTest {
     }
 
     @Test
-    void expandsToTheSameSeventyOneOutcomesAsThePythonOracle() {
-        assertThat(fixtureCases()).hasSize(71);
+    void expandsToTheSameEightyOutcomesAsThePythonOracle() {
+        assertThat(fixtureCases()).hasSize(80);
         assertThat(fixtureCases())
                 .extracting(arguments -> (String) arguments.get()[0])
                 .noneMatch(description -> description.contains("malformed/"));
     }
 
-    /** Mirrors docs/schemas/validate-fixtures.py lines 34-40 and 51-58 exactly. */
+    /**
+     * Mirrors the directory expectations and record expansion of
+     * docs/schemas/validate-fixtures.py exactly: valid/ and edge/ must validate,
+     * invalid/ must fail, malformed/ is not schema-testable.
+     *
+     * <p>The Python gate additionally asserts the seven {@code $expect} markers —
+     * {@code "input-reject"} on the five clock-skew fixtures (ADR-003 D9), and
+     * {@code "writer-dlq"} on the two lorastats dialect fixtures (ADR-007 §4) — none
+     * of which are schema cases. So it reports 87 assertions where this test expands
+     * to 80 outcomes. That gap is deliberate — do not "fix" either number to match
+     * the other.</p>
+     */
     static List<Arguments> fixtureCases() {
         List<Path> files = new ArrayList<>();
         for (String directory : List.of("valid", "edge", "invalid")) {

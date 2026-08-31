@@ -24,12 +24,15 @@ an existing stat type's code, **stop** — that violates STA-14/STA-22.
 
 1. **Define the payload model**
    - Add the `data` payload class. The envelope is shared — do not redefine it.
-   - Mandatory envelope fields: `uid`, `tenant`, `maintenant`, `gateway`, `type`, `ts.processor`, `ts.device`
+   - Mandatory envelope fields: `uid`, `tenant`, `maintenant`, `clsbox`, `type`, `ts.server`, `ts.device`
 
 2. **Register validation** *(Module 1, STA-03)*
    - Add the schema to the validation registry keyed by type name
    - Confirm an invalid payload returns **HTTP 400** and is logged
    - Confirm an unrecognised type is rejected, not silently forwarded
+   - Nothing about clock-skew rejection changes per type: Input applies
+     `stats.input.validation.max-clock-skew` to the envelope, so a new type inherits
+     the 400 `clock_skew_exceeded` behaviour with no code *(ADR-003 D9, STA-03B)*
 
 3. **Declare the queue and binding** *(Module 2, STA-10A)*
    - Main queue `app_statsstore.<type>`, three retry tiers
@@ -40,6 +43,10 @@ an existing stat type's code, **stop** — that violates STA-14/STA-22.
    - Configure the dead-letter exchange `app_stats_dlx` and the retry limit *(STA-12A)*
    - Declare from the shared constants in `stats-common`, identically in every
      broker-connected module, or startup fails with `RESOURCE_LOCKED`
+   - Take the declaration arguments from `AmqpTopology.mainQueueArguments()`,
+     `retryQueueArguments(type, tier, delay)` and `deadLetterQueueArguments()` —
+     **never assemble a map by hand.** The DLQ map has no TTL parameter on purpose
+     *(ADR-002 §12, trap 17)*
 
 4. **Add the consumer** *(Module 2, STA-20A)*
    - One consumer per type — do not extend an existing consumer to handle two
@@ -54,10 +61,13 @@ an existing stat type's code, **stop** — that violates STA-14/STA-22.
      order** — scoped per partition, not global *(STA-21B, ADR-003, G2)*
    - Insert with `ON CONFLICT (ts_device, uid) DO NOTHING`, and **increment
      `records_duplicate_suppressed{type}` on a suppressed row** — never silent
-   - Index `(tenant, gateway, ts_device DESC, uid DESC)` — the dominant query
+   - Index `(tenant, clsbox, ts_device DESC, uid DESC)` — the dominant query
      pattern with a unique tie-breaker for keyset paging *(STA-21C)*
    - Retention keyed on `ts.device`, period read from `application.properties`
      *(STA-23A, STA-23B)*
+   - Daily partitions pre-created ahead of ingestion by the writer's own scheduled
+     task, behind the `pg_try_advisory_lock` — **never `pg_partman`**, which is not a
+     dependency of this project *(ADR-003 D1)*
    - Dominant filters must be indexed columns, never JSON path scans
 
 6. **Expose the API endpoint** *(Module 3, STA-33)*
@@ -127,7 +137,7 @@ config. Tenant isolation is a security control, not a feature.
 - [ ] Extra unexpected fields → confirm intended behaviour (reject or ignore)
 - [ ] `ts` in **seconds**, not milliseconds
 - [ ] The published message is **identical** to what was received — no transformation
-- [ ] An `omsstats` record with `ts.processor` passes unchanged; no `ts.converter`
+- [ ] An `omsstats` record with `ts.server` passes unchanged; no `ts.converter`
       handling exists *(ADR-004)*
 
 ### Integration — messaging *(Module 1 → 2)*
@@ -202,10 +212,17 @@ being written.
    job slows writes and looks exactly like a slow consumer.
 
 ### After resolution
-- [ ] Redrive DLQ messages once the root cause is fixed — explicit, traceable,
-      rate-limited, and per type. Blind automatic replay is not permitted.
+- [ ] Redrive DLQ messages once the root cause is fixed — an authorised operations
+      role only, explicit, traceable, scoped per type, and rate-limited to 2× nominal
+      (2,667/s). Blind automatic replay is not permitted. *(ADR-002 §12)*
+- [ ] Check the age of what you are about to redrive. **A message that has sat in the
+      DLQ for ~90 days is past the retention window: redriving it produces
+      `expired_on_arrival`, not a recovery.** The counter goes up and the row never
+      lands. Confirm the `ts.device` range before you replay anything old.
 - [ ] Confirm no data was lost
-- [ ] If the alert did not fire, fix the alert threshold
+- [ ] If the alert did not fire, fix the alert threshold. **Alert on DLQ depth > 0 and
+      on oldest-message age — never on main-queue depth**, which spikes every cycle by
+      design *(Q13a)*. The DLQ has no TTL, so nothing disappears while you decide.
 
 ---
 
@@ -232,7 +249,7 @@ received the record *(STA-23B, answered D9)*. Default 90 days.
   volume figures — up to 115.2M records/day across five types.
 - **Late-arriving records expire early, by design.** A gateway offline for weeks
   delivers records already deep into their window. That is the accepted business
-  rule, not a defect. Do not "fix" it by switching to `ts.processor`.
+  rule, not a defect. Do not "fix" it by switching to `ts.server`.
 - **Unbounded `DELETE` is the trap at this volume.** It creates table and index
   bloat, long transactions, and lock contention that slows the writer. Evaluate
   time partitioning first — dropping a partition is a different operation from
