@@ -1319,6 +1319,28 @@ than three columns, because nothing queries them.
 
 ---
 
+### DL-092 — Shared Testcontainers support lives in `stats-common` Java test fixtures
+
+**31 Aug 2026** · `ENGINEERING` · T-008, DL-014, DL-015, DL-025
+
+**Decision.** Shared PostgreSQL 17 and RabbitMQ 4 Testcontainers support lives in
+`stats-common`'s `java-test-fixtures` source set. It is reusable build/test code,
+not production code.
+
+**Why.** Persistence and broker tests need the same real services, image versions,
+and Spring Boot service-connection wiring. Test fixtures reuse this infrastructure
+without adding a sixth `stats-common/src/main` responsibility or allowing module
+copies to drift.
+
+**Rejected.** A separate Gradle project — it would look like a fourth deployable
+module. Per-module support copies — image and lifecycle configuration would drift.
+
+**Consequence.** Each support owns one static container per test JVM. This reuse is
+within a Gradle worker/JVM only; it is not Docker-level reuse across workers or
+separate JVMs, and `.withReuse(true)` remains prohibited.
+
+---
+
 ## 9. Security and tenancy
 
 ### DL-060 — Isolation is on `tenant`, from a validated token claim, applied in the query

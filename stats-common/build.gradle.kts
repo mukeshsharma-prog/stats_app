@@ -17,6 +17,7 @@
 
 plugins {
     `java-library`
+    `java-test-fixtures`
 }
 
 dependencies {
@@ -36,8 +37,24 @@ dependencies {
     // Exercise @Pattern as actual Bean Validation behavior without adding a
     // validation provider to stats-common's runtime API.
     testImplementation(libs.spring.boot.starter.validation)
+    // The PostgreSQL smoke test executes SQL through the actual JDBC driver.
+    testImplementation(libs.postgresql)
+    // The RabbitMQ smoke test opens a real protocol connection; this is test-only.
+    testImplementation(libs.rabbitmq.amqp.client)
     // Align Gradle's test worker with the BOM-managed JUnit engine.
     testRuntimeOnly(libs.junit.platform.launcher)
+
+    // T-008: shared Docker-backed integration-test infrastructure. These are
+    // published only through the test-fixtures variant, never production code.
+    testFixturesImplementation(platform(libs.spring.boot.bom))
+    testFixturesApi(libs.spring.boot.test)
+    testFixturesApi(libs.spring.boot.testcontainers)
+    testFixturesApi(libs.testcontainers.postgresql)
+    testFixturesApi(libs.testcontainers.rabbitmq)
+
+    // Lets the fixture contract tests exercise the published fixture variant,
+    // exactly as an application module consumes it.
+    testImplementation(testFixtures(project(":stats-common")))
 }
 
 // docs/schemas is the single source of truth. Copy it into the generated classpath

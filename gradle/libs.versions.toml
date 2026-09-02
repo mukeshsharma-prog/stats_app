@@ -67,6 +67,11 @@ flyway-database-postgresql = { module = "org.flywaydb:flyway-database-postgresql
 
 # --- test -------------------------------------------------------------------
 spring-boot-starter-test = { module = "org.springframework.boot:spring-boot-starter-test" }
+spring-boot-test = { module = "org.springframework.boot:spring-boot-test" }
+# Supplies @ServiceConnection so Spring test contexts consume Testcontainers
+# connection details without duplicated host, port, credential, or URL properties.
+spring-boot-testcontainers = { module = "org.springframework.boot:spring-boot-testcontainers" }
+rabbitmq-amqp-client = { module = "com.rabbitmq:amqp-client" }
 junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
 spring-rabbit-test = { module = "org.springframework.amqp:spring-rabbit-test" }
 spring-security-test = { module = "org.springframework.security:spring-security-test" }

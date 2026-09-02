@@ -29,24 +29,27 @@ Exit code is non-zero on any mismatch, so CI can gate on it.
 
 Requires: pip install jsonschema
 """
-import glob
 import json
 import sys
+from pathlib import Path
 
 from jsonschema import Draft202012Validator
 from referencing import Registry, Resource
+
+BASE_DIR = Path(__file__).resolve().parent
 
 TYPES = ("sysstats", "lorastats", "ltestats", "omsstats", "netstats")
 
 
 def load_registry():
     registry, schemas = Registry(), {}
-    for path in glob.glob("*.schema.json"):
-        schema = json.load(open(path))
-        schemas[path] = schema
+    for path in sorted(BASE_DIR.glob("*.schema.json")):
+        schema = json.load(open(path, encoding="utf-8"))
+        name = path.name
+        schemas[name] = schema
         resource = Resource.from_contents(schema)
         registry = registry.with_resource(uri=schema["$id"], resource=resource)
-        registry = registry.with_resource(uri=path, resource=resource)
+        registry = registry.with_resource(uri=name, resource=resource)
     return registry, schemas
 
 
@@ -69,11 +72,12 @@ def main():
     checked = failures = 0
     input_rejects = []
     writer_dlqs = []
-    for path in sorted(glob.glob("fixtures/**/*.json", recursive=True)):
-        if "/malformed/" in path:
+    for path in sorted(BASE_DIR.glob("fixtures/**/*.json")):
+        path_str = str(path)
+        if "/malformed/" in path_str:
             continue
-        doc = json.load(open(path))
-        expect_valid = ("/valid/" in path or "/edge/" in path) and not path.endswith(
+        doc = json.load(open(path, encoding="utf-8"))
+        expect_valid = ("/valid/" in path_str or "/edge/" in path_str) and not path.name.endswith(
             "validation-failures.json"
         )
         marker = doc.get("$expect") if isinstance(doc, dict) else None
@@ -106,10 +110,10 @@ def main():
                         print(f"       {'.'.join(map(str, e.path)) or '<root>'}: {e.message}")
                     failures += 1
                 else:
-                    writer_dlqs.append((path, doc["$expectCode"]))
+                    writer_dlqs.append((path_str, doc["$expectCode"]))
             else:
-                input_rejects.append((path, doc["$expectCode"]))
-        for label, record in records(path, doc):
+                input_rejects.append((path_str, doc["$expectCode"]))
+        for label, record in records(path_str, doc):
             stat_type = record.get("type")
             if stat_type not in TYPES:
                 # Only legitimate in an invalid fixture testing the unknown type itself.

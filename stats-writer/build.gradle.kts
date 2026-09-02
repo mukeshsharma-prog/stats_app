@@ -30,4 +30,7 @@ dependencies {
     testImplementation(libs.testcontainers.junit.jupiter)
     testImplementation(libs.testcontainers.postgresql)
     testImplementation(libs.testcontainers.rabbitmq)
+    // Shared real-infrastructure support; fixture dependencies never cross into
+    // the Writer's production/runtime classpath.
+    testImplementation(testFixtures(project(":stats-common")))
 }
