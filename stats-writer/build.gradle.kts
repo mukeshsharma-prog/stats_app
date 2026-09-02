@@ -20,6 +20,9 @@ dependencies {
     implementation(libs.spring.boot.starter.amqp)
     implementation(libs.spring.boot.starter.jdbc)
     implementation(libs.spring.boot.starter.actuator)
+    // LorastatsConsumerProperties is validated at startup so invalid concurrency
+    // or prefetch values fail before a listener connects to RabbitMQ.
+    implementation(libs.spring.boot.starter.validation)
 
     // Migrations are versioned. Flyway is PROVISIONAL pending Q1a (ADR-003).
     implementation(libs.flyway.core)
