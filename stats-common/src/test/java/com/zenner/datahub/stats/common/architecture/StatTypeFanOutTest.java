@@ -47,7 +47,12 @@ class StatTypeFanOutTest {
     private static final Map<String, String> JUSTIFIED_SPECIAL_CASES = Map.of(
             "stats-common/src/main/java/com/zenner/datahub/stats/common/model/StatType.java",
             "Defines the five constants and their wire literals. This is the one place "
-                    + "the identities are allowed to exist.");
+                    + "the identities are allowed to exist.",
+            "stats-writer/src/main/java/com/zenner/datahub/stats/writer/consumer/"
+                    + "LorastatsConsumerDescriptor.java",
+            "T-019 requires one additive consumer artifact per type. The descriptor is "
+                    + "the single identity point for that artifact; adding another type "
+                    + "adds a sibling descriptor and never edits this one.");
 
     private static final List<String> MODULES =
             List.of("stats-common", "stats-input", "stats-writer", "stats-api");
