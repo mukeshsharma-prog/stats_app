@@ -40,6 +40,13 @@ BASE_DIR = Path(__file__).resolve().parent
 
 TYPES = ("sysstats", "lorastats", "ltestats", "omsstats", "netstats")
 
+# The gate asserts the COUNT, not just that whatever it found happened to pass.
+# Without this, deleting fixtures is invisible: `checked` simply drops and CI stays
+# green, which would have hidden exactly the regression the 29 Aug 2026 production
+# sample caught. Changing this number is a deliberate act that belongs in the same
+# commit as the fixture change, with the reason in claude/DECISIONS.md.
+EXPECTED_ASSERTIONS = 87
+
 
 def load_registry():
     registry, schemas = Registry(), {}
@@ -150,6 +157,16 @@ def main():
         for path, code in writer_dlqs:
             print(f"       {path}  ->  DLQ {code}")
     print(f"\n{checked} assertions checked, {failures} failed")
+
+    if checked != EXPECTED_ASSERTIONS:
+        print(
+            f"FAIL: expected {EXPECTED_ASSERTIONS} assertions but ran {checked}. "
+            f"Fixtures were added or removed. If that was intended, update "
+            f"EXPECTED_ASSERTIONS in this file and say why in the same commit; "
+            f"if it was not, a fixture has been lost and the gate just caught it."
+        )
+        failures += 1
+
     return 1 if failures else 0
 
 

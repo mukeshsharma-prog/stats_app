@@ -28,10 +28,13 @@ public final class LorastatsConsumer {
             queues = "#{@lorastatsMainQueue.name}",
             containerFactory = CONTAINER_FACTORY,
             ackMode = "MANUAL",
-            autoStartup = "#{@statsMessageProcessorAvailability.available()}")
+            autoStartup =
+                    "#{@statsMessageProcessorAvailability.available('"
+                            + LorastatsConsumerDescriptor.WIRE_NAME
+                            + "')}")
     public void consume(Message message, Channel channel) throws Exception {
         processorAvailability
-                .requiredProcessor()
+                .requiredProcessor(LorastatsConsumerDescriptor.TYPE)
                 .process(LorastatsConsumerDescriptor.TYPE, message);
         channel.basicAck(message.getMessageProperties().getDeliveryTag(), false);
     }

@@ -202,6 +202,32 @@ deliberately: the traps in `CLAUDE.md` §6 each cost far more than a quiz.
 
 ---
 
+### DL-098 — The fixture gate asserts the assertion count, not just that they passed
+
+**3 Sep 2026** · `ENGINEERING` · T-007, Q11a
+
+**Decision.** `docs/schemas/validate-fixtures.py` fails when the number of assertions
+it ran differs from `EXPECTED_ASSERTIONS` (87), in addition to failing on any
+mismatch. Changing the number is a deliberate edit that belongs in the same commit as
+the fixture change.
+
+**Why.** The gate reported `{checked} assertions checked` and exited non-zero only on a
+mismatch, so **deleting fixtures was invisible**: `checked` simply dropped and CI stayed
+green. The fixture corpus is the oracle that caught four wrong payload schemas and every
+wrong envelope field name on 29 Aug 2026 — a gate that cannot notice its own oracle
+shrinking is not protecting it.
+
+**Rejected.** An environment-variable override — an escape hatch on an assertion whose
+whole value is that it cannot be skipped by accident. Counting fixture *files* — the
+Java parity test expands to 80 schema cases against the gate's 87 because `$expect`
+markers are not schema cases (ADR-003 D9); counting assertions keeps the two numbers
+explainable rather than coincidentally equal.
+
+**Consequence.** Adding or removing a fixture is a two-line change. That is the
+intended friction.
+
+---
+
 ## 4. Platform and build
 
 ### DL-010 — Java 21
@@ -730,6 +756,34 @@ not give the API a broker connection in the meantime.
 
 ---
 
+### DL-097 — Message processors are selected by stat type, never by bean uniqueness
+
+**3 Sep 2026** · `ENGINEERING` · T-019/T-020, rule 6, STA-14A, STA-22
+
+**Decision.** `StatsMessageProcessor` declares `statType()`, and the writer resolves
+the processor for a type by matching it. Two processors claiming one type is a startup
+error, not a silent choice.
+
+**Why.** The first implementation resolved "the" processor with
+`ObjectProvider#getIfAvailable`, which works only while exactly one exists. Phase 3
+registers five: the second one makes that call throw
+`NoUniqueBeanDefinitionException`, so **adding `sysstats` would break `lorastats`** —
+the additive-change rule (rule 6, STA-14A) inverted. The failure would also have
+appeared during fan-out, far from the line that caused it.
+
+**Rejected.** `@Primary` or `@Qualifier` on each processor — makes the wiring depend on
+annotation bookkeeping that a new type can forget, with the same failure mode. A
+`Map<StatType, StatsMessageProcessor>` bean — a second registry to keep in step with
+the beans themselves.
+
+**Consequence.** Adding a stat type adds a processor and touches nothing existing,
+which is the point. The listener's `autoStartup` SpEL needs the wire literal as a
+compile-time constant, so the descriptor carries one alongside the enum; a test asserts
+the two never diverge, because a divergence would leave the listener permanently and
+silently stopped.
+
+---
+
 ## 7. Persistence
 
 ### DL-040 — PostgreSQL 17, one table per stat type
@@ -975,11 +1029,153 @@ commit. Getting this wrong is cheap now and expensive later.
 
 ---
 
+### DL-093 — The lorastats index set is corrected to ADR-003 in V3
+
+**3 Sep 2026** · `ENGINEERING` · T-011, ADR-003 "Required table and index direction", STA-21C, rule 3 · Corrects V2
+
+**Decision.** `V3__lorastats_adr003_indexes.sql` **drops** `idx_lorastats_tsdevice_uid`
+and creates the two indexes ADR-003 specifies:
+`idx_lorastats_tenant_clsbox_device_uid (tenant, clsbox, ts_device DESC, uid DESC)`
+and `idx_lorastats_tenant_uid (tenant, uid)`. Both are declared on the partitioned
+parent so PostgreSQL propagates them to every partition.
+
+**Why.** V2 shipped `(ts_device DESC, uid DESC)`, which the planner cannot use:
+`PRIMARY KEY (ts_device, uid)` already provides an equivalent btree and PostgreSQL
+answers a DESC/DESC ordering from it with a backward scan. Measured on PG17 against
+these exact migrations, dropping it leaves `Index Only Scan Backward using
+lorastats_pkey`, and the planner never selected it while it existed. It was a second
+full btree maintained on every insert — 23.04M rows per type per day — buying nothing.
+
+Meanwhile neither ADR-003 index existed. The dominant tenant-scoped page planned as a
+pkey backward scan with a discard filter: **2,444 rows read and thrown away to return
+50**, on one day of 200k rows and 50 tenants; a production partition holds ~23M. The
+`uid`-only lookup planned as a pkey walk on a non-leading column: **989 buffer hits for
+one row on one partition**, and `GET /v1/stats/{type}/{uid}` supplies no time bound, so
+it touches all 90 live partitions. `tenant` leads both because the tenant predicate is
+mandatory on every query (rule 3, STA-35).
+
+**Rejected.** Editing V1/V2 — they are applied migrations and are immutable. Keeping
+the V2 index alongside the new ones "just in case" — it is provably unreachable, and
+an unused index at this write volume is a permanent cost with no upside.
+
+**Consequence.** `CREATE INDEX` cannot be `CONCURRENTLY` on a partitioned parent. The
+tables are empty at this migration so the lock is free, but applying the same change to
+a populated cluster needs a maintenance window, or per-partition concurrent builds
+followed by `ATTACH`. The migration test asserts the resulting index set and its
+propagation to a child partition, because the previous test asserted the opposite —
+`hasSize(2)`, no index containing `tenant`, and a count of zero for both ADR-003 index
+names — which had made the wrong shape a green build.
+
+---
+
+### DL-094 — `passthrough` stores the wire's own shape and units
+
+**3 Sep 2026** · `ENGINEERING` · T-058, ADR-004, ADR-007 §2, ADR-003 D7
+
+**Decision.** The Writer populates `record_version` from the envelope's `version`, and
+`passthrough` from `ts.datastore`, `ts.converter`, `ts.expiresOn` and `status`, shaped
+as `{"ts": {...}, "status": [...]}`. Timestamps are stored as **epoch seconds** and
+`expiresOn` as the **ISO-8601 string** production sends. Both columns stay NULL when
+the record carries none of it.
+
+**Why.** ADR-004's byte-identical publication only matters if the record survives to
+storage. The first insert implementation mapped neither column, so every production
+record — all of which carry `ts.converter`, and most a `version` — was stored having
+lost them, and nothing failed: all five members are optional, so no schema test could
+see it. Storing the wire's own units is what makes the stored value reconstruct the
+received one; normalising to millis or an ISO instant here would quietly change what a
+round trip returns.
+
+**Rejected.** Three separate columns — ADR-003 already rejected that: nothing queries
+them. Flattening to `{"datastore": ..., "converter": ...}` — loses which members were
+inside `ts`, so the reconstruction is a guess.
+
+**Consequence.** `schema_version` is still the literal `1`. ADR-003 D7 says it must
+come from the schema that actually validated the record, and until T-057 puts the
+payload gate in the Writer nothing has validated it. That is a known, commented gap
+that T-057 closes — not a decision to leave it.
+
+---
+
+### DL-095 — D14b: unknown `data` members are preserved in `data_extra`, and metered
+
+**3 Sep 2026** · `ENGINEERING` · D14b, DL-051, ADR-003 D2, T-021/T-022 · Closes the D14b row in `claude/CLAUDE.md` §7
+
+**Decision.** Each typed stat-type table gains a nullable `data_extra jsonb`. The
+Writer routes any `data` member the schema does not name into it, verbatim, and
+increments `records_unmapped_data_field{type}`. Unindexed; never read by the
+application.
+
+**Why.** D14 (DL-051) requires unknown `data` members to be accepted **and preserved**,
+and `lorastats-v1.schema.json` is `additionalProperties: true` — so such a member is
+valid and must survive. ADR-003 D2 gives lorastats typed columns, which have nowhere to
+put one, so the Writer dropped it silently. That is the same outcome D2 rejected in
+writing when it chose a jsonb interface map for `netstats` over fixed `eth0_*` columns;
+the argument does not stop applying because the type is different.
+
+The metric matters as much as the column. A member appearing in `data_extra` means
+Heimdal and this schema have diverged, which is a signal — but only if someone can see
+it. Preserved-and-invisible is how the divergence gets found a year later.
+
+**Rejected.** Dropping and documenting it — the option D2 already rejected. A full
+`data jsonb` alongside the typed columns — reintroduces the ~375 GB/type key-name
+overhead D2 exists to avoid, on every row, to serve the rare one. Rejecting the record
+— an unknown member is explicitly valid under D14; dead-lettering it would break on
+Heimdal's next additive change.
+
+**Consequence.** `NULL` on the overwhelming majority of rows, where it costs one
+null-bitmap bit — key names are stored only for records that actually carry one, so
+this does not become D2's problem by another route. `ADD COLUMN` with no default is
+catalog-only on PG11+, which is what makes it affordable to add to the other four
+types later. Every new stat-type table must include the column; a type that omits it
+silently reopens the drop.
+
+---
+
+### DL-096 — Partition pre-creation runs at startup, before the listeners, and fatally
+
+**3 Sep 2026** · `ENGINEERING` · T-012, ADR-003 D1/D3, STA-23C
+
+**Decision.** `PartitionBootstrap` is a `SmartLifecycle` at a phase below Spring AMQP's
+listener containers. It ensures the deployment's partitions before anything consumes,
+and a failure is **fatal** — the context does not start. The retention cron still runs
+and keeps the horizon rolling. `stats.retention.pre-create-on-startup=false` disables
+it for deployments where a separate job owns partition DDL.
+
+**Why.** The cron (`0 30 3 * * *`) was the only trigger, so a module deployed at any
+other hour came up against a parent table with no partitions and stayed that way for up
+to a day. Every insert fails with `no partition of relation ... found for row`; the
+T-020 manual-ACK contract correctly withholds the ACK, so **nothing is lost** — and
+that is precisely what makes it dangerous. The consumer wedges once its prefetch window
+is entirely unacknowledged, and it does **not** recover when the cron finally fires,
+because those deliveries stay unacked until the process restarts. A whole stat type
+stops ingesting, quietly, exactly the silent failure ADR-003 D1 demands be loud.
+
+`SmartLifecycle` rather than `@PostConstruct` or `ApplicationReadyEvent`: the work has
+to land after Flyway and before the listener containers start. `@PostConstruct` is not
+ordered against the Flyway initializer without a bean-name `@DependsOn`;
+`ApplicationReadyEvent` fires *after* `finishRefresh()`, which is where the containers
+already started. Only the lifecycle phases make it a guarantee, and a test asserts the
+phase against a real container instead of trusting a remembered constant.
+
+**Rejected.** Starting anyway and letting the cron fix it — that is the wedge above.
+Creating partitions lazily on the first insert failure — DDL on the consume path, racing
+across replicas, in the one code path that is already failing. `pg_partman` — never a
+dependency (ADR-003 D1).
+
+**Consequence.** A database that is unreachable at boot is now a startup failure rather
+than a running process that cannot work. For a module whose entire job needs the
+database, crash-loop-with-a-clear-cause is the better failure, and readiness stays
+down. A deployment configured for a stat type whose migration has not landed is named
+explicitly at startup rather than surfacing as a confusing DDL error.
+
+---
+
 ## 8. Validation, errors, and the record contract
 
 ### DL-050 — No transformation: the published message is byte-identical to what was received
 
-**Aug 2026** · `RATIFIED` · ADR-004
+**Aug 2026** · `RATIFIED` · ADR-004 · **amended 29 Aug 2026 by ADR-007 §2**
 
 **Decision.** The Stats App performs **no timestamp normalisation** and no
 transformation of any kind. What is published to RabbitMQ is byte-identical to
@@ -997,17 +1193,25 @@ collides with the same `(ts_device, uid)` key. **If Input ever rewrote a
 timestamp, duplicate suppression would stop working and the failure would be
 silent.**
 
-**Rejected.** Supporting `ts.converter` as a "harmless" backward-compatibility
-gesture — explicitly out of scope; reopening requires a new approved
-compatibility ADR.
+**Rejected.** *Normalising* on `ts.converter` — deriving, rewriting or
+back-filling any timestamp from it. That is still explicitly out of scope and
+reopening it requires a new approved compatibility ADR. This is the half of
+ADR-004 that survives; it is not the same as rejecting the field.
 
-**Consequence.** A record carrying `ts.converter` is **invalid** — 400, nothing
-published. `envelope-v1.schema.json` encodes this directly: `ts` keeps
-`additionalProperties: true` but adds `"not": {"required": ["converter"]}`, so
-`ts.converter` fails while other unknown `ts` members are still tolerated. That
-asymmetry is deliberate — `ts.converter` is not merely unrecognised, it is a
-field whose presence means the sender believes in a step this system does not
-perform.
+**AMENDED 29 August 2026 — ADR-007 §2 withdrew the rejection clause.** This entry
+previously read: *"A record carrying `ts.converter` is invalid — 400, nothing
+published,"* implemented as `"not": {"required": ["converter"]}` on `ts`. The
+29 Aug production sample carries `ts.converter` on **100% of records**, so that
+rule rejected every record Heimdal sends. It is gone from
+`envelope-v1.schema.json` and must not be reinstated.
+
+**Consequence, as it now stands.** `ts.converter` is a **valid passthrough
+member** — accepted, stored in the `passthrough` jsonb, returned verbatim, and
+**never read**. Its presence is metered as `records_converter_ts_present{type}`
+(T-059) so the day Heimdal stops sending it is visible rather than inferred.
+Accepting the field is not the same as acting on it: no code anywhere may branch
+on `ts.converter`, which is what keeps byte-identical publication — and therefore
+duplicate suppression — intact. See DL-088 and ADR-007 §2.
 
 ---
 

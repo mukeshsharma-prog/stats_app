@@ -36,7 +36,11 @@ import org.springframework.jdbc.core.JdbcTemplate;
             "stats.writer.stat-type=lorastats",
             "stats.consumer.lorastats.concurrency=1",
             "stats.consumer.lorastats.prefetch=1",
-            "stats.retention.schedule=-"
+            "stats.retention.schedule=-",
+            // These tests create and drop their own partitions on fixed far-future
+            // days. The startup pre-creation is exercised by
+            // PartitionBootstrapIntegrationTest, which leaves it on.
+            "stats.retention.pre-create-on-startup=false"
         })
 @Import({PostgresSupport.class, RabbitSupport.class})
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)

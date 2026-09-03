@@ -9,10 +9,12 @@ import com.zenner.datahub.stats.writer.persistence.StatsBatchWriter;
 import java.util.List;
 import java.util.Objects;
 import org.springframework.amqp.core.Message;
+import org.springframework.context.annotation.Conditional;
 import org.springframework.stereotype.Component;
 
 /** Deserializes one lorastats delivery and persists it through the batch-shaped API. */
 @Component
+@Conditional(LorastatsDeploymentCondition.class)
 public final class LorastatsMessageProcessor implements StatsMessageProcessor {
 
     private final ObjectMapper objectMapper;
@@ -21,6 +23,11 @@ public final class LorastatsMessageProcessor implements StatsMessageProcessor {
     public LorastatsMessageProcessor(ObjectMapper objectMapper, StatsBatchWriter writer) {
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
         this.writer = Objects.requireNonNull(writer, "writer");
+    }
+
+    @Override
+    public StatType statType() {
+        return LorastatsConsumerDescriptor.TYPE;
     }
 
     @Override

@@ -86,8 +86,9 @@ class LorastatsConsumerConfigurationTest {
         assertThat(listener.containerFactory())
                 .isEqualTo(LorastatsConsumer.CONTAINER_FACTORY);
         assertThat(listener.ackMode()).isEqualTo("MANUAL");
+        // Selection is by stat type, not by "the only processor bean" -- see DL-097.
         assertThat(listener.autoStartup())
-                .isEqualTo("#{@statsMessageProcessorAvailability.available()}");
+                .isEqualTo("#{@statsMessageProcessorAvailability.available('lorastats')}");
     }
 
     @Test
