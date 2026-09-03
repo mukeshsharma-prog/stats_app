@@ -56,17 +56,25 @@ migration, so they were living only in this paragraph. Their real status:
 |---|---|
 | Confirming the retry/DLQ handoff **before** ACKing the original | **Adopted and propagated** — ADR-005, "The ACK ordering hazard" |
 | Signed cursors binding tenant and filters | **Adopted and propagated** — `docs/contracts/openapi.yaml`, `Cursor` parameter |
-| The envelope column list including `ingested_at` and `schema_version` | **Not adopted.** ADR-003's table uses `received_at` and carries no `schema_version`. Either amend ADR-003 or drop the claim — **open** |
-| Quorum queues | **Not adopted.** ADR-002 and `amqp-topology-v1.md` specify durable queues and say nothing about queue type — **open** |
-| Writer deployed once per stat type via `STAT_TYPE`, plus a sixth scheduled invocation for partition maintenance | **Not adopted.** Compose runs a single `stats-writer` image and ADR-003 D3 gives retention to the writer behind an advisory lock — **open, and it conflicts with what is built** |
-| `mandatory` routing, unroutable treated as a failed acceptance | **Not adopted** — not in ADR-002 or the AMQP contract — **open** |
-| Separate database roles per module | **Partly adopted** — `stats_ro` for the API is in compose and `application.properties`; not yet stated as a decision in an ADR |
-| RLS with `SET LOCAL app.tenant_id` | **Not adopted, and it conflicts.** ADR-006 enforces isolation as a mandatory query predicate, not row-level security. RLS would be defence in depth, not a replacement — it needs its own ADR before anyone builds it |
+| The envelope column list including `ingested_at` and `schema_version` | **Resolved — ADR-003 D7, 24 Aug 2026.** `ingested_at` is **rejected as a rename** of `received_at`; `schema_version smallint NOT NULL` is **adopted**. Both are in `V1__lorastats_table.sql` as built |
+| Quorum queues | **Adopted and propagated** — ADR-002 §8 declares every main, retry and dead-letter queue with `x-queue-type: quorum`, from the shared constants only. `AmqpTopologyTest` asserts the argument map |
+| Writer deployed once per stat type via `STAT_TYPE`, plus a sixth scheduled invocation for partition maintenance | **Adopted with one deliberate difference** — ADR-003 D8 takes the one-deployment-per-type shape, built in T-019 as `LorastatsDeploymentCondition`. The sixth scheduled invocation was **not** taken: partition maintenance is a scheduled task inside every writer replica behind the D3 advisory lock (ADR-003 D1), which N replicas per type require anyway. Compose still runs a single image — that is a dev convenience, not the production shape |
+| `mandatory` routing, unroutable treated as a failed acceptance | **Adopted and propagated** — ADR-002 §9. Input publishes with `mandatory=true` and a `ReturnsCallback`; a returned message is a failed acceptance: 503 plus `records_unroutable{type}`. T-015 is the implementation |
+| Separate database roles per module | **Adopted and propagated** — ADR-006: `stats` (write) for the Writer, `stats_ro` (SELECT only) for the API, and **no database role at all** for Input, which holds no datasource. T-009 is PARTIAL on the *proof*, not the decision — nothing yet tests that a write as `stats_ro` is refused |
+| RLS with `SET LOCAL app.tenant_id` | **Not adopted, and it conflicts.** ADR-006 enforces isolation as a mandatory query predicate, not row-level security. RLS would be defence in depth, not a replacement — it needs its own ADR before anyone builds it. **The one genuinely unresolved row here** |
 
-> **These five open rows are the highest-value cleanup left in this document.**
-> Each one is either an ADR amendment or a struck line; none of them should stay
-> ambiguous, because "we adopted it" and "it exists nowhere" are indistinguishable
-> to the next person to read this.
+> **Reconciled 3 September 2026.** Five of these six rows were carrying "not
+> adopted / open" long after the decision had actually been taken — four of them on
+> 24 August, in ADR-002 §8/§9, ADR-003 D7/D8 and ADR-006, and two of those are
+> built. Only RLS is still genuinely undecided, and it is undecided in the narrow
+> sense that adding it as defence in depth would need its own ADR; it is already
+> **rejected as a replacement** for the query predicate.
+>
+> This is the failure the paragraph above warned about, running in the other
+> direction: "we adopted it" and "it exists nowhere" are indistinguishable to the
+> next reader, and so are "still open" and "settled a fortnight ago". A stale
+> *open* item is the more expensive of the two, because someone eventually spends a
+> day re-deciding it.
 
 **Still open after the ARD, as it stood on 18 Aug:** it did not close Q1a
 (reference project), Q4a (`netstats`), Q8a/Q8b (auth values), Q13a (burst
