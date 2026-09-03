@@ -1,7 +1,10 @@
 package com.zenner.datahub.stats.writer;
 
+import com.zenner.datahub.stats.writer.retention.RetentionProperties;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * Module 2 — Stats Writer (Statsstore).
@@ -11,6 +14,8 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * (STA-32), and the owner of retention (STA-23A).
  */
 @SpringBootApplication
+@EnableScheduling
+@EnableConfigurationProperties(RetentionProperties.class)
 public class StatsWriterApplication {
 
     public static void main(String[] args) {
