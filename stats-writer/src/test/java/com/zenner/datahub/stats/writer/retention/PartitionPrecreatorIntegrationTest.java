@@ -11,6 +11,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -26,11 +27,20 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.SingleConnectionDataSource;
+import org.testcontainers.containers.PostgreSQLContainer;
 
 /** T-012 proof against the real PostgreSQL 17 partition and advisory-lock behavior. */
 @SpringBootTest(
         classes = StatsWriterApplication.class,
-        properties = "stats.retention.schedule=-",
+        properties = {
+            "stats.writer.stat-type=netstats",
+            "stats.retention.schedule=-",
+            // These tests create and drop their own partitions on fixed far-future
+            // days. The startup pre-creation is exercised by
+            // PartitionBootstrapIntegrationTest, which leaves it on.
+            "stats.retention.pre-create-on-startup=false"
+        },
         webEnvironment = SpringBootTest.WebEnvironment.NONE)
 @Import(PostgresSupport.class)
 class PartitionPrecreatorIntegrationTest {
@@ -42,6 +52,7 @@ class PartitionPrecreatorIntegrationTest {
     private static final LocalDate MISSING_START = LocalDate.of(2098, 5, 1);
     private static final LocalDate YEAR_BOUNDARY_START = LocalDate.of(2098, 12, 29);
     private static final LocalDate WRONG_BOUNDS_START = LocalDate.of(2098, 6, 1);
+    private static final LocalDate SESSION_ZONE_START = LocalDate.of(2098, 7, 1);
 
     @Autowired
     private PartitionPrecreator precreator;
@@ -61,7 +72,8 @@ class PartitionPrecreatorIntegrationTest {
                         LOCKED_START,
                         MISSING_START,
                         YEAR_BOUNDARY_START,
-                        WRONG_BOUNDS_START)) {
+                        WRONG_BOUNDS_START,
+                        SESSION_ZONE_START)) {
             for (int offset = 0; offset <= 7; offset++) {
                 jdbcTemplate.execute(
                         "DROP TABLE IF EXISTS " + partitionName(start.plusDays(offset)));
@@ -94,12 +106,22 @@ class PartitionPrecreatorIntegrationTest {
                 .contains("FOR VALUES FROM")
                 .contains("2098-03-01")
                 .contains("2098-03-02");
+        // A new partition inherits the parent's whole ADR-003 index direction: the
+        // primary key plus both indexes V3 creates. Asserting the shape rather than a
+        // bare count means a partition created without the tenant-leading indexes --
+        // which would silently scan in production -- fails here.
         assertThat(
-                        jdbcTemplate.queryForObject(
-                                "SELECT count(*) FROM pg_indexes WHERE tablename = ?",
-                                Integer.class,
+                        jdbcTemplate.queryForList(
+                                "SELECT indexdef FROM pg_indexes WHERE tablename = ?",
+                                String.class,
                                 firstPartition))
-                .isEqualTo(2);
+                .hasSize(3)
+                .anySatisfy(index -> assertThat(index).contains("(ts_device, uid)"))
+                .anySatisfy(
+                        index ->
+                                assertThat(index)
+                                        .contains("(tenant, clsbox, ts_device DESC, uid DESC)"))
+                .anySatisfy(index -> assertThat(index).contains("(tenant, uid)"));
     }
 
     @Test
@@ -288,5 +310,60 @@ class PartitionPrecreatorIntegrationTest {
 
     private static String partitionName(LocalDate date) {
         return "lorastats_" + PARTITION_DATE.format(date);
+    }
+
+    /**
+     * The session time zone is set to UTC for the bound comparison — {@code
+     * pg_get_expr} renders {@code timestamptz} in the session zone, so under a
+     * non-UTC session an existing, correct partition renders as a different literal
+     * and is wrongly reported as having incorrect bounds — and it must be restored
+     * before the connection returns to the pool. HikariCP does not reset it, so a
+     * leaked zone silently changes how every later borrower of that connection reads
+     * and writes timestamps.
+     *
+     * <p>Uses a single-connection DataSource so "the connection that comes back" is
+     * not a matter of pool luck.</p>
+     */
+    @Test
+    void restoresTheSessionTimeZoneOnTheBorrowedConnection() throws Exception {
+        PostgreSQLContainer<?> container = PostgresSupport.container();
+        SingleConnectionDataSource single =
+                new SingleConnectionDataSource(
+                        container.getJdbcUrl(),
+                        container.getUsername(),
+                        container.getPassword(),
+                        true);
+        try {
+            try (Connection connection = single.getConnection();
+                    Statement statement = connection.createStatement()) {
+                statement.execute("SET TIME ZONE 'Asia/Kolkata'");
+            }
+
+            PartitionPrecreationResult result =
+                    new PartitionPrecreator(single)
+                            .ensurePartitions(StatType.LORASTATS, SESSION_ZONE_START, 0);
+            assertThat(result).isEqualTo(new PartitionPrecreationResult(true, 1));
+
+            assertThat(sessionTimeZone(single)).isEqualTo("Asia/Kolkata");
+
+            // And the comparison it protects still works: a second, idempotent run over
+            // the same day must recognise the partition it just created.
+            assertThat(
+                            new PartitionPrecreator(single)
+                                    .ensurePartitions(StatType.LORASTATS, SESSION_ZONE_START, 0))
+                    .isEqualTo(new PartitionPrecreationResult(true, 1));
+            assertThat(sessionTimeZone(single)).isEqualTo("Asia/Kolkata");
+        } finally {
+            single.destroy();
+        }
+    }
+
+    private static String sessionTimeZone(DataSource dataSource) throws Exception {
+        try (Connection connection = dataSource.getConnection();
+                Statement statement = connection.createStatement();
+                ResultSet result = statement.executeQuery("SHOW TimeZone")) {
+            assertThat(result.next()).isTrue();
+            return result.getString(1);
+        }
     }
 }

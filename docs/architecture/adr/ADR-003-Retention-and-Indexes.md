@@ -7,6 +7,14 @@
 **Amended 29 August 2026:** `pg_partman` is no longer a conditional dependency (D1);
 clock skew is decided (D9); the late-arrival policy carries engineering agreement but
 still awaits product sign-off.
+**Amended 3 September 2026 (D14b, DL-095):** every typed stat-type table carries a
+nullable `data_extra jsonb`. D2 chose typed columns for the four stable types, which
+leaves an unknown `data` member — explicitly valid under D14, since the payload schemas
+are `additionalProperties: true` — with nowhere to go, so the Writer dropped it
+silently. That is the same failure D2 rejected in writing when it chose a `jsonb`
+interface map for `netstats`. The column is NULL whenever the payload is exactly the
+schema, so it costs a null-bitmap bit rather than the per-row key names D2 exists to
+avoid, and unmapped members are metered as `records_unmapped_data_field{type}`.
 **Amended 29 August 2026 (ADR-007):** column names follow the production wire
 format. `gateway` is now **`clsbox`** and `ts_processor` is now **`ts_server`**,
 here and everywhere else. Three envelope members that production sends and this ADR
@@ -425,6 +433,9 @@ CREATE TABLE lorastats (
     -- queries them and ADR-004 requires the record to survive a round trip intact.
     -- Holds ts.datastore, ts.converter, ts.expiresOn and status.
     passthrough    jsonb,
+    -- Unknown `data` members, preserved verbatim (D14b, DL-095). NULL whenever the
+    -- payload is exactly the schema, which is almost every row. Not indexed.
+    data_extra     jsonb,
     -- typed payload columns, bigint for counters
     rx_nr_pkts     bigint      NOT NULL,
     rx_crc_missing bigint      NOT NULL,
@@ -445,7 +456,7 @@ CREATE TABLE lorastats_2026_08_16 PARTITION OF lorastats
     FOR VALUES FROM ('2026-08-16') TO ('2026-08-17');
 ```
 
-`record_version` and `passthrough` are nullable on purpose: every fixture written
+`record_version`, `passthrough` and `data_extra` are nullable on purpose: every fixture written
 before 29 Aug 2026 omits them, and a `NOT NULL` here would make the pre-ADR-007
 corpus unwritable for no benefit. Neither is indexed — nothing queries them.
 

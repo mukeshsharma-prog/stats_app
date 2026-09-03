@@ -19,7 +19,12 @@ dependencies {
 
     implementation(libs.spring.boot.starter.amqp)
     implementation(libs.spring.boot.starter.jdbc)
+    // LorastatsMessageProcessor deserializes the production envelope with Jackson.
+    implementation(libs.spring.boot.starter.json)
     implementation(libs.spring.boot.starter.actuator)
+    // LorastatsConsumerProperties is validated at startup so invalid concurrency
+    // or prefetch values fail before a listener connects to RabbitMQ.
+    implementation(libs.spring.boot.starter.validation)
 
     // Migrations are versioned. Flyway is PROVISIONAL pending Q1a (ADR-003).
     implementation(libs.flyway.core)
@@ -30,7 +35,7 @@ dependencies {
     testImplementation(libs.testcontainers.junit.jupiter)
     testImplementation(libs.testcontainers.postgresql)
     testImplementation(libs.testcontainers.rabbitmq)
-    // Shared real-infrastructure support; fixture dependencies never cross into
-    // the Writer's production/runtime classpath.
-    testImplementation(testFixtures(project(":stats-common")))
+    // Shared real-infrastructure support. testImplementation only, so nothing here
+    // ever reaches the Writer's production/runtime classpath (DL-099).
+    testImplementation(project(":stats-testsupport"))
 }
