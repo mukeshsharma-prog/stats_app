@@ -17,9 +17,11 @@ import java.util.Properties;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInstance;
 import org.springframework.amqp.core.AcknowledgeMode;
 import org.springframework.amqp.core.AmqpAdmin;
 import org.springframework.amqp.core.Message;
@@ -42,6 +44,7 @@ import org.springframework.test.util.ReflectionTestUtils;
             "stats.retention.schedule=-"
         })
 @Import({PostgresSupport.class, RabbitSupport.class})
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class LorastatsConsumerIntegrationTest {
 
     private static final String QUEUE = AmqpTopology.mainQueue(StatType.LORASTATS);
@@ -86,6 +89,11 @@ class LorastatsConsumerIntegrationTest {
     void releaseProcessorIfATestFailsEarly() {
         allowCompletion.countDown();
         rabbitAdmin.purgeQueue(QUEUE, false);
+    }
+
+    @AfterAll
+    void stopListener() {
+        listenerRegistry.getListenerContainer(LorastatsConsumer.LISTENER_ID).stop();
     }
 
     @Test

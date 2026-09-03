@@ -20,7 +20,11 @@ import org.testcontainers.containers.RabbitMQContainer;
 /** T-008 proof that the Writer consumes both shared service-connection fixtures. */
 @SpringBootTest(
         classes = StatsWriterApplication.class,
-        webEnvironment = SpringBootTest.WebEnvironment.NONE)
+        webEnvironment = SpringBootTest.WebEnvironment.NONE,
+        properties = {
+            "stats.writer.stat-type=netstats",
+            "stats.retention.schedule=-"
+        })
 @Import({PostgresSupport.class, RabbitSupport.class})
 class SharedInfrastructureServiceConnectionTest {
 

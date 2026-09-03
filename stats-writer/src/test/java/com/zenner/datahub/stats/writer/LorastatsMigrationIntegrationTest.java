@@ -22,7 +22,11 @@ import org.springframework.jdbc.core.JdbcTemplate;
 /** Verifies the immutable lorastats database migrations on PostgreSQL. */
 @SpringBootTest(
         classes = StatsWriterApplication.class,
-        webEnvironment = SpringBootTest.WebEnvironment.NONE)
+        webEnvironment = SpringBootTest.WebEnvironment.NONE,
+        properties = {
+            "stats.writer.stat-type=netstats",
+            "stats.retention.schedule=-"
+        })
 @Import(PostgresSupport.class)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class LorastatsMigrationIntegrationTest {

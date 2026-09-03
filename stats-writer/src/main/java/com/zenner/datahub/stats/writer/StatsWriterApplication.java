@@ -1,5 +1,6 @@
 package com.zenner.datahub.stats.writer;
 
+import com.zenner.datahub.stats.writer.persistence.WriterBatchProperties;
 import com.zenner.datahub.stats.writer.retention.RetentionProperties;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -15,7 +16,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  */
 @SpringBootApplication
 @EnableScheduling
-@EnableConfigurationProperties(RetentionProperties.class)
+@EnableConfigurationProperties({RetentionProperties.class, WriterBatchProperties.class})
 public class StatsWriterApplication {
 
     public static void main(String[] args) {

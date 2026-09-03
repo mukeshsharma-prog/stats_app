@@ -64,10 +64,9 @@ public class LorastatsConsumerConfiguration {
     }
 
     /**
-     * The listener is deliberately absent until a real processing pipeline exists.
-     * T-021/T-022 supplies that bean. Starting a no-op consumer here would ACK and
-     * discard records before persistence exists, the exact silent-loss window T-020
-     * is intended to close.
+     * The listener starts only when the T-021/T-022 processing pipeline is present.
+     * Starting a no-op consumer would ACK and discard records before persistence,
+     * the exact silent-loss window T-020 is intended to close.
      */
     @Bean
     @Conditional(LorastatsDeploymentCondition.class)

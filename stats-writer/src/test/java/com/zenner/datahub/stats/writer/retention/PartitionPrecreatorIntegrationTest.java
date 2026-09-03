@@ -30,7 +30,10 @@ import org.springframework.jdbc.core.JdbcTemplate;
 /** T-012 proof against the real PostgreSQL 17 partition and advisory-lock behavior. */
 @SpringBootTest(
         classes = StatsWriterApplication.class,
-        properties = "stats.retention.schedule=-",
+        properties = {
+            "stats.writer.stat-type=netstats",
+            "stats.retention.schedule=-"
+        },
         webEnvironment = SpringBootTest.WebEnvironment.NONE)
 @Import(PostgresSupport.class)
 class PartitionPrecreatorIntegrationTest {
