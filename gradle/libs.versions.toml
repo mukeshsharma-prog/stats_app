@@ -41,6 +41,20 @@ spring-boot-starter-oauth2-resource-server = { module = "org.springframework.boo
 # Actuator backs the separate liveness/readiness probes of D13.
 spring-boot-starter-actuator = { module = "org.springframework.boot:spring-boot-starter-actuator" }
 
+# --- metrics ----------------------------------------------------------------
+# Actuator brings micrometer-core, which is enough to REGISTER a counter and not
+# enough to EXPORT one: with no registry implementation on the runtime classpath
+# Spring Boot falls back to SimpleMeterRegistry, /actuator/prometheus 404s, and
+# every counter is invisible outside the JVM. That failure is silent — the code
+# compiles, the tests pass, and the metric simply never arrives.
+#
+# It matters here more than usual: records_duplicate_suppressed is the ONLY thing
+# that distinguishes a suppressed duplicate from a write that never happened
+# (STA-27A, ADR-005), and records_unmapped_data_field is the only signal that a
+# data member is landing in data_extra rather than a typed column (D14b).
+# Version comes from the Spring Boot BOM, so it moves with the platform.
+micrometer-registry-prometheus = { module = "io.micrometer:micrometer-registry-prometheus" }
+
 # --- shared model -----------------------------------------------------------
 # stats-common carries the envelope DTO and the AMQP topology constants. Jackson
 # databind is required because the public envelope contract deliberately keeps

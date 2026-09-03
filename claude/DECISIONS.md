@@ -1967,6 +1967,66 @@ breaks?"*
 
 ---
 
+### DL-100 — A counter nobody can scrape is not a metric, and config that describes an unbuilt gate must say so
+
+**3 Sep 2026** · `ENGINEERING` · T-022, T-023, T-058, T-027, T-006, T-013, T-057 · DN-18
+
+**Decision.** Three things, all of the same shape — a claim in the repository that
+nothing made true:
+
+1. **`micrometer-registry-prometheus` is a runtime dependency of all three application
+   modules**, and `stats-writer` gains `spring-boot-starter-web`. `ManagementSurfaceTest`
+   scrapes `/actuator/prometheus` and asserts every Writer counter is present.
+2. **`STATS_DLQ_ALERT_DEPTH_LORASTATS` is documented in `.env.example`**, with why
+   lorastats cannot share the `alert-depth.default=0` the other four types use.
+3. **`stats.*.validation.scope` is renamed to `validation.intended-scope`** in both
+   modules, with a `NOT YET ENFORCED` banner naming the task that will build the gate
+   (T-013 for Input, T-057 for the Writer). The ADR-007 §5 reasoning stays with the key.
+
+**Why.** All three read as statements of fact and were statements of intent.
+
+`spring-boot-starter-actuator` brings `micrometer-core`, which registers a `Counter`
+and cannot export one; with no registry implementation Spring Boot falls back to
+`SimpleMeterRegistry` and the metric never leaves the JVM. `stats-writer` had no
+servlet container at all, so `server.port=8082`, `management.endpoints.web.exposure.include`
+and `management.endpoint.health.probes.enabled` were all inert and the readiness
+healthcheck already committed in `docker/docker-compose.yml` could never pass. Nothing
+failed: the module started, writes committed, and the unit tests asserting
+`counter.count()` stayed green. That is the point — **`records_duplicate_suppressed` is
+the only thing standing between `ON CONFLICT DO NOTHING` and silence** (STA-27A,
+ADR-005, DL-095), and un-exported it is exactly the silent loss it was built to reveal.
+
+`stats.writer.validation.scope=envelope-and-payload` was worse than absent. No code
+reads it and `StatsSchemaValidator` is wired into neither module, so the key asserted
+that the Writer's payload gate was live when every payload still reaches the INSERT
+unvalidated. Someone acting on it in the other direction — moving `validate()` to Input
+— turns a redrivable dead-letter into a **400 Heimdal will never retry**, which is
+ADR-007 §5's whole subject and `FLOW.md` §8 window 12.
+
+**Rejected.** *Deleting the validation-scope keys* — the ADR-007 reasoning attached to
+them is worth more than the tidiness, and these properties files are deliberately a
+design ledger (`stats.exchange.name` and `stats.amqp.retry.*` are unread too). *Building
+the gates now* — that is T-013 and T-057, and pulling them into a cleanup would ship the
+Input gate without the publisher-confirm path it belongs to. *A separate management
+port on the Writer* — it would diverge from the other two modules and break the
+committed compose healthcheck for no gain, since no controller exists to isolate it
+from and a test now asserts none appears.
+
+**Consequence.** `stats-writer` runs a servlet container that serves actuator and
+nothing else; `theWebServerCarriesNoApplicationEndpoint` fails if a controller ever
+lands there, which keeps rule 1 and rule 2 intact. T-027 stays PARTIAL — this made the
+three existing counters observable, it did not add the missing ones. T-006 stays
+PARTIAL: probes are now reachable, but readiness is still Boot's default composite
+rather than the per-module dependency set D13 asks for.
+
+**Note for anyone writing the next metrics test.** Spring Boot disables metrics export
+under `@SpringBootTest` — its context customizer injects
+`management.defaults.metrics.export.enabled=false`. A scrape test therefore needs
+`@AutoConfigureObservability`, or it 404s against a perfectly correct application and
+"proves" the opposite of what it was written for.
+
+---
+
 ## 12. What is deliberately still open
 
 Not decisions — the absence of them. Full status:

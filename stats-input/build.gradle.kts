@@ -23,6 +23,10 @@ dependencies {
     implementation(libs.spring.boot.starter.validation)
     implementation(libs.spring.boot.starter.amqp)
     implementation(libs.spring.boot.starter.actuator)
+    // Actuator registers meters; only a registry implementation exports them.
+    // Without this /actuator/prometheus 404s even though application.properties
+    // exposes it, and the failure is silent (DL-100).
+    runtimeOnly(libs.micrometer.registry.prometheus)
 
     testImplementation(libs.spring.rabbit.test)
     testImplementation(libs.testcontainers.junit.jupiter)
