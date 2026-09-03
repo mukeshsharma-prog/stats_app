@@ -1525,7 +1525,13 @@ than three columns, because nothing queries them.
 
 ### DL-092 — Shared Testcontainers support lives in `stats-common` Java test fixtures
 
-**31 Aug 2026** · `ENGINEERING` · T-008, DL-014, DL-015, DL-025
+**31 Aug 2026** · `ENGINEERING` · T-008, DL-014, DL-015, DL-025 · **SUPERSEDED 3 Sep 2026 by DL-099**
+
+> **Superseded.** The placement changed to a plain `stats-testsupport` module; the
+> *reasoning* below — one shared definition, never on a production classpath, no
+> per-module copies to drift — is unchanged and is what DL-099 preserves. Only the
+> Gradle mechanism moved, because IDE Gradle importers do not resolve the
+> test-fixtures variant.
 
 **Decision.** Shared PostgreSQL 17 and RabbitMQ 4 Testcontainers support lives in
 `stats-common`'s `java-test-fixtures` source set. It is reusable build/test code,
@@ -1542,6 +1548,47 @@ module. Per-module support copies — image and lifecycle configuration would dr
 **Consequence.** Each support owns one static container per test JVM. This reuse is
 within a Gradle worker/JVM only; it is not Docker-level reuse across workers or
 separate JVMs, and `.withReuse(true)` remains prohibited.
+
+---
+
+### DL-099 — Test infrastructure is a plain `stats-testsupport` module, not a test-fixtures variant
+
+**3 Sep 2026** · `ENGINEERING` · T-008, ADR-001 · Supersedes the *placement* in DL-092
+
+**Decision.** `PostgresSupport` and `RabbitSupport` move to a new
+`stats-testsupport` module (`java-library`, no Spring Boot plugin, no image).
+Consumers depend on it with `testImplementation(project(":stats-testsupport"))`.
+`stats-common` no longer applies `java-test-fixtures`. Package names are unchanged,
+so no import anywhere moved.
+
+**Why.** The test-fixtures variant is correct Gradle and builds cleanly — but the
+IDE could not resolve it. VS Code's Java support imports this repository through
+**Buildship** (`org.eclipse.buildship.core.gradleclasspathcontainer`, confirmed in
+the generated `.classpath`), and Buildship's Eclipse project model has no
+representation for the `testFixtures` source set. The result was
+`The import com.zenner.datahub.stats.testsupport cannot be resolved` in **eleven
+files across `stats-common` and `stats-writer`** — every Docker-backed integration
+test in the project, which is to say the tests covering tenant isolation, the ACK
+boundary, retention, and the loss windows. Those are the files a reviewer most needs
+to be able to navigate, and in the IDE they had no completion, no
+go-to-definition, and no refactoring.
+
+A build layout that only the command line understands is a real defect, not a
+preference. `./gradlew build` passing is necessary and not sufficient.
+
+**Rejected.** Telling developers to upgrade or re-configure the extension — it makes
+a correct checkout depend on per-machine tooling state, and the next person hits it
+again. Configuring the `eclipse` plugin to splice the fixtures output into each
+consumer's classpath — carries the same fragility with more moving parts, and has to
+be repeated for every new consumer. Copying the support classes per module — the
+drift DL-092 correctly rejected.
+
+**Consequence.** One more entry in `settings.gradle.kts` that is **not** a deployable
+and not a fourth application module; the module's build file says so at the top, and
+the dependency is `testImplementation`, so nothing it brings in can reach an
+application's runtime classpath. `StatTypeFanOutTest` scans it like any other module,
+so the no-stat-type-outside-`StatType` guard still covers everything. Q2 is untouched:
+still three Docker images.
 
 ---
 

@@ -55,7 +55,12 @@ class StatTypeFanOutTest {
                     + "adds a sibling descriptor and never edits this one.");
 
     private static final List<String> MODULES =
-            List.of("stats-common", "stats-input", "stats-writer", "stats-api");
+            List.of(
+                    "stats-common",
+                    "stats-testsupport",
+                    "stats-input",
+                    "stats-writer",
+                    "stats-api");
 
     @Test
     void noMainSourceOutsideStatTypeNamesAnIndividualStatType() {

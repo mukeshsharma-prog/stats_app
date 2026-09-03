@@ -14,6 +14,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.AfterAll;
@@ -295,6 +296,132 @@ class LorastatsBatchWriterIntegrationTest {
                 .containsExactly(RecordWriteStatus.FAILED);
 
         assertThat(counter(LorastatsBatchWriter.WRITE_FAILED_METRIC)).isEqualTo(before + 1.0d);
+    }
+
+    /**
+     * T-058's actual acceptance criterion: read the record back and prove nothing was
+     * lost. Byte-for-byte string equality is not reconstructible from typed columns by
+     * design (ADR-003 D2 stores values, not the original encoding), so the equivalent
+     * assertion is structural equality of the rebuilt JSON against what was received —
+     * exact on every value and type, and blind only to key order.
+     *
+     * <p>This is the test that would have caught record_version and passthrough going
+     * unmapped: every member it covers is optional, so no schema test can see them
+     * disappear.</p>
+     */
+    @Test
+    void aStoredRecordRebuildsIntoTheRecordThatWasReceived() throws Exception {
+        ObjectNode received = objectMapper.createObjectNode();
+        received.put("uid", "round-trip-proof");
+        received.put("tenant", "tenant-a");
+        received.put("maintenant", "management-parent");
+        received.put("clsbox", "A1B2C3D4E5F6");
+        received.put("type", "lorastats");
+        received.put("version", 3);
+        ObjectNode ts = received.putObject("ts");
+        ts.put("server", DEVICE_TIME.getEpochSecond());
+        ts.put("device", DEVICE_TIME.getEpochSecond());
+        ts.put("datastore", DEVICE_TIME.getEpochSecond() + 1);
+        ts.put("converter", DEVICE_TIME.getEpochSecond() + 2);
+        ts.put("expiresOn", "2097-07-13T12:28:59.074Z");
+        ObjectNode data = completeData(30);
+        data.put("rx_future_counter", 99L);
+        received.set("data", data);
+        received.putArray("status").add("conversion ok");
+
+        StatsEnvelope record = objectMapper.treeToValue(received, StatsEnvelope.class);
+        assertThat(writer.write(List.of(record)))
+                .extracting(RecordWriteResult::status)
+                .containsExactly(RecordWriteStatus.INSERTED);
+
+        Map<String, Object> row =
+                jdbc.queryForMap(
+                        "SELECT * FROM lorastats WHERE ts_device = ? AND uid = ?",
+                        Timestamp.from(DEVICE_TIME),
+                        "round-trip-proof");
+
+        // Compared by VALUE, not by node identity. JSON has one number type and
+        // Jackson has several, so a 99 written as a long comes back from jsonb as an
+        // IntNode and LongNode(99).equals(IntNode(99)) is false -- a difference in how
+        // the tree was built, not in what was stored. Jackson's comparator overload is
+        // the intended way to say that. Key ORDER is likewise not preserved by jsonb
+        // and is not part of the contract; every value and type is.
+        assertThat(rebuild(row).equals(VALUE_EQUALITY, received))
+                .as("rebuilt %s%nreceived %s", rebuild(row), received)
+                .isTrue();
+    }
+
+    /** Numeric nodes compare by value; everything else by normal node equality. */
+    private static final Comparator<JsonNode> VALUE_EQUALITY =
+            (left, right) -> {
+                if (left.isNumber() && right.isNumber()) {
+                    return left.decimalValue().compareTo(right.decimalValue());
+                }
+                return left.equals(right) ? 0 : 1;
+            };
+
+    /** Rebuilds the received JSON from the stored columns, the way the API will. */
+    private ObjectNode rebuild(Map<String, Object> row) {
+        ObjectNode rebuilt = objectMapper.createObjectNode();
+        rebuilt.put("uid", (String) row.get("uid"));
+        rebuilt.put("tenant", (String) row.get("tenant"));
+        rebuilt.put("maintenant", (String) row.get("maintenant"));
+        rebuilt.put("clsbox", (String) row.get("clsbox"));
+        rebuilt.put("type", StatType.LORASTATS.wireName());
+        rebuilt.put("version", ((Number) row.get("record_version")).intValue());
+
+        ObjectNode ts = rebuilt.putObject("ts");
+        ts.put("server", ((Timestamp) row.get("ts_server")).toInstant().getEpochSecond());
+        ts.put("device", ((Timestamp) row.get("ts_device")).toInstant().getEpochSecond());
+        JsonNode passthrough = readJson(row.get("passthrough"));
+        passthrough.path("ts").properties().forEach(entry -> ts.set(entry.getKey(), entry.getValue()));
+        rebuilt.set("status", passthrough.get("status"));
+
+        ObjectNode data = rebuilt.putObject("data");
+        for (String field : LorastatsBatchWriter.MAPPED_DATA_FIELDS) {
+            Object value = row.get(field);
+            if (value != null) {
+                data.put(field, ((Number) value).longValue());
+            }
+        }
+        readJson(row.get("data_extra")).properties()
+                .forEach(entry -> data.set(entry.getKey(), entry.getValue()));
+        return rebuilt;
+    }
+
+    /**
+     * T-023 / STA-04C. The schema's digit pattern caps at 19 digits, which is wider
+     * than a signed BIGINT, and the gap is not expressible as a regex — so the Writer
+     * has to range-check before converting. An unchecked conversion wraps and stores a
+     * corrupted counter with no error anywhere.
+     */
+    @Test
+    void acceptsTheBigintMaximumAndRejectsAnythingWiderThanIt() {
+        ObjectNode atLimit = completeData(0);
+        atLimit.put("rx_nr_pkts", Long.MAX_VALUE);
+
+        assertThat(writer.write(List.of(envelope("bigint-max", "tenant-a", atLimit))))
+                .extracting(RecordWriteResult::status)
+                .containsExactly(RecordWriteStatus.INSERTED);
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT rx_nr_pkts FROM lorastats WHERE ts_device = ? AND uid = ?",
+                                Long.class,
+                                Timestamp.from(DEVICE_TIME),
+                                "bigint-max"))
+                .isEqualTo(Long.MAX_VALUE);
+
+        ObjectNode overflowing = completeData(0);
+        // Long.MAX_VALUE + 1: still inside the schema's 19-digit pattern.
+        overflowing.put("rx_nr_pkts", new java.math.BigInteger("9223372036854775808"));
+
+        List<RecordWriteResult> results =
+                writer.write(List.of(envelope("bigint-overflow", "tenant-a", overflowing)));
+        assertThat(results).extracting(RecordWriteResult::status)
+                .containsExactly(RecordWriteStatus.FAILED);
+        assertThat(results.getFirst().failureOptional().orElseThrow())
+                .hasMessageContaining("rx_nr_pkts")
+                .hasMessageContaining("BIGINT");
     }
 
     private JsonNode readJson(Object columnValue) {
