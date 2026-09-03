@@ -2027,6 +2027,69 @@ under `@SpringBootTest` — its context customizer injects
 
 ---
 
+---
+
+### DL-101 — Input's gate is the envelope, and the config that says so now refuses to start if changed
+
+**4 Sep 2026** · `ENGINEERING` · T-013, T-059, T-027 · ADR-007 §5, ADR-003 D9, DL-088
+
+**Decision.** `stats-input` gets its POST endpoint, and with it four things:
+
+1. **`EnvelopeGate` calls `StatsSchemaValidator.validateEnvelope()` and nothing else.**
+   A failure is a 400 with RFC 9457 Problem Details, and nothing is published (rule 7).
+   The per-type payload is not looked at.
+2. **`InputValidationProperties` binds `stats.input.validation.intended-scope` and the
+   application refuses to start on any value but `envelope`.** DL-100 renamed the key
+   and gave it a `NOT YET ENFORCED` banner; this is the enforcement it named.
+3. **The clock-skew check (Q14a, ADR-003 D9) is one-sided.** `ts.device` ahead of
+   `ts.server` beyond `stats.input.validation.max-clock-skew` is a 400 with the field
+   code `clock_skew_exceeded` at `/ts/device`, metered as
+   `records_clock_skew_rejected{type}`. A `ts.device` in the **past** is accepted, however
+   old.
+4. **`stats.input.endpoint.path` and `.success-status` are externalised**, defaulting to
+   the contract's draft `/stats` and `200`, with the status constrained in code to the
+   two values `heimdal-input-contract-v1.md` §2 admits.
+
+**Why the payload is not validated here.** This is the decision the whole module is
+shaped around, and it is counter-intuitive enough to be worth restating: **Heimdal
+retries only on a non-2xx.** A 400 issued because `data` disagreed with a per-type
+schema is therefore permanent data loss — the sender is told the record is bad and
+never sends it again. The same disagreement caught at the Writer is a dead-letter,
+which is redrivable once the schema is fixed. Production sends `lorastats` in three
+mutually incompatible dialects today, all carrying `version: 1`, so roughly two-thirds
+of `lorastats` depends on this asymmetry being right.
+
+`EnvelopeGateTest` asserts it directly: all four `invalid/lorastats-*.json` fixtures —
+including the two byte-faithful production records — are **accepted** by Input. If that
+assertion ever flips to expecting a 400, the module has started destroying records.
+
+**Why the scope property is a startup guard rather than a comment.** A property that
+only documents intent is one edit away from being wrong, and the edit that widens this
+gate looks like a tightening — "validate properly at the boundary" is the instinct of
+every reviewer who has not read ADR-007 §5. Failing at startup puts the argument in
+front of whoever makes that change, in a class that explains why.
+
+**Why the skew rule is one-sided.** Rejecting a future `ts.device` is forced: partition
+pre-creation is finite, so a gateway claiming 2038 either demands unbounded partitions
+or fails deep in the Writer where the caller can no longer be told. Rejecting an *old*
+`ts.device` would be the opposite of the design — retention keys on `ts.device`
+(STA-23B) precisely so an offline gateway's readings expire on when they were measured.
+A record from a gateway that was down for a month is the record operations most needs;
+what happens to it is the Writer's late-arrival policy (D5b), not a 400.
+
+**Not in this change.** Publishing. `StatsPublisher` is a port with a deliberate
+stand-in that always answers `NOT_CONFIRMED`, so a record that passes the gate is
+answered **503** and Heimdal retries. That is the honest state until T-014: rule 8
+allows a 2xx only after a real publisher confirm, and a module that publishes nothing
+must never claim success. The stand-in is `@ConditionalOnMissingBean`, so T-014 is
+additive.
+
+**Metrics added** (T-027, T-059): `records_accepted`, `records_validation_failed`,
+`records_clock_skew_rejected`, `records_converter_ts_present`, `records_publish_failed`
+— all labelled by type, with `unknown` for records whose type could not be read. An
+absent series and a zero series look identical on a dashboard, and a flood of
+unparseable bodies is exactly when the series has to exist.
+
 ## 12. What is deliberately still open
 
 Not decisions — the absence of them. Full status:

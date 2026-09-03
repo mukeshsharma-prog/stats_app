@@ -32,3 +32,12 @@ dependencies {
     testImplementation(libs.testcontainers.junit.jupiter)
     testImplementation(libs.testcontainers.rabbitmq)
 }
+
+// The gate tests run against the NORMATIVE fixtures in docs/schemas/fixtures, the
+// same files validate-fixtures.py gates in CI. Gradle puts them on the test
+// classpath rather than a second checked-in copy drifting from the Python gate.
+sourceSets {
+    test {
+        resources.srcDir(rootProject.file("docs/schemas/fixtures"))
+    }
+}
