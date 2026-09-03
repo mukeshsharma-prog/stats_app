@@ -6,7 +6,15 @@ import com.zenner.datahub.stats.common.model.StatType;
 public final class LorastatsConsumerDescriptor {
 
     public static final StatType TYPE = StatType.LORASTATS;
-    static final String PROPERTY_PREFIX = "stats.consumer.lorastats";
+
+    /**
+     * The same literal as {@link StatType#wireName()}, repeated as a compile-time
+     * constant because annotation attributes cannot call a method.
+     * {@code LorastatsConsumerDescriptorTest} asserts the two never diverge.
+     */
+    static final String WIRE_NAME = "lorastats";
+
+    static final String PROPERTY_PREFIX = "stats.consumer." + WIRE_NAME;
 
     private LorastatsConsumerDescriptor() {
         throw new AssertionError("Descriptor must not be instantiated");

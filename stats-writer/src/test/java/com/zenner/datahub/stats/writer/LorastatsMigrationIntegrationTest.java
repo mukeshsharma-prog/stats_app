@@ -25,7 +25,11 @@ import org.springframework.jdbc.core.JdbcTemplate;
         webEnvironment = SpringBootTest.WebEnvironment.NONE,
         properties = {
             "stats.writer.stat-type=netstats",
-            "stats.retention.schedule=-"
+            "stats.retention.schedule=-",
+            // These tests create and drop their own partitions on fixed far-future
+            // days. The startup pre-creation is exercised by
+            // PartitionBootstrapIntegrationTest, which leaves it on.
+            "stats.retention.pre-create-on-startup=false"
         })
 @Import(PostgresSupport.class)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
@@ -53,7 +57,7 @@ class LorastatsMigrationIntegrationTest {
     }
 
     @Test
-    void appliesAllMigrationsWithTheRequiredPartitionAndOnlyTheRequiredIndex() {
+    void appliesEveryMigrationWithTheRequiredPartitionKey() {
         assertThat(jdbcTemplate.queryForObject("SELECT to_regclass('lorastats')", String.class))
                 .isEqualTo("lorastats");
         assertThat(
@@ -65,16 +69,33 @@ class LorastatsMigrationIntegrationTest {
                 jdbcTemplate.queryForList(
                         "SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank",
                         String.class);
-        assertThat(versions).containsExactly("1", "2");
+        assertThat(versions).containsExactly("1", "2", "3", "4");
+    }
 
+    /**
+     * The index set ADR-003 "Required table and index direction" specifies, and
+     * nothing else.
+     *
+     * <p>V2 shipped {@code (ts_device DESC, uid DESC)}, which the planner never
+     * selects: {@code PRIMARY KEY (ts_device, uid)} already provides an equivalent
+     * btree and PostgreSQL answers a DESC/DESC ordering from it with a backward
+     * scan. V3 drops it and creates the two indexes ADR-003 actually requires — the
+     * covering index for the dominant tenant-scoped query (STA-21C) and the
+     * {@code (tenant, uid)} probe for the time-unbounded {@code uid} lookup. Both
+     * lead on {@code tenant}, because the tenant predicate is mandatory on every
+     * query (rule 3, STA-35).</p>
+     */
+    @Test
+    void carriesExactlyTheAdr003IndexDirection() {
         List<String> indexDefinitions =
                 jdbcTemplate.queryForList(
                         "SELECT indexdef FROM pg_indexes "
                                 + "WHERE schemaname = current_schema() AND tablename = 'lorastats' "
                                 + "ORDER BY indexname",
                         String.class);
+
         assertThat(indexDefinitions)
-                .hasSize(2)
+                .hasSize(3)
                 .anySatisfy(
                         index ->
                                 assertThat(index)
@@ -83,25 +104,64 @@ class LorastatsMigrationIntegrationTest {
                 .anySatisfy(
                         index ->
                                 assertThat(index)
-                                        .contains("idx_lorastats_tsdevice_uid")
-                                        .contains("(ts_device DESC, uid DESC)"));
-        assertThat(indexDefinitions)
-                .allSatisfy(
+                                        .contains("idx_lorastats_tenant_clsbox_device_uid")
+                                        .contains("(tenant, clsbox, ts_device DESC, uid DESC)"))
+                .anySatisfy(
                         index ->
                                 assertThat(index)
-                                        .doesNotContain("tenant")
-                                        .doesNotContain("clsbox")
-                                        .doesNotContain("record_version")
-                                        .doesNotContain("passthrough"));
+                                        .contains("idx_lorastats_tenant_uid")
+                                        .contains("(tenant, uid)"));
+
+        // The redundant V2 index must be gone, not merely outnumbered.
+        assertThat(indexDefinitions).noneSatisfy(
+                index -> assertThat(index).contains("idx_lorastats_tsdevice_uid"));
+    }
+
+    /**
+     * Both ADR-003 indexes are declared on the partitioned parent, so PostgreSQL
+     * propagates them to every partition. Asserting only the parent would pass while
+     * every child scanned sequentially.
+     */
+    @Test
+    void propagatesBothIndexesToEveryPartition() {
+        List<String> partitionIndexes =
+                jdbcTemplate.queryForList(
+                        "SELECT indexdef FROM pg_indexes "
+                                + "WHERE schemaname = current_schema() AND tablename = ?",
+                        String.class,
+                        TEST_PARTITION);
+
+        assertThat(partitionIndexes)
+                .hasSize(3)
+                .anySatisfy(index -> assertThat(index).contains("(tenant, clsbox, ts_device DESC, uid DESC)"))
+                .anySatisfy(index -> assertThat(index).contains("(tenant, uid)"))
+                .anySatisfy(index -> assertThat(index).contains("(ts_device, uid)"));
+    }
+
+    /**
+     * D14b: unknown {@code data} members are preserved rather than dropped. Nullable,
+     * so the column costs one null-bitmap bit on the overwhelming majority of rows
+     * that carry no unmapped member — it does not reintroduce the per-row key-name
+     * overhead ADR-003 D2 rejected.
+     */
+    @Test
+    void preservesUnknownDataMembersInANullableJsonbColumn() {
         assertThat(
                         jdbcTemplate.queryForObject(
-                                "SELECT count(*) FROM pg_indexes "
+                                "SELECT data_type || ':' || is_nullable "
+                                        + "FROM information_schema.columns "
+                                        + "WHERE table_schema = current_schema() "
+                                        + "AND table_name = 'lorastats' "
+                                        + "AND column_name = 'data_extra'",
+                                String.class))
+                .isEqualTo("jsonb:YES");
+        assertThat(
+                        jdbcTemplate.queryForList(
+                                "SELECT indexdef FROM pg_indexes "
                                         + "WHERE schemaname = current_schema() "
-                                        + "AND tablename = 'lorastats' "
-                                        + "AND indexname IN ("
-                                        + "'idx_lorastats_tenant_clsbox_device_uid', 'idx_lorastats_tenant_uid')",
-                                Integer.class))
-                .isZero();
+                                        + "AND tablename = 'lorastats'",
+                                String.class))
+                .noneSatisfy(index -> assertThat(index).contains("data_extra"));
     }
 
     @Test

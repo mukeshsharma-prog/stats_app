@@ -23,6 +23,9 @@ public class PartitionPrecreator {
             "SELECT pg_try_advisory_lock(hashtext('stats.retention:' || ?))";
     private static final String UNLOCK_SQL =
             "SELECT pg_advisory_unlock(hashtext('stats.retention:' || ?))";
+    private static final String PARENT_EXISTS_SQL =
+            "SELECT COALESCE((SELECT relkind = 'p' FROM pg_class "
+                    + "WHERE oid = to_regclass(?)), false)";
     private static final DateTimeFormatter PARTITION_DATE =
             DateTimeFormatter.ofPattern("uuuu_MM_dd");
 
@@ -40,21 +43,34 @@ public class PartitionPrecreator {
     public List<StatType> existingParentTypes() {
         List<StatType> existing = new ArrayList<>();
         try (Connection connection = dataSource.getConnection();
-                PreparedStatement statement =
-                        connection.prepareStatement(
-                                "SELECT COALESCE((SELECT relkind = 'p' FROM pg_class "
-                                        + "WHERE oid = to_regclass(?)), false)")) {
+                PreparedStatement statement = connection.prepareStatement(PARENT_EXISTS_SQL)) {
             for (StatType type : StatType.values()) {
-                statement.setString(1, type.wireName());
-                try (ResultSet result = statement.executeQuery()) {
-                    if (result.next() && result.getBoolean(1)) {
-                        existing.add(type);
-                    }
+                if (parentTableExists(statement, type)) {
+                    existing.add(type);
                 }
             }
             return List.copyOf(existing);
         } catch (SQLException exception) {
             throw maintenanceFailure("discover partitioned parent tables", exception);
+        }
+    }
+
+    /** Whether {@code type}'s partitioned parent table has been migrated into existence. */
+    public boolean parentTableExists(StatType type) {
+        Objects.requireNonNull(type, "type");
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement statement = connection.prepareStatement(PARENT_EXISTS_SQL)) {
+            return parentTableExists(statement, type);
+        } catch (SQLException exception) {
+            throw maintenanceFailure("check the parent table for " + type.wireName(), exception);
+        }
+    }
+
+    private static boolean parentTableExists(PreparedStatement statement, StatType type)
+            throws SQLException {
+        statement.setString(1, type.wireName());
+        try (ResultSet result = statement.executeQuery()) {
+            return result.next() && result.getBoolean(1);
         }
     }
 
@@ -94,8 +110,23 @@ public class PartitionPrecreator {
                 return PartitionPrecreationResult.lockNotAcquired();
             }
 
+            // Everything after the lock is acquired runs inside this try, so no path
+            // can return the connection to the pool still holding the lock. A
+            // session-level advisory lock outlives the borrow -- the pool keeps the
+            // session open -- so a leak here blocks this stat type's maintenance on
+            // every replica until that physical connection is evicted.
+            String previousTimeZone = null;
             try {
-                setUtcTimezone(connection);
+                // The bound comparison below reads pg_get_expr, which renders
+                // timestamptz in the SESSION time zone. Under any non-UTC session an
+                // existing, correct partition renders as a different literal and is
+                // reported as having wrong bounds -- so this is load-bearing, not
+                // cosmetic. It is restored before the connection goes back to the
+                // pool: a pooled connection carrying a mutated session zone is a
+                // defect for whoever borrows it next, and HikariCP does not reset it.
+                previousTimeZone = currentTimeZone(connection);
+                setTimeZone(connection, "UTC");
+
                 List<LocalDate> days = new ArrayList<>(preCreateDays + 1);
                 for (int offset = 0; offset <= preCreateDays; offset++) {
                     days.add(firstDay.plusDays(offset));
@@ -115,9 +146,19 @@ public class PartitionPrecreator {
                     }
                     ensured++;
                 }
+                releaseSession(connection, type, previousTimeZone);
                 return PartitionPrecreationResult.completed(ensured);
-            } finally {
-                unlock(connection, type);
+            } catch (RuntimeException | SQLException failure) {
+                // Cleanup is best-effort ONCE we are already failing. Letting it throw
+                // from a finally block would REPLACE the DDL failure with a
+                // lock-bookkeeping message, and ADR-003 D1 requires this failure to be
+                // loud and diagnosable -- it stops ingestion for a whole stat type.
+                try {
+                    releaseSession(connection, type, previousTimeZone);
+                } catch (SQLException cleanupFailure) {
+                    failure.addSuppressed(cleanupFailure);
+                }
+                throw failure;
             }
         } catch (SQLException exception) {
             throw maintenanceFailure("pre-create partitions for " + type.wireName(), exception);
@@ -145,9 +186,34 @@ public class PartitionPrecreator {
         }
     }
 
-    private static void setUtcTimezone(Connection connection) throws SQLException {
-        try (Statement statement = connection.createStatement()) {
-            statement.execute("SET TIME ZONE 'UTC'");
+    /**
+     * Restores the borrowed connection's session state and drops the advisory lock, in
+     * that order, so nothing is left behind for the next borrower.
+     */
+    private static void releaseSession(Connection connection, StatType type, String timeZone)
+            throws SQLException {
+        // null means we failed before reading the original zone, so there is nothing
+        // to restore -- but the lock still has to go.
+        if (timeZone != null) {
+            setTimeZone(connection, timeZone);
+        }
+        unlock(connection, type);
+    }
+
+    private static String currentTimeZone(Connection connection) throws SQLException {
+        try (Statement statement = connection.createStatement();
+                ResultSet result = statement.executeQuery("SHOW TimeZone")) {
+            return result.next() ? result.getString(1) : "UTC";
+        }
+    }
+
+    private static void setTimeZone(Connection connection, String timeZone) throws SQLException {
+        // set_config takes the value as a parameter, so the zone name is never
+        // concatenated into SQL.
+        try (PreparedStatement statement =
+                connection.prepareStatement("SELECT set_config('TimeZone', ?, false)")) {
+            statement.setString(1, timeZone);
+            statement.execute();
         }
     }
 

@@ -23,7 +23,11 @@ import org.testcontainers.containers.RabbitMQContainer;
         webEnvironment = SpringBootTest.WebEnvironment.NONE,
         properties = {
             "stats.writer.stat-type=netstats",
-            "stats.retention.schedule=-"
+            "stats.retention.schedule=-",
+            // These tests create and drop their own partitions on fixed far-future
+            // days. The startup pre-creation is exercised by
+            // PartitionBootstrapIntegrationTest, which leaves it on.
+            "stats.retention.pre-create-on-startup=false"
         })
 @Import({PostgresSupport.class, RabbitSupport.class})
 class SharedInfrastructureServiceConnectionTest {

@@ -22,7 +22,7 @@ class LorastatsConsumerTest {
         StatsMessageProcessor processor = mock(StatsMessageProcessor.class);
         StatsMessageProcessorAvailability availability =
                 mock(StatsMessageProcessorAvailability.class);
-        when(availability.requiredProcessor()).thenReturn(processor);
+        when(availability.requiredProcessor(StatType.LORASTATS)).thenReturn(processor);
         Channel channel = mock(Channel.class);
         Message message = delivery(42L);
         LorastatsConsumer consumer = new LorastatsConsumer(availability);
@@ -40,7 +40,7 @@ class LorastatsConsumerTest {
         StatsMessageProcessor processor = mock(StatsMessageProcessor.class);
         StatsMessageProcessorAvailability availability =
                 mock(StatsMessageProcessorAvailability.class);
-        when(availability.requiredProcessor()).thenReturn(processor);
+        when(availability.requiredProcessor(StatType.LORASTATS)).thenReturn(processor);
         Channel channel = mock(Channel.class);
         Message message = delivery(73L);
         IllegalStateException failure = new IllegalStateException("database transaction failed");
