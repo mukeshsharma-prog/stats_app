@@ -19,6 +19,8 @@ dependencies {
 
     implementation(libs.spring.boot.starter.amqp)
     implementation(libs.spring.boot.starter.jdbc)
+    // LorastatsMessageProcessor deserializes the production envelope with Jackson.
+    implementation(libs.spring.boot.starter.json)
     implementation(libs.spring.boot.starter.actuator)
     // LorastatsConsumerProperties is validated at startup so invalid concurrency
     // or prefetch values fail before a listener connects to RabbitMQ.
