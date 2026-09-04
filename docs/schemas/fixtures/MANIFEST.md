@@ -1,16 +1,19 @@
 # Fixture catalogue
 
 Built 18 August 2026 in answer to Q11a. **Rebuilt on the production wire format 29 August 2026
-(ADR-007).** 75 fixture files — 73 individual fixtures plus the two combined bundles
+(ADR-007).** 76 fixture files — 74 individual fixtures plus the two combined bundles
 (`valid/approved-types.json` and `invalid/validation-failures.json`), which are kept so nothing that
 already references them breaks.
 
-Run `python3 ../validate-fixtures.py` from `docs/schemas/` to assert the whole set. It checks 87
+Run `python3 ../validate-fixtures.py` from `docs/schemas/` to assert the whole set. It checks 88
 assertions and exits non-zero on any mismatch, so CI can gate on it.
 
-Those 87 are **80 schema cases plus 7 `$expect` markers** — 5 `input-reject` and 2 `writer-dlq`.
-The Java parity test (`SchemaFixtureParityTest`) mirrors the 80 schema cases only, so the two
+Those 88 are **81 schema cases plus 7 `$expect` markers** — 5 `input-reject` and 2 `writer-dlq`.
+The Java parity test (`SchemaFixtureParityTest`) mirrors the 81 schema cases only, so the two
 numbers differing is correct and deliberate — do not "fix" one to match the other.
+
+**+1 on 5 September 2026:** `valid/lorastats-clsbox-lowercase.json` (DL-115). Every `clsbox` in
+this set was uppercase, so nothing here could catch a device splitting across two index keys.
 
 ## What changed on 29 August 2026
 
@@ -63,7 +66,8 @@ unrecoverable data loss where a dead-letter is a redrive.
 | `netstats-no-apipa.json` | `apipa` is optional — ZC's own sample omits it on `wwan` |
 | `netstats-extra-interface.json` | A third interface (`eth1`) is accepted without a schema change (STA-14A) |
 | `omsstats-ts-converter-present.json` | The full production `ts` block — `server`, `device`, `datastore`, `converter`, `expiresOn` — plus `version` and `status`, all accepted. **Moved from `invalid/` on 29 Aug 2026** |
-| `lorastats-production-canonical.json` | Real production record. The canonical dialect: bare names, integer values, with `fsk_received`, `rx_short_pkt`, `timespan` |
+| `lorastats-production-canonical.json` | Real production record. The first dialect encoded: bare names, integer values, with `fsk_received`, `rx_short_pkt`, `timespan` |
+| `lorastats-clsbox-lowercase.json` | The same device as the record above (`04B64810652B`) written lowercase. **Schema-valid on purpose** — the envelope is `^[0-9A-Fa-f]{12}$` and stays that way, so a real measurement is never rejected over hex case. The Writer uppercases and a `CHECK` enforces it, so both spellings share one key in `(tenant, clsbox, …)` (DL-115) |
 | `ltestats-production.json` | Real production record. Every numeric a **string**, and `access_Technology` with a capital T |
 | `sysstats-production-minimal.json` | Real production record from a gateway with no temperature sensor — `temp`, `rtt`, `wan_if`, `rebootcause`, `timespan` all absent |
 | `sysstats-production-full.json` | Real production record carrying every optional field, with `timespan` as the **string** `"300"` |
@@ -81,8 +85,8 @@ envelope and must **not** be 400'd.
 
 | File | Proves |
 |---|---|
-| `lorastats-dialect-prefixed.json` | **`$expect: writer-dlq`.** Real production record using `lora_`-prefixed counters. Passes the envelope → Input returns 200 and publishes; fails the payload schema → the Writer dead-letters it (ADR-007 §4). Carries `version: 1`, same as the canonical dialect |
-| `lorastats-dialect-string-values.json` | **`$expect: writer-dlq`.** Real production record with string-valued counters (`"176"`) and `rx_type_arol`. Same two-gate behaviour |
+| `lorastats-dialect-prefixed.json` | **`$expect: writer-dlq`, pending T-063.** Real production record using `lora_`-prefixed counters. Passes the envelope → Input returns 200 and publishes; fails the payload schema → the Writer dead-letters it **today**. DL-105 accepts this dialect; when T-063 lands it moves to `valid/` and the marker goes. Carries `version: 1`, same as the canonical dialect — nothing on the record discriminates them |
+| `lorastats-dialect-string-values.json` | **`$expect: writer-dlq`, pending T-063.** Real production record with string-valued counters (`"176"`) and `rx_type_arol`. Same two-gate behaviour, and the same DL-105 destination. Coercion is range-checked against the signed `BIGINT` maximum **before** conversion |
 | `<type>-missing-required.json` | A mandatory payload field is absent → `missing` |
 | `<type>-wrong-type.json` | Right field, wrong JSON type → `invalid_type`. The response must not echo the offending value |
 | `envelope-missing-tenant.json` | `tenant` is never defaulted; its absence is a hard 400 |

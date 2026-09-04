@@ -2681,3 +2681,93 @@ either, which DL-104 answered — though DL-104 defers sizing down until T-050's
 confirms the jitter. D-12 keeps five questions for security plus two items re-owned to
 platform, and engineering's remaining obligation is to honour what it just adopted.
 
+
+---
+
+### DL-115 — `clsbox` is stored in one canonical case, by normalisation and not by rejection
+
+**5 Sep 2026** · `ENGINEERING` · ARD §7.1, Q14, STA-21C, ADR-003, ADR-007 §1 · T-011, T-022, T-040
+
+**Decision.** Four parts, and the split between them is the decision:
+
+1. **The Writer uppercases `clsbox` before the `INSERT`** (`LorastatsBatchWriter`,
+   `Locale.ROOT`).
+2. **V5 adds `CHECK (clsbox ~ '^[0-9A-F]{12}$')`** as the backstop, so the invariant
+   belongs to the table rather than to one class. ADR-003's *Required table and index
+   direction* carries it, and **every new stat-type table must** — like `data_extra`.
+3. **The envelope schema keeps `^[0-9A-Fa-f]{12}$`.** A lowercase record is never
+   400'd and never dead-lettered.
+4. **The API filter is `clsbox = upper(:clsbox)`**, never `upper(clsbox) = …`.
+
+**Why.** The ARD specified `gateway CHAR(12) NOT NULL CHECK (gateway ~ '^[0-9A-F]{12}$')`.
+V1 renamed the column to `clsbox` under ADR-007 §1 and dropped the constraint; nothing
+replaced the guarantee. So `04b64810652b` and `04B64810652B` — one physical device —
+were two distinct keys in `idx_lorastats_tenant_clsbox_device_uid`.
+
+That is the quiet kind of wrong. `clsbox` is half the dominant query pattern (Q14), and
+`openapi.yaml` promises the filter matches case-insensitively. A mixed-case estate
+therefore returns a **silently partial page**: rows stored, query well-formed, response
+200, and the missing rows indistinguishable from a device that reported nothing. It is
+the twelfth entry in the same family as the `tenant`/`maintenant` trap — a filter that
+is *almost* right returns *almost* the data, and nothing anywhere raises.
+
+No test could have caught it. Every `clsbox` in `docs/schemas/fixtures/` was uppercase
+until `valid/lorastats-clsbox-lowercase.json` was added with this change.
+
+**Why normalise rather than reject.** Enforcing the ARD's CHECK *without* normalising
+would dead-letter a valid measurement over hex case — the same mistake `netstats` made
+by requiring `ip`/`gw`/`mask`/`dns` on a modem that never came up, and the one DL-105
+has just finished reversing for the `lorastats` dialects. Rejecting at Input would be
+worse still: Heimdal retries only on a non-2xx, so a 400 would loop forever on a record
+that can never satisfy it.
+
+**Why not a functional index.** `(tenant, upper(clsbox), ts_device DESC, uid DESC)`
+would preserve the received bytes exactly. It was rejected: it changes the index shape
+ADR-003 specifies, and every future per-type table would have to repeat the functional
+form or silently lose the index — reopening this defect one type at a time.
+
+**What is given up.** The as-received case. Hex case carries no meaning, so nothing a
+reader can use is lost, but it is still a normalisation: the exact bytes are recoverable
+only from the published message, not from the row. ADR-004's byte-identical publication
+is untouched — Input republishes the received bytes and never reads this column.
+
+**Consequence.** `LorastatsBatchWriterIntegrationTest` asserts both spellings answer one
+exact-match lookup on the covering index, and that the table refuses a non-canonical
+value when the Writer is bypassed. T-040 must use `clsbox = upper(:clsbox)`; a predicate
+of the form `upper(clsbox) = …` seq-scans every live partition and is a review failure.
+
+---
+
+### DL-116 — The 4 September reconciliation is finished in the files that are not Markdown
+
+**5 Sep 2026** · `HOUSEKEEPING` · DL-105, DL-106, DL-108, DL-112 · T-060, T-063, T-064, T-026
+
+**Decision.** Seven artifacts still stated the **reversed** ADR-007 §4 as current policy,
+eight working days after DL-105 reversed it. All are now corrected:
+`stats-writer/.../application.properties`, `.env.example`, `docs/schemas/lorastats-v1.schema.json`,
+`docs/schemas/SCHEMA_CATALOGUE.md`, `docs/schemas/fixtures/MANIFEST.md`,
+`valid/lorastats-production-canonical.json`, and `docs/contracts/openapi.yaml`.
+`envelope-v1.schema.json` additionally still carried Q15b as an open question (DL-106
+answered it) and described `status` as never interpreted (DL-108 meters it).
+
+**`stats.writer.dlq.alert-depth.lorastats` and `STATS_DLQ_ALERT_DEPTH_LORASTATS` are
+deleted.** Both existed only to hold a threshold for a permanently non-empty `lorastats`
+DLQ, which DL-105 removes. A uniform `alert-depth.default=0` is correct again.
+
+**Why.** Commit `874ef77` reconciled `claude/*.md` and the ADRs and stopped there, so the
+correction landed everywhere except the files an engineer actually opens while working —
+a live properties file, the normative schema catalogue, and the API contract. A decision
+that is right in the decision log and wrong in the config is worse than one that is
+merely undocumented: the config reads as current and gets believed.
+
+**The distinction every edit preserves.** DL-105 changed the **decision**; T-063 changes
+the **behaviour**, and it is not built. Today only the bare/integer dialect validates and
+the other two still dead-letter. Every corrected passage says so explicitly rather than
+describing the end state as though it had arrived — the failure mode in the other
+direction, and the one DL-100 was written about. The two `invalid/lorastats-dialect-*.json`
+fixtures already had this exactly right; the wording follows them.
+
+**Consequence.** A grep for `dead-letter by design`, `most urgent question for ZC`, or
+`BLOCKED on D5b` returns nothing outside the dated historical documents
+(`claude/OUTBOX_03SEP2026.md`, the ADR narratives that record *why* Q15a was escalated),
+where the past tense is correct and must stay.

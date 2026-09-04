@@ -16,6 +16,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
 import org.slf4j.Logger;
@@ -211,7 +212,16 @@ public final class LorastatsBatchWriter implements StatsBatchWriter {
                 .addValue("uid", requiredText(record.uid(), "uid"))
                 .addValue("tenant", requiredText(record.tenant(), "tenant"))
                 .addValue("maintenant", requiredText(record.maintenant(), "maintenant"))
-                .addValue("clsbox", requiredText(record.clsbox(), "clsbox"))
+                // Uppercased to ONE canonical form before it reaches the index
+                // (DL-115). The wire admits either case; storing either case splits
+                // one device across two keys in
+                // idx_lorastats_tenant_clsbox_device_uid, and the API's
+                // case-insensitive clsbox filter then returns a silently partial
+                // page. Locale.ROOT because the Turkish locale maps 'i' outside
+                // A-F and would fail the V5 CHECK on a host nobody tested on.
+                .addValue(
+                        "clsbox",
+                        requiredText(record.clsbox(), "clsbox").toUpperCase(Locale.ROOT))
                 .addValue("ts_server", timestamp(ts.server(), "ts.server"))
                 .addValue("ts_device", timestamp(ts.device(), "ts.device"))
                 // Heimdal's version, stored as received. ADR-007 §4: NEVER a payload

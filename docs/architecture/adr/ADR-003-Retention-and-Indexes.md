@@ -297,7 +297,7 @@ minutes is a starting value to be tuned against measurement, never hard-coded.
 is no `$data` in the draft. So it is a code-level check in Input, and the five
 `edge/<type>-clock-skew-future.json` fixtures stay **schema-valid**. They now carry an
 explicit `$expect: "input-reject"` marker with an `$expectCode`, asserted by
-`docs/schemas/validate-fixtures.py` — which is why the CI gate reports **87 assertions**
+`docs/schemas/validate-fixtures.py` — which is why the CI gate reports **88 assertions**
 where the Java parity test expands to **80 schema cases**. That gap is deliberate: the
 Java test mirrors the schema oracle only, and the marker is not a schema case. The
 Input-side 400 is asserted by T-013. The point is that the expectation is now **stated**
@@ -425,7 +425,14 @@ CREATE TABLE lorastats (
     uid            text        NOT NULL,
     tenant         text        NOT NULL,
     maintenant     text        NOT NULL,
-    clsbox         text        NOT NULL,
+    -- Stored in ONE canonical case. The wire admits either (the envelope schema is
+    -- ^[0-9A-Fa-f]{12}$ and stays that way, so a lowercase record is never rejected),
+    -- but the Writer uppercases before the INSERT and this CHECK enforces it. Without
+    -- it one device becomes two keys in the covering index below and the API's
+    -- case-insensitive clsbox filter returns a silently partial page (DL-115).
+    clsbox         text        NOT NULL
+                   CONSTRAINT lorastats_clsbox_canonical_hex
+                   CHECK (clsbox ~ '^[0-9A-F]{12}$'),
     ts_server      timestamptz NOT NULL,
     ts_device      timestamptz NOT NULL,
     received_at    timestamptz NOT NULL DEFAULT now(),
@@ -464,6 +471,11 @@ CREATE INDEX idx_lorastats_tenant_uid ON lorastats (tenant, uid);
 CREATE TABLE lorastats_2026_08_16 PARTITION OF lorastats
     FOR VALUES FROM ('2026-08-16') TO ('2026-08-17');
 ```
+
+**Every stat-type table carries the `clsbox` CHECK and `data_extra`.** Both are
+invariants of the shape, not of one writer: omitting the CHECK reopens the split
+index key (DL-115) and omitting `data_extra` reopens the silent drop (D14b). Neither
+failure raises an error, so neither is caught by the type's own tests.
 
 `record_version`, `passthrough` and `data_extra` are nullable on purpose: every fixture written
 before 29 Aug 2026 omits them, and a `NOT NULL` here would make the pre-ADR-007

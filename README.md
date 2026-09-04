@@ -9,7 +9,7 @@ progress. Requirements and architecture are settled and ADRs 001–007 are appro
 or accepted. The Gradle multi-project builds: five modules (`stats-common`,
 `stats-testsupport` and the three applications), three deployable images, a Docker
 Compose stack with PostgreSQL 17, RabbitMQ and Keycloak, and 75 schema fixture
-files gated by `docs/schemas/validate-fixtures.py` at 87 assertions.
+files gated by `docs/schemas/validate-fixtures.py` at 88 assertions.
 
 `stats-writer` persists `lorastats` idempotently and `stats-input` validates the
 envelope, but **no record has yet travelled the whole path**: Input cannot publish

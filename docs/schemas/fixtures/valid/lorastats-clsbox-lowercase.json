@@ -1,0 +1,27 @@
+{
+  "uid": "CLSCON-5c1f0a77-9d3e-42b8-a0c4-7e1b55d90f13",
+  "tenant": "tenant-alpha",
+  "maintenant": "management-parent",
+  "clsbox": "04b64810652b",
+  "type": "lorastats",
+  "ts": {
+    "server": 1787054120,
+    "device": 1787054100
+  },
+  "data": {
+    "rx_nr_pkts": 1487,
+    "rx_crc_missing": 12,
+    "rx_crc_bad": 31,
+    "tx_success": 903,
+    "tx_failed": 4,
+    "tx_peek": 17,
+    "tx_peek_index_zero": 2,
+    "tx_override": 0,
+    "tx_busy": 6,
+    "tx_dequeue_error": 0,
+    "tx_type_beacon": 288,
+    "chip_comm_error": 0,
+    "util_fopen_failed": 0
+  },
+  "$comment": "A LOWERCASE clsbox, and the same device as valid/lorastats-production-canonical.json (04B64810652B) written the other way. VALID on purpose: envelope-v1.schema.json is ^[0-9A-Fa-f]{12}$ and stays that way, because 400-ing a real measurement over hex case would be the netstats ip/gw/mask/dns mistake again (claude/CLAUDE.md §6). What this fixture guards is what happens NEXT: the Writer uppercases clsbox before the INSERT and V5's CHECK enforces it, so both spellings land on ONE key in idx_lorastats_tenant_clsbox_device_uid (DL-115). Before that change every clsbox in this directory was uppercase, so nothing here could catch the split key -- and the symptom is a silently partial 200 from the clsbox filter, not an error."
+}

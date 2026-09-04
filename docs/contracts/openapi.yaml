@@ -306,6 +306,12 @@ components:
         Exact-match filter on the reporting gateway: 12 hexadecimal characters,
         matched case-insensitively. There is no prefix or wildcard form.
 
+        Case-insensitivity is delivered by normalisation, not by the predicate:
+        `clsbox` is stored uppercase (the Writer uppercases it, and a CHECK
+        constraint enforces it — DL-115), so the filter is `clsbox = upper(:clsbox)`
+        and still uses the covering index. A predicate of the form
+        `upper(clsbox) = ...` would not, and would seq-scan every live partition.
+
         Supplying it widens the permitted query window — see `query_window_exceeded`
         — because `(tenant, clsbox, ts_device DESC, uid DESC)` is the covering
         index and a clsbox-scoped scan is bounded in a way an open one is not.
@@ -573,6 +579,12 @@ components:
             The reporting device identifier, 12 hexadecimal characters. Named
             `clsbox` on the wire, in the database column, and here — the SRS called
             it `gateway`, a name no production record has ever used (ADR-007 §1).
+
+            **Always returned uppercase**, whatever case the record arrived in. The
+            wire accepts either (`^[0-9A-Fa-f]{12}$`) so a lowercase record is never
+            rejected, but one device must not become two index keys (DL-115). The
+            pattern here stays permissive so a client that echoes this value back
+            into the `clsbox` filter cannot be broken by the normalisation.
         type:
           $ref: '#/components/schemas/StatType'
         version:
@@ -678,13 +690,21 @@ components:
         would wrap silently on a long-lived gateway and corrupt the value with no
         error anywhere.
 
-        **This schema encodes ONE of three dialects production actually sends**
-        (ADR-007 §4): bare field names with integer values. The other two — bare names
-        with string values (`"176"`), and `lora_`-prefixed names (`lora_rx_nr_pkts`) —
-        are dead-lettered by the Writer rather than absorbed into a permissive union,
-        so the disagreement stays visible. All three carry `version: 1`, so nothing on
-        the record discriminates them. This is an assumption pending ZC's answer, not
-        a settled contract.
+        Production sends `lorastats` in **three** incompatible dialects: bare field
+        names with integer values, bare names with string values (`"176"`), and
+        `lora_`-prefixed names (`lora_rx_nr_pkts`). All three carry `version: 1`, so
+        nothing on the record discriminates them — detection is structural, and
+        `version` is never the discriminator.
+
+        **All three are accepted and normalised to this one shape** (DL-105, 4 Sep
+        2026, reversing ADR-007 §4), so a reader of this API never sees a dialect.
+        The enumeration is closed at three; an unknown fourth is dead-lettered rather
+        than guessed at. String counters are range-checked against the signed 64-bit
+        maximum before conversion and dead-letter on overflow.
+
+        Ingestion of the second and third dialects is **not built yet** (T-063); until
+        it lands they dead-letter. That affects what reaches this API today, not the
+        shape returned.
       required:
         [rx_nr_pkts, rx_crc_missing, rx_crc_bad, tx_success, tx_failed, tx_peek,
          tx_peek_index_zero, tx_override, tx_busy, tx_dequeue_error, tx_type_beacon,

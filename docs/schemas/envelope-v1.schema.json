@@ -44,7 +44,7 @@
     "status": {
       "type": "array",
       "items": { "type": "string" },
-      "$comment": "Production sends [\"conversion ok\"]. Accepted and stored verbatim; the Stats App does not interpret it. It is a Heimdal converter annotation, not a Stats App state."
+      "$comment": "Production sends [\"conversion ok\"]. Accepted and stored verbatim. Q15d (DL-108, 4 Sep 2026): it CAN report a failed conversion, so anything other than exactly [\"conversion ok\"] increments records_upstream_status_not_ok{type} and logs at WARN - the one passthrough member that is READ. It is never branched on and never dead-lettered: the record is valid and a redrive would repeat forever. The comparison is value-agnostic on purpose, because the vocabulary of non-OK values is not known. Metering lands with T-064."
     },
     "ts": {
       "type": "object",
@@ -59,7 +59,7 @@
         },
         "device": {
           "$ref": "#/$defs/epochSeconds",
-          "$comment": "Unix epoch SECONDS. Retention keys on this field, not on ts.server (STA-23B). In the 29 Aug 2026 production sample ts.device equals ts.server in 14 of 15 records - see the open question in ADR-007 §6 about whether this clock is genuinely device-assigned."
+          "$comment": "Unix epoch SECONDS. Retention keys on this field, not on ts.server (STA-23B). ANSWERED 4 Sep 2026 (Q15b, DL-106): this clock is GENUINELY DEVICE-ASSIGNED, stamped when the device records. ts.device equalled ts.server in 14 of 15 records of the 29 Aug sample only because all fifteen came from healthy gateways sending immediately - a sample of the healthy path is not evidence about the unhealthy one. So retention on this field is retention on MEASUREMENT time, and an offline gateway really does deliver records already part-way through their window (STA-23B)."
         },
         "datastore": {
           "$ref": "#/$defs/epochSeconds",

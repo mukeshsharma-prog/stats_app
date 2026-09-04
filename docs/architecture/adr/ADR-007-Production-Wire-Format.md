@@ -275,7 +275,7 @@ required-field corrections of §6. The Verification figures below are as at
 ## Verification
 
 ```
-docs/schemas/validate-fixtures.py    87 assertions checked, 0 failed
+docs/schemas/validate-fixtures.py    88 assertions checked, 0 failed
 ./gradlew build                      195 tests, 0 failures
 ```
 

@@ -1,6 +1,7 @@
 package com.zenner.datahub.stats.writer.persistence;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -424,6 +425,69 @@ class LorastatsBatchWriterIntegrationTest {
                 .hasMessageContaining("BIGINT");
     }
 
+    /**
+     * DL-115. Both spellings of one device must land on ONE key in
+     * {@code idx_lorastats_tenant_clsbox_device_uid}.
+     *
+     * <p>The failure this guards is not an error. Stored as received, {@code 04b6…}
+     * and {@code 04B6…} are two distinct index keys, so the API's case-insensitive
+     * {@code clsbox} filter — half of the dominant query pattern (Q14) — answers 200
+     * with a silently partial page, and the missing rows are indistinguishable from a
+     * device that reported nothing. Asserting on the equality predicate rather than on
+     * the column alone is deliberate: it is the predicate that would have been wrong.
+     */
+    @Test
+    void storesOneCanonicalClsboxCaseSoTheDeviceCannotSplitAcrossTwoKeys() {
+        writer.write(
+                List.of(
+                        envelope("clsbox-upper", "tenant-a", "04B64810652B", completeData(20)),
+                        envelope("clsbox-lower", "tenant-a", "04b64810652b", completeData(21))));
+
+        assertThat(
+                        jdbc.queryForList(
+                                "SELECT clsbox FROM lorastats WHERE uid IN (?, ?)",
+                                String.class,
+                                "clsbox-upper",
+                                "clsbox-lower"))
+                .containsExactly("04B64810652B", "04B64810652B");
+
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT count(*) FROM lorastats WHERE tenant = ? AND clsbox = ?",
+                                Long.class,
+                                "tenant-a",
+                                "04B64810652B"))
+                .as("both spellings answer one exact-match lookup on the covering index")
+                .isEqualTo(2L);
+    }
+
+    /**
+     * The V5 CHECK is the backstop behind the Writer's normalisation, not a duplicate
+     * of it: the next stat type's writer cannot omit the uppercasing and have it pass
+     * unnoticed. Written against the table directly because no application path can
+     * reach it any more.
+     */
+    @Test
+    void theTableRefusesANonCanonicalClsboxEvenWhenTheWriterIsBypassed() {
+        assertThatThrownBy(
+                        () ->
+                                jdbc.update(
+                                        "INSERT INTO lorastats (uid, tenant, maintenant, clsbox,"
+                                            + " ts_server, ts_device, schema_version, rx_nr_pkts,"
+                                            + " rx_crc_missing, rx_crc_bad, tx_success, tx_failed,"
+                                            + " tx_peek, tx_peek_index_zero, tx_override, tx_busy,"
+                                            + " tx_dequeue_error, tx_type_beacon, chip_comm_error,"
+                                            + " util_fopen_failed) VALUES (?, ?, ?, ?, ?, ?, 1, 0,"
+                                            + " 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)",
+                                        "clsbox-check",
+                                        "tenant-a",
+                                        "management-parent",
+                                        "04b64810652b",
+                                        Timestamp.from(DEVICE_TIME),
+                                        Timestamp.from(DEVICE_TIME)))
+                .hasMessageContaining("lorastats_clsbox_canonical_hex");
+    }
+
     private JsonNode readJson(Object columnValue) {
         assertThat(columnValue).isNotNull();
         try {
@@ -434,11 +498,15 @@ class LorastatsBatchWriterIntegrationTest {
     }
 
     private StatsEnvelope envelope(String uid, String tenant, ObjectNode data) {
+        return envelope(uid, tenant, "A1B2C3D4E5F6", data);
+    }
+
+    private StatsEnvelope envelope(String uid, String tenant, String clsbox, ObjectNode data) {
         return new StatsEnvelope(
                 uid,
                 tenant,
                 "management-parent",
-                "A1B2C3D4E5F6",
+                clsbox,
                 StatType.LORASTATS,
                 1,
                 new Timestamps(DEVICE_TIME, DEVICE_TIME, null, null, null),
