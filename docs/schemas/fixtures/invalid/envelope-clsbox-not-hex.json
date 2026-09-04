@@ -17,5 +17,5 @@
     "load15": 0.38,
     "runable": "2/139"
   },
-  "$comment": "gateway contains a non-hex character. Expect 400."
+  "$comment": "clsbox contains a non-hex character. ENVELOPE failure: 400 at Input and nothing published (ADR-007 \u00a75). The field is clsbox on the wire, in the schema, in Java and in the column -- 'gateway' is the SRS v1.0 name and production has never used it (ADR-007 \u00a71)."
 }

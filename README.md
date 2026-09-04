@@ -4,12 +4,18 @@ A **Datahub Core** add-on at Zenner. It receives statistics pushed from the
 **Heimdal Core**, buffers them through RabbitMQ, persists them per statistics type
 in **PostgreSQL**, and exposes them through a read-only, tenant-scoped REST API.
 
-**Status:** Phase 1 — foundation. Requirements and architecture are settled and
-ADRs 001–006 are approved or accepted. The Gradle multi-project builds: four
-modules, three deployable images, a Docker Compose stack with PostgreSQL 17,
-RabbitMQ and Keycloak, and 68 schema fixtures gated by
-`docs/schemas/validate-fixtures.py`. The `lorastats` vertical slice is next.
-See `claude/PROJECT_STATUS_AND_PLAN.md`.
+**Status (4 September 2026):** Phase 2 — the `lorastats` vertical slice, in
+progress. Requirements and architecture are settled and ADRs 001–007 are approved
+or accepted. The Gradle multi-project builds: five modules (`stats-common`,
+`stats-testsupport` and the three applications), three deployable images, a Docker
+Compose stack with PostgreSQL 17, RabbitMQ and Keycloak, and 75 schema fixture
+files gated by `docs/schemas/validate-fixtures.py` at 87 assertions.
+
+`stats-writer` persists `lorastats` idempotently and `stats-input` validates the
+envelope, but **no record has yet travelled the whole path**: Input cannot publish
+until T-014, and the Writer has no retry/DLQ arm until T-024. `stats-api` is a stub
+awaiting the OpenAPI confirmation (D-09). See `claude/PROJECT_STATUS_AND_PLAN.md`
+and `claude/FLOW.md` for what is BUILT versus SPECIFIED.
 
 ```
 Heimdal Core ──POST──> stats-input ──AMQP──> RabbitMQ ──> stats-writer ──> PostgreSQL

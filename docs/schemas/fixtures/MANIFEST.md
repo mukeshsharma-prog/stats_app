@@ -1,7 +1,7 @@
 # Fixture catalogue
 
 Built 18 August 2026 in answer to Q11a. **Rebuilt on the production wire format 29 August 2026
-(ADR-007).** 77 fixture files, replacing the two combined bundles
+(ADR-007).** 75 fixture files — 73 individual fixtures plus the two combined bundles
 (`valid/approved-types.json` and `invalid/validation-failures.json`), which are kept so nothing that
 already references them breaks.
 

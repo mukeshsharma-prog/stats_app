@@ -33,5 +33,5 @@
     },
     "timespan": 300
   },
-  "$comment": "IPv6 address. v1 accepts IPv4 only - IPv6 does not appear in the supplied sample. Expect 400. If ZC confirms IPv6 gateways exist this fixture flips to valid and the ipv4 $def widens."
+  "$comment": "IPv6 address. DECIDED 4 Sep 2026 (Q4b, DL-110): no IPv6 for now -- netstats stays IPv4-only and strict. PAYLOAD failure, so the WRITER dead-letters it (ADR-007 \u00a75) and the rejection carries a DISTINCT, METERED per-field code. The FIRST NON-ZERO COUNT on that code is what reopens IPv6 and flips this fixture to valid -- not a calendar review."
 }

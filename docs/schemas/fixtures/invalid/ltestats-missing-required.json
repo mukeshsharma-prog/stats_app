@@ -18,5 +18,5 @@
     "lac": "63AE",
     "cid": "2648604"
   },
-  "$comment": "Mandatory data.rsrp removed. Expect 400 with code 'missing' on that field, and NOTHING published."
+  "$comment": "Mandatory data.rsrp removed. PAYLOAD failure: accepted by Input, dead-lettered by the WRITER with code 'missing' on that field (ADR-007 \u00a75). Never a 400 -- Heimdal would never retry it."
 }

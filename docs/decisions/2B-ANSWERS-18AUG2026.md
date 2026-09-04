@@ -235,7 +235,7 @@ the whole story. Fixture: `fixtures/edge/<type>-late-arrival.json`.
 **Answer:** *"make it."* Done — `docs/schemas/fixtures/`, **68 files across four directories**, replacing the two
 combined bundles (both kept, so nothing referencing them breaks). `docs/schemas/validate-fixtures.py`
 asserts the whole set: **76 assertions, 0 failures**, and it exits non-zero so CI can gate on it.
-*(As of 29 August 2026 the gate is **87 assertions** over 77 fixtures — see ADR-007.)*
+*(As of 4 September 2026 the gate is **87 assertions** over 75 fixture files — see ADR-007. The 68/76 figures above are the 18 August set, kept as history.)*
 
 | Directory | Files | What it proves |
 |---|---|---|

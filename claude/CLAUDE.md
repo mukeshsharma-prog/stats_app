@@ -60,8 +60,9 @@ not the pointer.
 >   a failure is a 400. The Writer validates the **payload** and a failure is a
 >   **dead-letter**. "Invalid" no longer implies "400" (ADR-007 §5).
 > * **`lorastats` arrives in three incompatible dialects** and `version` does not
->   discriminate them. We encode one and dead-letter the rest. This is an assumption
->   pending ZC (Q15a) and it dead-letters ~2/3 of lorastats.
+>   discriminate them. ~~We encode one and dead-letter the rest.~~ **Superseded by
+>   v1.8 (DL-105): all three are accepted and normalised to one row.** The half that
+>   survives is that `version` is never the discriminator.
 > * **`ltestats` numerics are STRINGS** on the wire, and the field is
 >   **`access_Technology`** with a capital T.
 > * **`netstats` interfaces require only `tx`/`rx`.** A down modem sends no address.
@@ -431,7 +432,7 @@ derived engineering decisions, is `docs/decisions/2B-ANSWERS-18AUG2026.md`. Read
 | Q8b | **Engineering proposal, live in the dev realm** | Realm `statsapp`, clients `stats-api`/`stats-input`/`stats-dev-cli`, roles `stats.readOnly` and `stats.ingest`, tenant claim **`tenant`, single-valued String**. Working realm at `docs/setup/keycloak-realm-statsapp.json`. Single-valued on purpose: a multi-valued claim turns isolation into `tenant IN (...)`, and one misconfigured user then reads several tenants with every test still green |
 | Q13a | ~~Assume synchronised 10-minute boundaries~~ — **amended 4 Sep 2026 (Q13b, DL-104): gateways JITTER** | Design target of **13,333/s** is now **configured headroom**, not the expected case; expected steady state is the average, ~1,333/s. Writer prefetch starts at 500; Writer is sized for drain (~2,000/s per type). **Alert on oldest message age, never on depth — unchanged.** But the reading inverts: a cyclic depth spike used to be the buffer working, and under jitter it is **evidence the answer is wrong**. Hardware is not sized down until the `ts.server mod 600` histogram over the first 24 h of ingest confirms it (T-050) |
 | Q13a (replay) | **Heimdal AGREES the 2× nominal cap (2,667/s)** — Q13c answered 4 Sep 2026, DL-109 | A 6-hour outage is 28.8M messages and about 3 hours of replay at that cap, holding total ingest at 4,000/s. **Not one defence changes: the agreement is a commitment, not a control.** 503 is the backpressure channel and is the mechanism working, not an incident. Replayed records are duplicates by definition and `ON CONFLICT DO NOTHING` absorbs them. T-049 unblocked |
-| Q11a | **Built**, then **rebuilt on production 29 Aug 2026 (ADR-007)**. 77 fixtures across `valid/`, `invalid/`, `edge/`, `malformed/` | `docs/schemas/fixtures/`, catalogued in `MANIFEST.md`. `docs/schemas/validate-fixtures.py` asserts **87** and exits non-zero for CI. The 18 Aug set found three real schema gaps; the 29 Aug production sample found that **four of the five payload schemas and every envelope field name were wrong**, and inverted four fixture assertions outright |
+| Q11a | **Built**, then **rebuilt on production 29 Aug 2026 (ADR-007)**. 75 fixture files across `valid/`, `invalid/`, `edge/`, `malformed/` — 73 individual fixtures plus the two kept legacy bundles | `docs/schemas/fixtures/`, catalogued in `MANIFEST.md`. `docs/schemas/validate-fixtures.py` asserts **87** and exits non-zero for CI. The 18 Aug set found three real schema gaps; the 29 Aug production sample found that **four of the five payload schemas and every envelope field name were wrong**, and inverted four fixture assertions outright |
 
 ### Still needs ZC / Hasan
 
@@ -469,7 +470,7 @@ into the remaining conversations: `claude/OPEN_QUESTIONS_STATUS_29AUG2026.md`.
 | — | **DLQ retention: no TTL, ever.** A TTL'd DLQ is silent data loss. Alert on depth > 0 and oldest-message age; manual disposition within 14 days; redrive by an authorised ops role only, per type, capped at 2× nominal, root cause first | ADR-002 §12; `amqp-topology-v1.md` §6 |
 | — | **`pg_partman` is never a dependency.** Partition pre-creation is a scheduled task in `stats-writer` behind the D3 advisory lock | ADR-003 D1 |
 | D5b | **Engineering agrees the late-arrival policy** (skip, meter `records_expired_on_arrival`, ACK) and adds an alert when the counter is non-zero. **SIGNED 4 Sep 2026 — DL-112** | ADR-003; **T-026 unblocked** |
-| **ADR-007** | **The production wire format is the contract.** `clsbox` not `gateway`; `ts.server` not `ts.processor`; no rename layer anywhere. `ts.converter` accepted, preserved, metered — ADR-004's rejection clause withdrawn. Two validation gates: envelope at Input (400), payload at the Writer (dead-letter). One `lorastats` dialect encoded, the rest dead-lettered. `netstats` interfaces require only `tx`/`rx`. `ltestats` numerics are strings and the field is `access_Technology` | ADR-007; amends ADR-002 §12, ADR-003, ADR-004 |
+| **ADR-007** | **The production wire format is the contract.** `clsbox` not `gateway`; `ts.server` not `ts.processor`; no rename layer anywhere. `ts.converter` accepted, preserved, metered — ADR-004's rejection clause withdrawn. Two validation gates: envelope at Input (400), payload at the Writer (dead-letter). ~~One `lorastats` dialect encoded, the rest dead-lettered~~ — **§4 reversed 4 Sep 2026 by DL-105; all three are accepted (see *Decided 4 September 2026*)**. `netstats` interfaces require only `tx`/`rx`. `ltestats` numerics are strings and the field is `access_Technology` | ADR-007; amends ADR-002 §12, ADR-003, ADR-004 |
 
 **The redrive trap to carry into the runbook:** a message that sat in the DLQ long enough
 becomes `expired_on_arrival` the moment it is redriven, because its `ts.device` has aged
@@ -670,7 +671,7 @@ only `README.md` (the index) and a `CLAUDE.md` pointer that imports this file.
 | `docs/contracts/amqp-topology-v1.md` | Exchange, per-type queues, retry/DLQ, redrive |
 | `docs/contracts/openapi.yaml` | **The API contract.** OpenAPI 3.1, GET-only, `/v1/stats/{type}`. Draft pending ZC confirmation; gates Phase 4 |
 | `docs/contracts/openapi-v1-design.md` | Design input for the above. Converted 21 Aug 2026 — the YAML wins where they differ |
-| `docs/schemas/` | JSON Schema catalogue, per-type schemas, the 68-file fixture set (`fixtures/MANIFEST.md`), and `validate-fixtures.py` for CI |
+| `docs/schemas/` | JSON Schema catalogue, per-type schemas, the 75-file fixture set (`fixtures/MANIFEST.md`), and `validate-fixtures.py` for CI |
 | `docs/decisions/2B-ANSWERS-18AUG2026.md` | The seven §2b answers of 18 Aug 2026 and every engineering decision derived from them |
 | `docs/decisions/DATA-SENSITIVITY-INVENTORY.md` | **Every field in all six schemas, the six sinks it can reach, and what class of identifier it is.** The input document for **D-12** — engineering's, not a classification. Read it before touching logging, masking, or `ltestats`/`netstats` persistence |
 | `docs/setup/keycloak-realm-statsapp.json` | Importable dev realm — proposed Q8b values, four users built for specific tests |
