@@ -1,7 +1,7 @@
 // stats-input — Module 1. HTTP POST from Heimdal Core -> AMQP publish.
 //
 // Validates the payload against its stat type's schema, then publishes to the
-// app_stats_input topic exchange with the stat type as the routing key.
+// app_stats_input topic exchange with the stat type as the routing key
 //
 // STA-32 / rule 2: this module has NO write-capable database dependency, and in
 // fact no database dependency at all. If a datasource ever appears in this file,

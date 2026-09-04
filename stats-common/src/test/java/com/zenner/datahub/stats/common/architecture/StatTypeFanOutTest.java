@@ -3,16 +3,11 @@ package com.zenner.datahub.stats.common.architecture;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.zenner.datahub.stats.common.model.StatType;
-import java.io.IOException;
-import java.io.UncheckedIOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
-import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -33,7 +28,8 @@ import org.junit.jupiter.api.Test;
  * every exception must be listed in {@link #JUSTIFIED_SPECIAL_CASES} with a reason,
  * which turns "someone quietly branched on a type" into a reviewed decision.</p>
  *
- * <p>Java main sources only. Per-type configuration keys such as
+ * <p>Scanning is shared with the other guards in this package — see
+ * {@link MainSourceScan}. Java main sources only. Per-type configuration keys such as
  * {@code stats.consumer.lorastats.prefetch} are legitimate and expected — per-type
  * concurrency and prefetch are a MUST (STA-11A) — so properties files are out of
  * scope.</p>
@@ -54,24 +50,17 @@ class StatTypeFanOutTest {
                     + "the single identity point for that artifact; adding another type "
                     + "adds a sibling descriptor and never edits this one.");
 
-    private static final List<String> MODULES =
-            List.of(
-                    "stats-common",
-                    "stats-testsupport",
-                    "stats-input",
-                    "stats-writer",
-                    "stats-api");
 
     @Test
     void noMainSourceOutsideStatTypeNamesAnIndividualStatType() {
         List<String> offences = new ArrayList<>();
 
-        for (Path file : mainSources()) {
-            String relative = relativePath(file);
+        for (Path file : MainSourceScan.files()) {
+            String relative = MainSourceScan.relativePath(file);
             if (JUSTIFIED_SPECIAL_CASES.containsKey(relative)) {
                 continue;
             }
-            for (String mention : mentionsOfASingleType(readCodeWithoutComments(file))) {
+            for (String mention : mentionsOfASingleType(MainSourceScan.codeWithoutComments(file))) {
                 offences.add(relative + " names " + mention);
             }
         }
@@ -94,7 +83,7 @@ class StatTypeFanOutTest {
     @Test
     void everyJustifiedSpecialCaseStillExists() {
         for (Map.Entry<String, String> entry : JUSTIFIED_SPECIAL_CASES.entrySet()) {
-            assertThat(repositoryRoot().resolve(entry.getKey()))
+            assertThat(MainSourceScan.repositoryRoot().resolve(entry.getKey()))
                     .as("Stale exemption: %s (%s)", entry.getKey(), entry.getValue())
                     .exists();
         }
@@ -102,7 +91,7 @@ class StatTypeFanOutTest {
 
     @Test
     void scansEveryModuleThatExists() {
-        assertThat(mainSources())
+        assertThat(MainSourceScan.files())
                 .as("The scan found no Java main sources — it would pass vacuously")
                 .isNotEmpty();
     }
@@ -122,98 +111,4 @@ class StatTypeFanOutTest {
         return found;
     }
 
-    private static List<Path> mainSources() {
-        List<Path> files = new ArrayList<>();
-        for (String module : MODULES) {
-            Path root = repositoryRoot().resolve(module).resolve("src/main/java");
-            if (!Files.isDirectory(root)) {
-                continue;
-            }
-            try (Stream<Path> walk = Files.walk(root)) {
-                walk.filter(Files::isRegularFile)
-                        .filter(path -> path.getFileName().toString().endsWith(".java"))
-                        .sorted()
-                        .forEach(files::add);
-            } catch (IOException exception) {
-                throw new UncheckedIOException(exception);
-            }
-        }
-        return files;
-    }
-
-    /**
-     * Strips comments so the rule is about code. A stat type named in prose — a javadoc
-     * explaining why `netstats` is a hybrid, or a comment listing the five types — is
-     * documentation, not a branch, and failing on it would only teach people to stop
-     * writing the explanations.
-     */
-    private static String readCodeWithoutComments(Path file) {
-        String source = read(file);
-        StringBuilder code = new StringBuilder(source.length());
-        int index = 0;
-        while (index < source.length()) {
-            char current = source.charAt(index);
-            char next = index + 1 < source.length() ? source.charAt(index + 1) : '\0';
-
-            if (current == '"' || current == '\'') {
-                index = copyLiteral(source, index, current, code);
-            } else if (current == '/' && next == '/') {
-                while (index < source.length() && source.charAt(index) != '\n') {
-                    index++;
-                }
-            } else if (current == '/' && next == '*') {
-                index += 2;
-                while (index + 1 < source.length()
-                        && !(source.charAt(index) == '*' && source.charAt(index + 1) == '/')) {
-                    index++;
-                }
-                index = Math.min(index + 2, source.length());
-            } else {
-                code.append(current);
-                index++;
-            }
-        }
-        return code.toString();
-    }
-
-    /** Copies a string or character literal verbatim, honouring backslash escapes. */
-    private static int copyLiteral(String source, int start, char quote, StringBuilder code) {
-        code.append(quote);
-        int index = start + 1;
-        while (index < source.length()) {
-            char current = source.charAt(index);
-            code.append(current);
-            index++;
-            if (current == '\\' && index < source.length()) {
-                code.append(source.charAt(index));
-                index++;
-            } else if (current == quote) {
-                break;
-            }
-        }
-        return index;
-    }
-
-    private static String read(Path file) {
-        try {
-            return Files.readString(file, StandardCharsets.UTF_8);
-        } catch (IOException exception) {
-            throw new UncheckedIOException(exception);
-        }
-    }
-
-    private static String relativePath(Path file) {
-        return repositoryRoot().relativize(file).toString().replace('\\', '/');
-    }
-
-    private static Path repositoryRoot() {
-        String configured = System.getProperty("stats.repositoryRoot");
-        if (configured == null) {
-            throw new IllegalStateException(
-                    "stats.repositoryRoot is not set. Gradle supplies it in "
-                            + "stats-common/build.gradle.kts; run this through Gradle, not a "
-                            + "bare IDE runner without that system property.");
-        }
-        return Path.of(configured);
-    }
 }

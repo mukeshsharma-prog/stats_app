@@ -2586,3 +2586,45 @@ recorded so it is not rediscovered as a surprise.
 > **The standing rule:** do not invent an answer to any of these. If a task
 > requires one, say which question blocks it and stop. A row marked
 > `PENDING APPROVAL` is not permission to assume the recommended option.
+
+---
+
+### DL-113 — The `version` guard is written before the parser that would misuse it
+
+**4 Sep 2026** · `ENGINEERING` · trap 20, DL-105 rule 1, ADR-007 §4 (amended) · T-063
+
+**Decision.** `VersionIsNotADiscriminatorTest` scans every Java main source and fails
+if any file outside a justified whitelist names the bare identifier `version`. Three
+entries are whitelisted today, each with its reason: `StatsEnvelope` declares the
+component, `StatsSchemaValidator` reads the *schema file's* own version — a different
+concept that happens to share the name — and `LorastatsBatchWriter` stores it verbatim
+as `record_version`, whose only conditional is a `SMALLINT` width check.
+
+**Why now, before T-063 rather than as part of it.** DL-105 made this trap more
+dangerous, not less. Until 4 September there was no dialect-selection code at all, so
+nothing *could* branch on `version`. T-063 introduces structural dialect selection, and
+`version` will sit immediately beside it looking exactly like the discriminator it is
+not — all three production dialects carry `version: 1`. A guard written after the parser
+gets written to match whatever was built; written first, it has to be argued with, and
+the argument is the whole value.
+
+**Why a whitelist of files rather than a rule about branches.** A test cannot prove an
+expression is not a discriminator without understanding the code. This detects a
+*shape*, like `StatTypeFanOutTest` before it: naming the identifier at all outside the
+passthrough mapping requires a whitelist entry with a written reason, which converts
+"someone quietly read `version`" into a reviewed decision. The regex is deliberately
+narrow — `\bversion\b` misses `conversion`, `record_version` and `schemaVersion` — so
+it does not fire on unrelated names.
+
+**Mutation-checked.** Removing the `StatsSchemaValidator` exemption makes the test fail
+and name the file; restoring it passes. A guard that cannot fail is not a guard, which
+is the same standard trap 17's DLQ-TTL assertion is held to.
+
+**The failure it prevents is silent.** Branching on `version` yields a parser that works
+perfectly on whichever dialect its author tested and mis-parses the other two into the
+same typed columns. The rows are *wrong*, not absent, and nothing fails — which is why
+this is a guard and not a code review note.
+
+**Consequence.** Scanning moved into `MainSourceScan`, shared with `StatTypeFanOutTest`,
+so a module added to `MODULES` is covered by both guards at once. Trap 20's second half
+— the two dialect fixtures moving from `invalid/` to `valid/` — still belongs to T-063.
