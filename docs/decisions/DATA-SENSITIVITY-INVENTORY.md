@@ -207,11 +207,19 @@ them takes them off a queue where they will otherwise sit:
 
 ---
 
-## 7. Engineering's proposed defaults — PROPOSALS, not decisions
+## 7. Engineering's proposed defaults
 
-Offered so the meeting can accept or reject something concrete. **None of these is taken.**
-The split is deliberate: everything reversible is proposed for adoption now; everything
-irreversible waits for a signature.
+Offered so the meeting can accept or reject something concrete. The split is deliberate:
+everything reversible is proposed for adoption now; everything irreversible waits for a
+signature.
+
+> **UPDATED 4 September 2026 (DL-114).** The three that need no signature are **ADOPTED**:
+> **P1** and **P2** are now written into `claude/DEVELOPMENT.md` §7, which is the
+> authoritative logging rule for the repository, and **P3** is recorded on **T-034** in the
+> tracker as a blocking dependency rather than living only in this table. **P4 and P5 are
+> unchanged and still need security's signature** — they are irreversible, and nothing in
+> the adoption above pre-decides them. Adopting P1–P3 only narrows what the system does,
+> which is why engineering could take them alone.
 
 | # | Proposal | Reversible? | Needs a signature? |
 |---|---|---|---|
