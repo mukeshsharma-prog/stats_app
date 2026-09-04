@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.zenner.datahub.stats.testsupport.PostgresSupport;
 import com.zenner.datahub.stats.testsupport.RabbitSupport;
 import com.zenner.datahub.stats.writer.persistence.LorastatsBatchWriter;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -13,6 +14,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
+import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
@@ -56,7 +59,13 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
             // test scrapes are registered either way.
             "stats.writer.stat-type=netstats",
             "stats.retention.schedule=-",
-            "stats.retention.pre-create-on-startup=false"
+            "stats.retention.pre-create-on-startup=false",
+            // Health details are hidden by default, which is the right production
+            // setting — an unauthenticated probe should not enumerate dependencies.
+            // These two make the group's MEMBERSHIP observable to the assertions
+            // below; they change what is rendered, never what the group contains.
+            "management.endpoint.health.group.readiness.show-components=always",
+            "management.endpoint.health.group.liveness.show-components=always"
         })
 // Spring Boot switches metrics EXPORT off under @SpringBootTest — its context
 // customizer injects management.defaults.metrics.export.enabled=false so ordinary
@@ -100,15 +109,77 @@ class ManagementSurfaceTest {
 
     @Test
     void readinessIsServedOnThePortDockerComposeHealthchecks() {
-        // docker/docker-compose.yml health-checks /actuator/health/readiness. D13
-        // wants readiness to probe this module's REAL dependencies, so the container
-        // beans being up is what makes this 200 rather than a hard-coded UP.
+        // docker/docker-compose.yml health-checks /actuator/health/readiness, and until
+        // this module had a servlet container that endpoint did not exist at all.
         ResponseEntity<String> readiness =
                 rest.getForEntity(
                         "http://localhost:" + port + "/actuator/health/readiness", String.class);
 
         assertThat(readiness.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(readiness.getBody()).contains("UP");
+    }
+
+    /**
+     * D13: readiness probes this module's <em>real</em> dependencies. For the Writer
+     * that is PostgreSQL <em>and</em> RabbitMQ — it consumes from one and commits to
+     * the other, and cannot do its job with either gone.
+     *
+     * <p>This guards a default that fails <strong>open</strong>. Boot's out-of-the-box
+     * readiness group is {@code readinessState} alone, so before
+     * {@code management.endpoint.health.group.readiness.include} was set this endpoint
+     * returned UP with both dependencies down — and compose health-checks exactly this
+     * URL, so a Writer that could not write would have been reported healthy and, in an
+     * orchestrator, had traffic routed to it. Deleting that property is a silent
+     * regression; this test is what makes it loud.</p>
+     */
+    @Test
+    void readinessProbesPostgresAndTheBrokerRatherThanJustTheProcess() {
+        ResponseEntity<Map<String, Object>> readiness =
+                rest.exchange(
+                        "http://localhost:" + port + "/actuator/health/readiness",
+                        HttpMethod.GET,
+                        null,
+                        new ParameterizedTypeReference<Map<String, Object>>() {});
+
+        assertThat(readiness.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(readiness.getBody()).isNotNull();
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> components =
+                (Map<String, Object>) readiness.getBody().get("components");
+
+        assertThat(components)
+                .as("readiness must name every real dependency, not just readinessState")
+                .containsKeys("readinessState", "db", "rabbit");
+    }
+
+    /**
+     * The other half of D13, and the reason the two groups are configured as a pair.
+     *
+     * <p>Liveness answers "should this process be restarted". A dependency in this
+     * group turns a database blip into a restart loop that cannot fix itself: every
+     * replica is killed, and each replacement finds the same database still down.</p>
+     */
+    @Test
+    void livenessProbesTheProcessOnlySoADatabaseBlipCannotRestartEveryReplica() {
+        ResponseEntity<Map<String, Object>> liveness =
+                rest.exchange(
+                        "http://localhost:" + port + "/actuator/health/liveness",
+                        HttpMethod.GET,
+                        null,
+                        new ParameterizedTypeReference<Map<String, Object>>() {});
+
+        assertThat(liveness.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(liveness.getBody()).isNotNull();
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> components =
+                (Map<String, Object>) liveness.getBody().get("components");
+
+        assertThat(components).containsKey("livenessState");
+        assertThat(components)
+                .as("a dependency in the liveness group is a restart loop, not a health check")
+                .doesNotContainKeys("db", "rabbit");
     }
 
     /**

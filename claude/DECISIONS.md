@@ -2180,6 +2180,53 @@ and `data_extra` accepts identifiers no field-level rule anticipates. **D-12 sti
 
 ---
 
+### DL-103 — Readiness probes each module's real dependencies, because Boot's default fails open
+
+**4 Sep 2026** · `ENGINEERING` · D13, D-10, T-006, ADR-002 §11, STA-32 · DL-100
+
+**Decision.** All three modules configure both probe groups explicitly:
+
+| Module | Readiness | Why |
+|---|---|---|
+| `stats-input` | `readinessState, rabbit` | The broker and nothing else. Input holds no database dependency at all (rule 2, STA-32), so a `db` indicator here would be evidence the rule had been broken, not a more thorough probe |
+| `stats-writer` | `readinessState, db, rabbit` | It consumes from one and commits to the other and cannot work with either gone |
+| `stats-api` | `readinessState, db` | **Never `rabbit`** — Q3a and ADR-002 §11 give it no broker connection, so the absence is part of that decision |
+
+Liveness is written out as `livenessState` in all three even though that is already
+Boot's default, so the pair is visible and neither silently drifts.
+
+**Why.** D-10's *decided* half has claimed since 29 August that readiness "probes only
+each module's real dependencies" (D13). It did not. **No module set
+`management.endpoint.health.group.readiness.include`, so Boot's default readiness group
+is `readinessState` alone** — the endpoint reported UP with PostgreSQL and RabbitMQ both
+down. All three `docker/docker-compose.yml` health-checks target exactly that URL.
+
+It fails **open**, which is the direction that costs something: an orchestrator routes
+traffic to a Writer that cannot write, and a rolling deploy replaces healthy replicas
+with ones reporting ready before they can do any work. Combined with DL-100 — where
+`stats-writer` had no servlet container at all, so its healthcheck could never even be
+answered — the Writer's probe went from *unanswerable* to *answering UP unconditionally*
+without ever being right.
+
+**Rejected.** *Putting dependencies in the liveness group* — liveness answers "should
+this process be restarted", and a database blip would then kill every replica while each
+replacement finds the same database still down. That is a restart loop that cannot fix
+itself. *A Keycloak indicator for `stats-api`* — Boot ships none for an OAuth2 issuer and
+the resource server itself lands with T-038; the probe says what it actually checks
+rather than implying one it does not. *Enabling `show-details` in production* — an
+unauthenticated probe should not enumerate dependencies; the tests set
+`show-components` themselves, which changes rendering and never membership.
+
+**Consequence.** T-006 moves from PARTIAL to substantially closed: the groups are
+per-module and tested. What remains under it is the Keycloak probe (with T-038) and the
+`stats-input` structured-log field set, which is a different half of that task.
+`ManagementSurfaceTest` asserts the Writer's readiness names `db` and `rabbit` and that
+liveness names neither; `ReadinessGroupTest` in Input and the API assert the shipped
+configuration, since the defect being guarded is a configuration one and deleting a
+single line reintroduces it.
+
+---
+
 ### DL-104 — Gateways jitter across the cycle, so the 10× burst becomes headroom rather than the expected case
 
 **4 Sep 2026** · `ANSWERED` (Q13b) · DL-082, ADR-003, Q13a · T-048, T-050
