@@ -1439,7 +1439,13 @@ the payload — and `validate-fixtures.py` checks the envelope half explicitly.
 
 ### DL-089 — One `lorastats` dialect is encoded; the others dead-letter
 
-**29 Aug 2026** · `ACCEPTED, ON AN ASSUMPTION` · ADR-007 §4 · Open question Q15a
+> **SUPERSEDED 4 Sep 2026 by [DL-105](#dl-105--all-three-known-lorastats-dialects-are-accepted-and-normalised-to-one-row).**
+> Q15a was answered: all three known dialects are accepted and normalised to one
+> row. **Two findings below survive and are still binding** — `version` is never a
+> parser discriminator, and a union that grows silently is a contract nobody
+> understands (DL-105 rules 1 and 4). The rest is history.
+
+**29 Aug 2026** · `SUPERSEDED` (was `ACCEPTED, ON AN ASSUMPTION`) · ADR-007 §4 · Q15a — answered 4 Sep 2026
 
 **Decision.** The `lorastats` schema encodes **one** payload dialect — bare field
 names, integer values. The two other dialects observed in production —
@@ -1831,12 +1837,18 @@ it. Combined with DL-053, field errors carry pointers and codes, never values.
 
 ## 11. Operations
 
-### DL-080 — Structured JSON to stdout; `uid` as correlation ID; no payloads on the success path
+### DL-080 — Structured JSON to stdout; `uid` as correlation ID; full payloads only at `DEBUG`
 
-**18 Aug 2026** · `ENGINEERING` · decision **D1**, ADR-001
+**18 Aug 2026** · `ENGINEERING` · decision **D1**, ADR-001 · **AMENDED 4 Sep 2026 by DL-102**
 
 **Decision.** One JSON event per line to stdout, `traceId` and `uid` on every
-record, **no payloads on the success path**, no tokens or secrets ever.
+record, **full payloads only at `DEBUG`, which is off in production**, no tokens or
+secrets ever at any level.
+
+> **Amended 4 Sep 2026 (DL-102).** This entry originally said *"no payloads on the
+> success path"*, which was true and incomplete: it left the failure path unstated and
+> two other documents then read it as permission. The control is the **level**, not the
+> path — `DEVELOPMENT.md` §7 is authoritative and always said so.
 
 **Why.** stdout because the platform collects it; JSON because the alternative
 is a regex per log line at query time. `uid` as correlation ID lets one record
@@ -1850,9 +1862,10 @@ production data in the log store.
 **Rejected.** A generated request ID — real, but does not survive the queue hop
 into the Writer. Logging payloads on success — cost and data exposure.
 
-**Consequence.** Failure paths log enough context to act on. Every failure path
-either returns a meaningful error, dead-letters, or logs at WARN/ERROR —
-never swallowed.
+**Consequence.** Failure paths log enough context to act on — but that context is
+fields, not the record. Every failure path either returns a meaningful error,
+dead-letters, or logs at WARN/ERROR — never swallowed, and never with the payload
+attached above `DEBUG`.
 
 ---
 
@@ -1883,7 +1896,14 @@ plausible-looking default).
 
 ### DL-082 — Sized for a 10× synchronised burst; alert on oldest-message age, never queue depth
 
-**18 Aug 2026** · `ANSWERED` (Q13a) · ADR-003, `2B-ANSWERS-18AUG2026.md`
+> **AMENDED 4 Sep 2026 by [DL-104](#dl-104--gateways-jitter-across-the-cycle-so-the-10-burst-becomes-headroom-rather-than-the-expected-case).**
+> Q13b is answered: gateways **jitter** across the cycle. 13,333/s is now
+> **configured headroom, not the expected case** — expected steady state is the
+> average, ~1,333/s — and hardware is not cut until the `ts.server mod 600`
+> histogram confirms it (T-050). One reading inverts: a cyclic depth spike was
+> *the buffer working*; under jitter it is **evidence the answer is wrong.**
+
+**18 Aug 2026** · `ANSWERED` (Q13a; amended by Q13b, 4 Sep 2026) · ADR-003, `2B-ANSWERS-18AUG2026.md`
 
 **Decision.** Assume synchronised 10-minute reporting boundaries until Heimdal
 telemetry proves otherwise: design target **13,333/s** (10× average — 800,000
@@ -1912,7 +1932,11 @@ question.
 
 ### DL-083 — Skipping a late-arriving record is deliberate data loss, and is alerted
 
-**29 Aug 2026** · `PROPOSED` (engineering agreed; product signature owed) · ADR-003 **D5b**
+> **RATIFIED 4 Sep 2026 — see [DL-112](#dl-112--late-arrival-skip-meter-ack-alert--signed).**
+> Signed by Naman Vashishtha. **T-026 is unblocked.** DL-106 (Q15b: `ts.device` is
+> genuine device time) is what made the path real rather than hypothetical.
+
+**29 Aug 2026** · `RATIFIED 4 Sep 2026` (was `PROPOSED`) · ADR-003 **D5b**
 
 **Decision.** A record arriving with `ts_device` older than the retention window
 is **skipped**, metered as `records_expired_on_arrival`, and ACKed — plus an
@@ -1942,7 +1966,12 @@ long-dead DLQ message becomes `expired_on_arrival` the moment it is redriven.
 
 ### DL-084 — RPO/RTO is a product decision, and engineering will not substitute for it
 
-**29 Aug 2026** · `PROPOSED` · ADR-003 **D5a**
+> **RATIFIED 4 Sep 2026 — see [DL-111](#dl-111--rpo--5-min-rto-1-h-per-partition-and-24-h-full-cluster--signed).**
+> The proposal below is signed as written by Naman Vashishtha. **T-051 is
+> unblocked**, and archiver lag joins T-050's alert set — a stalled archiver
+> silently converts RPO from 5 minutes to *"however long ago it stopped"*.
+
+**29 Aug 2026** · `RATIFIED 4 Sep 2026` (was `PROPOSED`) · ADR-003 **D5a**
 
 **Decision.** Engineering proposes **RPO ≤ 5 min** via continuous WAL archiving,
 and **RTO 1 h** for a single partition, **24 h** for a full cluster restore.
@@ -2090,24 +2119,422 @@ additive.
 absent series and a zero series look identical on a dashboard, and a flood of
 unparseable bodies is exactly when the series has to exist.
 
+### DL-102 — Payload logging is gated by LEVEL, not by path; and D-12 gets its input document
+
+**4 Sep 2026** · `ENGINEERING` · D-12, D1, DL-080, ADR-001, ADR-002 §12 · T-034
+
+**Decision.** Two things.
+
+**1. `DEVELOPMENT.md` §7 is the authoritative logging rule and the other documents are
+reconciled to it.** The rule is level-gated: *full payloads only at `DEBUG`, which is off
+in production; never at `INFO` or above on any path, success or failure; tokens and secrets
+never, at any level; payload logging stays configurable.* DL-080's title and decision are
+amended, `IMPLEMENTATION_RULES.md` §8 is rewritten, and D-12's *decided* half in
+`CODE_START_CHECKLIST.md` now states the level gate instead of the success path alone.
+
+**2. `docs/decisions/DATA-SENSITIVITY-INVENTORY.md` is written** — every field in all six
+schemas, the six sinks it can reach, and what class of identifier it is. It is an input
+document, not a classification; the five questions in its §6 are still security and
+compliance's to answer.
+
+**Why.** Three documents disagreed, and two of the three read as blanket permission:
+
+| Source | Said |
+|---|---|
+| `CODE_START_CHECKLIST.md` D-12, DL-080 | "no payloads on the success path" — true, but silent about failure |
+| `IMPLEMENTATION_RULES.md` §8 | "V1 permits payload logging to the Java logger/Docker logs" — **no level, no path** |
+| `DEVELOPMENT.md` §7 | "`DEBUG` — full payloads. Off in production"; "never … full payloads at `INFO` or above" |
+
+Only `DEVELOPMENT.md` stated a rule an implementer could follow. This is the same failure
+as the 401/403 contract defect: several documents agreeing on an ambiguity, which
+consistency then disguises. It mattered because a logged `ltestats` payload **is** an IMSI
+in the Docker log store, so an unqualified permission was quietly pre-deciding the masking
+half of D-12 by default.
+
+**What the inventory found that changes D-12's shape.** D-12 names one sensitive field.
+`ltestats` carries **three classes on the same record**: subscriber (`imsi`), location
+(`lac`/`cid`, refined by the signal fields) and carrier (`plmn`/`operator`) — and every
+record of every type also carries `clsbox`, a stable device id. Masking IMSI alone leaves a
+per-device location trail keyed on `clsbox`, sampled every ten minutes for ninety days.
+Separately, `uid`, `tenant` and `clsbox` are on **every log line on the success path** by
+design at 115.2M records/day, under a retention policy that does not exist — the
+largest-volume item in D-12 and not what the row was about.
+
+**The deadline is T-034, not a date.** `ltestats` is unbuilt, so no IMSI, cell id or IP
+exists in PostgreSQL, in a log or in a queue today; every item is still a free config
+choice. After T-034, ADR-002 §12's *no TTL, ever* — correct, and what stops silent
+loss — is exactly what makes an unmasked identifier permanent in the DLQ, and the answer
+then costs a migration, an API contract change, and a purge that ADR-002 §12 forbids.
+
+**Rejected.** *Reconciling toward "no payloads, ever"* — stricter than the business
+decision recorded in `DEVELOPMENT.md` §7 (D2, NFR-03), and it would delete the one tool
+that makes a malformed record diagnosable. *Filing the contradiction as a question for
+security* — it is a documentation defect between three engineering documents; security
+cannot resolve which of our own files is right. *Deciding the masking policy here* — the
+irreversible half (P4, P5 in the inventory) genuinely needs a signature.
+
+**Consequence.** Two exposure paths remain open and are named in the inventory §5 rather
+than fixed here: a PostgreSQL `DETAIL:` line can carry payload values into an `ERROR` log,
+and `data_extra` accepts identifiers no field-level rule anticipates. **D-12 still has no
+`T-nnn` task**, so nothing in the tracker will surface it — the Q14a defect, repeated.
+
+---
+
+### DL-104 — Gateways jitter across the cycle, so the 10× burst becomes headroom rather than the expected case
+
+**4 Sep 2026** · `ANSWERED` (Q13b) · DL-082, ADR-003, Q13a · T-048, T-050
+
+**Decision.** ZC confirms gateways **spread** their reporting across the 10-minute
+cycle rather than firing on the boundary. Three consequences, and one deliberate
+non-consequence:
+
+1. **Expected steady-state ingest is the average — roughly 1,333/s across five
+   types**, not 13,333/s. Q5a's 115.2M records/day is unchanged; only its
+   distribution across the cycle is.
+2. **DL-082's 13,333/s survives as configured headroom, not as the provisioning
+   baseline.** Prefetch, consumer concurrency, replica count and `max_wal_size`
+   stay externalised, so reaching the old figure is a property change and not a
+   redeploy.
+3. **T-050 gains a day-one verification**: a histogram of `ts.server mod 600` over
+   the first 24 hours of real ingest. Hardware is not cut until that histogram
+   exists.
+4. **Alert on oldest-message age, never on queue depth — unchanged.** It was never
+   a consequence of the burst shape.
+
+**Why the histogram still matters after an answer.** This is the question the 29 Aug
+status note recorded as *not actually askable-only*: it is answerable from our own
+first day of ingest, and a measurement outranks a statement about firmware
+behaviour across 160,000 devices of several generations. Cutting capacity on the
+statement and discovering the boundary case in production is a 10× under-provision
+during the exact minute it matters.
+
+**What inverts.** Under DL-082 a cyclic queue-depth spike was *the buffer working as
+designed*. Under jitter it is **evidence this answer is wrong** — the same graph,
+the opposite meaning. That reading belongs in T-050's runbook note, because
+nothing in the metric itself says which regime you are in.
+
+**Rejected.** *Cutting the sizing immediately* — the saving is real but unverified,
+and it is recoverable in one direction only. *Leaving DL-082 unamended* — it would
+have left the repository asserting a 10× synchronised burst as fact after ZC said
+otherwise, which is how the SRS field names survived for months.
+
+**Consequence.** Q13b closes. It was the highest-value outstanding question on the
+sheet; what it bought is permission to provision against the average once measured,
+not an immediate change to any code. DL-082's decision text is amended in place.
+
+---
+
+### DL-105 — All three known `lorastats` dialects are accepted and normalised to one row
+
+**4 Sep 2026** · `ANSWERED` (Q15a) + `RATIFIED` · ADR-007 §4 (amended), DL-089 (superseded) · T-063, T-057, T-060
+
+**Decision.** Hasan's answer to Q15a is *"make it work for all the known
+dialects."* **DL-089 is superseded.** The `lorastats` payload schema accepts all
+three dialects observed in production:
+
+| Dialect | Field names | Value types | Example |
+|---|---|---|---|
+| **A** | bare | integer | `"rx_nr_pkts": 176` |
+| **B** | bare | **string** | `"rx_nr_pkts": "176"` |
+| **C** | **`lora_`-prefixed** | integer | `"lora_rx_nr_pkts": 176` |
+
+Four rules bound the widening, and each one is load-bearing:
+
+1. **Detection is structural, never `version`.** All three carry `version: 1`.
+   DL-089's one durable finding survives intact: anything that branches on
+   `version` to select a parser is wrong.
+2. **All three normalise to the same typed columns.** One stored shape, one API
+   shape. The dialect a record arrived in is **not** a column and is not
+   queryable — it is a metric label, `records_lorastats_dialect{dialect}`, which
+   gives the population view without pushing a three-way branch onto every
+   consumer.
+3. **Coercion is explicit and range-checked.** Dialect B's strings are parsed
+   per-field and range-checked against the signed `BIGINT` maximum *before*
+   conversion — the rule Q4a already set for `netstats` counters. A value that does
+   not parse, or that overflows, **dead-letters**. It is never silently zeroed,
+   truncated or defaulted.
+4. **An unknown fourth dialect still dead-letters.** "All the known dialects" is
+   exactly three. The schema is a **closed enumeration of three**, not an open
+   union: a new spelling surfaces in the DLQ rather than being absorbed.
+
+**Why.** Dead-lettering two thirds of `lorastats` was only defensible while the
+dialects were unexplained. Q15a explains them — three shapes are in the field
+simultaneously, all carrying `version: 1`, and no retirement timeline has been
+given. At that point the DLQ was not rejecting bad data; it was rejecting data,
+roughly 15M messages a day, into a queue ADR-002 §12 forbids ever expiring.
+
+**What changed in the reasoning, precisely.** DL-089 rejected a permissive union
+because *"it would have made all 15 records pass, and that is exactly the
+problem — it silently ratifies a contract nobody understands."* That was correct
+while the contract was unknown. Accepting a contract we now understand, with a
+closed enumeration and a named owner for each dialect, is a different act.
+Rules 1 and 4 exist so that the *unbounded* half of DL-089's objection — that a
+union only ever grows — still cannot happen.
+
+**Rejected.** *Storing the dialect distinctly* — costs a discriminator column and
+gives the API three shapes for one stat type, for a distinction with no business
+meaning; rule 2's metric label answers the only real question ("how much of the
+fleet is on C?") for free. *Coercing dialect B with a permissive parse that falls
+back to zero* — silent corruption, and the exact shape of the `int4`-wrapping trap
+(trap 11). *Opening the schema to any spelling* — that is the union DL-089 rejected
+and rule 4 still rejects. *Branching on `version`* — three dialects, one version.
+
+**Consequence.** **T-063** is new and sits in Phase 2 ahead of the lorastats writer
+path: widen the schema to the three-dialect enumeration, add fixtures moving
+`invalid/lorastats-dialect-prefixed.json` and
+`invalid/lorastats-dialect-string-values.json` from `invalid/` to `valid/`, and
+implement structural detection with range-checked coercion. **Trap 20 becomes more
+load-bearing, not less** — we now branch on structure, and `version` sits there
+looking exactly like the discriminator it is not. **Trap 22 largely dissolves**: the
+lorastats DLQ stops carrying ~15M routine messages/day, so T-060's per-type
+thresholds are still wanted but for ordinary reasons rather than to stop one type
+drowning the signal. ADR-007 §4 is amended and its Consequences section's DLQ
+volume warning no longer applies.
+
+**Residual.** Q15a's second half — *are the other dialects being retired?* — is
+still unanswered. It blocks nothing. It only determines whether we can ever delete
+a parser, and rule 2's metric label is what will eventually show a dialect going to
+zero in the field.
+
+---
+
+### DL-106 — `ts.device` is genuine device time, so every consequence of retention-on-device is real
+
+**4 Sep 2026** · `ANSWERED` (Q15b) · STA-23B, ADR-003, ADR-003 D9 · D5b/DL-112, T-026, T-052
+
+**Decision.** ZC confirms `ts.device` is assigned by the device, and the record is
+sent to Heimdal as soon as the device records it. Retention keying on `ts.device`
+(STA-23B) is therefore keying on **measurement time**, not on arrival time.
+
+**Why the sample looked like the opposite.** `ts.device` equalled `ts.server`
+exactly in 14 of 15 production records, and differed by 1 second in the fifteenth —
+which reads as an arrival stamp. It is not. All 15 came from healthy, online
+gateways sending immediately, so the two clocks coincide by construction. **The
+sample shows the healthy path; it is not evidence about the absence of the
+unhealthy one.** Fifteen records from one moment cannot demonstrate that no gateway
+is ever offline.
+
+**Consequence.** Everything that rested on this being real is real, and none of it
+is theoretical:
+
+* **The offline-backfill trap (trap 5).** A gateway offline for three weeks
+  delivers records already 21 days into their 90-day window.
+* **The late-arrival policy (D5b, DL-112, T-026).** A gateway offline longer than
+  the retention window delivers records with no live partition at all.
+* **The redrive-age trap (trap 18).** A DLQ message redriven after ~90 days is a
+  no-op that increments a counter, not a recovery.
+* **The clock-skew gate (ADR-003 D9).** A device clock can genuinely run ahead of
+  Heimdal's, which is what the skew tolerance is for.
+
+Boundary tests either side of the retention window, keyed on `ts_device`, are
+required rather than defensive. Q15b closes.
+
+---
+
+### DL-107 — `_id` is a Mongo export artifact and never appears on the wire
+
+**4 Sep 2026** · `ANSWERED` (Q15c) · D14, DL-095, ADR-007 · Fixtures
+
+**Decision.** ZC confirms Heimdal stores records in its own MongoDB and that
+whoever produced the 29 Aug sample dumped straight out of that database. `_id` is
+an artifact of the export and is **never POSTed**. No `_id` handling is built.
+
+**Consequence.** **D14 is unchanged and remains the safety net** — this answer
+removes a reason to write code, not the policy that made the code unnecessary. An
+unknown *envelope* member is still rejected at the Input gate; an unknown *`data`*
+member is still preserved into `data_extra` (DL-095). Any fixture derived from the
+29 Aug dump must have `_id` stripped, or it tests the exporter rather than the wire.
+
+**The thing to carry.** Heimdal's own store being MongoDB is **not** permission to
+reintroduce Mongo anywhere in this repository. It is upstream's storage. The rule
+in `CLAUDE.md` §3 stands unchanged: no drivers, no `MongoRepository`, no TTL
+indexes, no "collection"/"document" vocabulary. Q15c closes.
+
+---
+
+### DL-108 — A non-OK `status` is metered and stored, never dead-lettered
+
+**4 Sep 2026** · `ANSWERED` (Q15d) + `ENGINEERING` · ADR-007 §1, D14, DL-102 · T-064, T-050
+
+**Decision.** ZC confirms `status` can report a **failed** conversion, not only
+`["conversion ok"]`. The Writer therefore:
+
+* **Stores the record.** A non-OK status is upstream's verdict on its own
+  conversion, not a failure of our validation.
+* **Meters it** as `records_upstream_status_not_ok{type}`, incremented whenever
+  `status` is anything other than exactly `["conversion ok"]`. The comparison is
+  **value-agnostic on purpose**.
+* **Logs at `WARN`** with `uid`, `type`, `clsbox` and the `status` array — and
+  never the payload, under DL-102's level gate.
+* **Keeps `status` a passthrough member.** Stored and returned verbatim; nothing
+  branches on it.
+
+**Why value-agnostic.** We do not have the vocabulary of failure strings. A check
+that recognises only the values we happen to know about goes **quiet** on the ones
+we do not — which is the failure mode the whole "nothing is ever silently dropped"
+rule exists to prevent. Comparing against the one known-good value inverts that:
+anything unrecognised is counted, by definition.
+
+**Rejected.** *Dead-lettering a non-OK status* — the record is valid, was correctly
+delivered, and a redrive produces the identical result forever; that is a DLQ entry
+that can never be drained, in a DLQ with no TTL. *Waiting for the vocabulary before
+metering* — the counter does not need it, and the counter is what will name the
+actual values. *A metric label carrying the status value* — an unbounded label set
+sourced from an upstream vocabulary we do not control is a Prometheus cardinality
+bomb.
+
+**Consequence.** **T-064** is new. Q15d closes as asked: we now have a signal where
+previously we would have stored records upstream already knew were bad, with
+nothing on our side saying so. T-050's alert set gains the counter.
+
+**Residual.** The vocabulary of non-OK `status` values is unknown. It blocks
+nothing — the counter is value-agnostic — and it is worth asking on the next round
+with Hasan only to decide whether any *specific* failure deserves different
+handling. The counter will have enumerated the real values by then in any case.
+
+---
+
+### DL-109 — Heimdal agrees the 2× replay cap, and it is still not something we can enforce
+
+**4 Sep 2026** · `ANSWERED` (Q13c) · ADR-005, Q13a, ADR-002 §12 · T-049, T-052, T-018
+
+**Decision.** ZC agrees to cap post-outage replay at **2× nominal (2,667/s)**.
+**T-049 (replay drill) is unblocked** and rehearses that figure: a 6-hour outage is
+28.8M messages and roughly 3 hours of replay at the cap, holding total ingest near
+4,000/s.
+
+**Why not one defence changes.** An agreement is a commitment, not a control.
+Nothing in the Stats App can make Heimdal honour it, and the damaging failure mode
+is not the breach — it is tuning our own backpressure away as redundant because a
+commitment exists. So all of it stays: **503 is the backpressure channel**, prefetch
+stays bounded, and T-018's rate limit remains the only control we actually own. A
+503 during replay is the mechanism working, not an incident.
+
+**Consequence.** T-049 asserts that `records_duplicate_suppressed` spikes and that
+**no alert fires on it** — replayed records are duplicates by definition and
+`ON CONFLICT DO NOTHING` absorbs them (ADR-005). T-052's redrive runbook states the
+2× figure as an agreed number **and states plainly that it is unenforced on our
+side**, so that a future operator does not read it as a guarantee. Q13c closes.
+
+---
+
+### DL-110 — No IPv6 today; the schema stays strict and the metered rejection is the reopening trigger
+
+**4 Sep 2026** · `ANSWERED` (Q4b, provisionally) · Q4a, ADR-007 §6, `netstats-v1.schema.json` · T-060, T-050
+
+**Decision.** ZC's answer to Q4b is *"for now consider no."* `netstats` addresses
+stay **IPv4-only and strict**. The answer is explicitly provisional — *"for now"* is
+not *"never"* — so this closure ships with its own reopening mechanism:
+
+* An address failing the IPv4 `$def` produces a **distinct, metered per-field
+  code**, not a generic type error, so an IPv6 gateway appears as a **named
+  validation-failure spike** rather than as silence.
+* **A non-zero count on that code reopens Q4b.** That is the trigger. There is no
+  calendar review, because a calendar review is a thing people stop doing.
+* `invalid/netstats-ipv6.json` stays in `invalid/`. If Q4b reopens, one `$def`
+  widens and that fixture moves to `valid/` — which was always the entire change.
+
+**Why a provisional answer needs a detector.** Closing "for now consider no" with a
+plain schema rule and nothing else reproduces trap 16 exactly: an undecided
+question with a default answer baked into a passing test, invisible because the
+test is green. The metered code is what makes the assumption observable when
+production disagrees with it. Q4b closes.
+
+---
+
+### DL-111 — RPO ≤ 5 min, RTO 1 h per partition and 24 h full cluster — signed
+
+**4 Sep 2026** · `RATIFIED` (D5a) · ADR-003 D5, DL-084, BR-30, BR-35, NFR-04 · T-051, T-050
+
+**Decision.** The engineering proposal of 29 Aug 2026 is **signed by Naman
+Vashishtha on 4 September 2026**: **RPO ≤ 5 minutes** via continuous WAL archiving;
+**RTO 1 hour** to restore a single partition, **24 hours** for a full cluster
+restore. DL-084 moves from `PROPOSED` to ratified and **T-051 is unblocked**.
+
+**Why RPO is the tight number and RTO is deliberately loose.** Lost data is
+unrecoverable: Heimdal retries only on a non-2xx, so anything we answered 200 for
+and then lost is gone, and no amount of restore time recovers it. RTO is loose
+because this is 90-day telemetry rather than financial records, and at
+multi-terabyte scale a tight RTO may not be purchasable at any sensible price.
+
+**What signing obliges, beyond a number in a document.** A target nobody measures
+is not a target:
+
+* Continuous WAL archiving must actually be **configured and its lag monitored**. A
+  stalled archiver silently converts RPO from 5 minutes to *"however long ago it
+  stopped"* — the failure is invisible until the restore. Archiver lag joins
+  T-050's alert set.
+* **T-051 must be timed, not merely completed.** It restores a single partition and
+  re-attaches it *without taking the parent table offline*, and the elapsed time is
+  compared against the 1-hour figure.
+
+**Consequence.** T-051 moves BLOCKED → TODO. D5a leaves the open-questions sheet.
+
+---
+
+### DL-112 — Late arrival: skip, meter, ACK, alert — signed
+
+**4 Sep 2026** · `RATIFIED` (D5b) · ADR-003, DL-083, DL-106, STA-23B · T-026, T-052, T-050
+
+**Decision.** Signed by **Naman Vashishtha on 4 September 2026**, alongside DL-111.
+A record arriving with `ts_device` older than the retention window is **skipped**,
+metered as `records_expired_on_arrival`, and **ACKed**, with an **alert when the
+counter is non-zero**. DL-083 moves from `PROPOSED` to ratified and **T-026 is
+unblocked**.
+
+**This is deliberate data loss, and the signature is what makes it a decision
+rather than a defect.** It is also the only implementable option: no live partition
+exists for such a record, so the alternative is writing a row into a partition that
+does not exist. Writing it into a freshly created partition that retention then
+removes minutes later is worse — it costs the write, the partition and the delete,
+and it looks like success.
+
+**Why it is signed now and not on 29 August.** DL-106 removed the one reason to
+hold it. While Q15b was open it remained possible that `ts.device` was stamped on
+arrival, in which case no record could ever be late and this policy governed a path
+production never takes — signing a data-loss policy for a hypothetical path is how
+a policy stops being read carefully. Q15b's answer makes the path real.
+
+**Why the alert, and not the counter alone.** A systemic gateway backlog and a
+harmless one-off are the same number in a raw count. The alert is what separates
+them.
+
+**Consequence.** T-026 moves BLOCKED → TODO, with boundary tests either side of the
+retention window. **Trap 18 is the same code path reached from the DLQ**: a message
+redriven after ~90 days increments `records_expired_on_arrival` and looks like a
+successful recovery unless T-052's runbook says otherwise. D5b leaves the
+open-questions sheet.
+
+---
+
 ## 12. What is deliberately still open
 
-Not decisions — the absence of them. Full status:
+Not decisions — the absence of them. **Nine items closed on 4 September 2026**
+(DL-104…DL-112); what is left is below. Historical status as at 29 Aug:
 `claude/OPEN_QUESTIONS_STATUS_29AUG2026.md`.
 
 | Ref | Open question | Owner | Blocks |
 |---|---|---|---|
-| **Q13b** | Do gateways spread reporting across the 10-minute cycle, or fire on the boundary? | Heimdal | Worth 10× on hardware. **The most valuable outstanding question.** |
-| Q8a-2 | Heimdal inbound auth — mTLS or OAuth2; issuer, audience, identity, rotation | ZC / security | Nothing today (DL-063). **Must close before any shared deployment.** |
+| Q8a-2 | Heimdal inbound auth — mTLS or OAuth2; issuer, audience, identity, rotation. Our position: OAuth2 client credentials, sent as *"unless you object by \<date\>"* | ZC / security | Nothing today (DL-063). **Must close before any shared deployment** — until then anything that reaches the Input port can write |
 | Q8b-2 | Confirmation of the proposed Keycloak realm values | ZC | Nothing — a config change (DL-064) |
-| Q13c | Agreement on the 2× replay rate cap | Heimdal | Our own rate limiting cannot substitute for Heimdal honouring it |
-| Q4b | Does any gateway report IPv6 in `netstats`? | ZC | One `$def` widens; no code change |
-| D5a | RPO/RTO targets | Product + operations | Production readiness, T-051 (DL-084) |
-| D5b | Late-arrival policy sign-off | Product | T-026 (DL-083) |
+| **D-09** | ZC confirmation of `docs/contracts/openapi.yaml` | ZC | **Phase 4 — the one item that genuinely gates work.** T-038 directly, T-039…T-046 transitively |
+| — | API consumer catalogue: who calls this, with what filters, to what SLO? BRD §3 lists four, all pending | Product | Index-design justification and Phase 4 scope. No operation or index should exist without tracing to a consumer |
 | D-03 | Exact success code (200 vs 202), path confirmation, request size and timeout limits | Heimdal owner | Request-limit properties only |
-| D-09 | ZC confirmation of `openapi.yaml` | ZC | **Phase 4** — the one thing genuinely gating the API |
-| D-10 | Runtime platform and release mechanics | Platform | Packaging and release only; nothing before Phase 5 |
-| D-12 | Data classification, IMSI masking, log retention, encryption at rest, audit | Security + compliance | Production logging and operations |
+| D-10 | Runtime platform and release mechanics. **Named gap:** `docker/Dockerfile` never `COPY`s `stats-testsupport`, included in `settings.gradle.kts` since DL-099; latent because `bootJar -x test` never resolves the test classpath | Platform | Packaging and release only; nothing before Phase 5 |
+| D-12 | Data classification; masking for **subscriber, location AND network** identifiers (not IMSI alone — DL-102); log retention number and access list; audit evidence. Encryption at rest and the log-driver mechanism are **platform's**, not security's | Security + compliance | Production logging and operations. Input document: `docs/decisions/DATA-SENSITIVITY-INVENTORY.md`. **Deadline is T-034** |
+
+### Residuals carried by a closed decision — not open questions
+
+Each of these sits inside a decision that is made. None blocks anything; each is
+recorded so it is not rediscovered as a surprise.
+
+| From | Residual | Why it does not block |
+|---|---|---|
+| DL-105 (Q15a) | *Are the `lorastats` dialects being retired?* Only the first half of Q15a was answered | All three are accepted. This only decides whether a parser can ever be deleted — and `records_lorastats_dialect{dialect}` is what will show one going to zero |
+| DL-108 (Q15d) | The vocabulary of non-OK `status` values | The counter is value-agnostic by design and will enumerate the real values itself |
+| DL-110 (Q4b) | IPv6, *"for now consider no"* | Provisional by its own wording. The metered per-field rejection code is the reopening trigger — a non-zero count reopens Q4b |
+| DL-104 (Q13b) | Jitter is a statement, not a measurement | Hardware is not cut until the `ts.server mod 600` histogram over the first 24 h of ingest confirms it (T-050) |
+| DL-109 (Q13c) | The 2× replay cap is agreed and **unenforceable by us** | 503 backpressure, bounded prefetch and T-018's rate limit are the controls we own, and they stay regardless |
 
 > **The standing rule:** do not invent an answer to any of these. If a task
 > requires one, say which question blocks it and stop. A row marked

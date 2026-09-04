@@ -525,7 +525,8 @@ names, so one record can be traced end to end *(D1, NFR-02)*:
 uid          — correlation ID across all three modules
 statType     — lorastats | ltestats | sysstats | netstats | omsstats
 tenant       — for filtering; never the full payload
-gateway      — source device
+clsbox       — source device. NOT `gateway`: ADR-007 §1 is one vocabulary end to
+               end, and a log field is a field (CLAUDE.md §4)
 module       — input | writer | api
 event        — validation_failed | published | persisted | retried | dead_lettered
 ```
@@ -535,6 +536,21 @@ logging. Keep it **configurable**, redact tokens and secrets always, and default
 full payloads to `DEBUG`. These records contain device identifiers (IMSI, MAC),
 and Docker log retention does not share the database's 90-day policy — so log
 retention and access must be configured explicitly, not inherited by accident.
+
+**This section is the authoritative logging rule** for the whole repository, and the
+control is the **level, not the path**: full payloads at `DEBUG` only, never at `INFO`
+or above on *any* path, and never a token or secret at *any* level. DL-080 and
+`IMPLEMENTATION_RULES.md` §8 were reconciled to it on 4 Sep 2026 (DL-102) — an earlier
+revision of §8 permitted payload logging with no level qualification at all.
+
+**A stack trace is not a payload and this rule does not cover it.** A PostgreSQL
+constraint violation prints the offending key values in its `DETAIL:` line, so an
+exception logged at `ERROR` can carry payload content that `DEBUG`-gating never sees.
+Log the exception type and message, not the driver's detail line.
+
+**Which fields are actually sensitive** is catalogued per field, per stat type, and per
+sink in `docs/decisions/DATA-SENSITIVITY-INVENTORY.md`. The *policy* over them is **D-12**
+and is not decided — do not infer one from this section.
 
 **Log retention** *(D1)*: must exceed the realistic time-to-notice for a problem.
 A rejected message exists nowhere else — the log line is the only record that it
@@ -638,17 +654,17 @@ pinned, and the conventions it would have supplied are defined in ADR-001.
 | Ref | State |
 |---|---|
 | **Q8a-2** | Inbound Heimdal auth is **deferred by decision**. Until ZC answers, anything that can reach the Input port can write. `stats.input.auth.mode` has no default in code, `none` logs a `WARN` on every startup, and a test refuses to start under `prod`. Fine on a dev stack, nowhere else. |
-| **D5a** | No RPO/RTO number exists. ADR-003 D5 has the framing to take to product and operations: *"if we lost the last 15 minutes of statistics, or needed 8 hours to restore, what actually breaks?"* Engineering's proposal, waiting on a decision: **RPO ≤ 5 min** via continuous WAL archiving, **RTO 1 h per partition / 24 h full cluster**. RPO is the tight one because a record we 200'd and then lost is unrecoverable — Heimdal only retries on a non-2xx. |
+| ~~**D5a**~~ | **CLOSED 4 Sep 2026 — SIGNED (DL-111):** **RPO ≤ 5 min** via continuous WAL archiving; **RTO 1 h per partition, 24 h full cluster**. RPO is the tight one because a record we 200'd and then lost is unrecoverable — Heimdal only retries on a non-2xx. Signing obliges two things: continuous WAL archiving must be configured **and its lag alerted** (a stalled archiver silently turns RPO into *"however long ago it stopped"*), and T-051 must be **timed** against the 1-hour figure, not merely completed. |
 
 ### Blocks a specific area
 
 | Ref | Blocks |
 |---|---|
 | **Q8b-2** | ZC's confirmation of the Keycloak realm/client/issuer/audience/role/claim. The proposal is live in the dev realm and every value is a property with no default, so confirming it is a config change — it blocks *hardening sign-off*, not development. |
-| **Q13b** | Gateway report jitter. We design for a synchronised 10× burst (13,333/s); if gateways jitter across the cycle the peak drops 10× and so does the hardware. **The single most valuable open question.** |
-| **Q13c** | Agreement that Heimdal caps replay at 2× nominal. Our own rate limiting cannot substitute for Heimdal honouring it. |
-| **Q4b** | `netstats` IPv6. The schema accepts IPv4 only; one `$def` widens if IPv6 gateways exist. No code change. |
-| **D5b** | Late-arrival policy: skip the write, meter `records_expired_on_arrival`, ACK. **Engineering agreed 29 Aug 2026 and added a non-zero-counter alert; the product signature is still owed.** T-026 stays BLOCKED — it is a deliberate data-loss-by-design path. |
+| ~~**Q13b**~~ | **ANSWERED 4 Sep 2026 (DL-104): gateways JITTER** across the cycle. Expected steady state ~1,333/s; DL-082's 13,333/s becomes **configured headroom**, and hardware is not sized down until a `ts.server mod 600` histogram over the first 24 h of ingest confirms it. **One reading inverts:** a cyclic queue-depth spike used to be the buffer working — under jitter it is evidence the answer is wrong. |
+| ~~**Q13c**~~ | **ANSWERED 4 Sep 2026 (DL-109):** Heimdal agrees the 2× cap. **Not one defence changes** — an agreement is a commitment, not a control; 503 backpressure, bounded prefetch and T-018's rate limit stay. T-049 unblocked. |
+| ~~**Q4b**~~ | **ANSWERED 4 Sep 2026 (DL-110): no IPv6, for now.** The schema stays IPv4-only and strict; the IPv4 `$def` failure emits a **distinct metered per-field code**, and a non-zero count on it reopens Q4b. |
+| ~~**D5b**~~ | **SIGNED 4 Sep 2026 (DL-112):** skip the write, meter `records_expired_on_arrival`, ACK, **alert when non-zero**. T-026 unblocked. Still a deliberate data-loss-by-design path — the signature is what makes it a decision rather than a defect. |
 
 ### Decided 29 August 2026 — do not reopen
 

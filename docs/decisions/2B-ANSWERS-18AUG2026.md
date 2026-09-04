@@ -284,7 +284,7 @@ schemas were tightened; that is the fixtures earning their keep before a line of
 | Heimdal inbound auth — mTLS or OAuth2, issuer, audience, rotation | ZC | Deferred by decision, not blocked. Must be closed before any shared deployment. |
 | Keycloak realm/client/claim confirmation | ZC + security | Proposal above is live in the dev realm; confirmation is a config change. |
 | netstats IPv6 | ZC | Schema accepts IPv4 only; one `$def` widens if IPv6 exists. |
-| Gateway report jitter | ZC / Heimdal | Worth 10× on hardware. The single most valuable outstanding question. |
+| ~~Gateway report jitter~~ | ZC / Heimdal | **ANSWERED 4 Sep 2026 (Q13b, DL-104): gateways JITTER across the cycle.** Expected steady state ~1,333/s; the 13,333/s design target below becomes configured headroom, and hardware is not sized down until the `ts.server mod 600` histogram confirms it. |
 | Heimdal replay rate cap at 2× nominal | ZC / Heimdal | Needs agreement, not just our own rate limiting. |
 | ~~Clock-skew policy — accept or reject a future `ts.device`~~ | ~~Product + engineering~~ | **CLOSED 29 Aug 2026 (Q14a, ADR-003 D9).** Rejected at Input beyond `stats.input.validation.max-clock-skew` (default `PT5M`): 400, field code `clock_skew_exceeded`, metered. It was an engineering decision, not a product one. |
 | Late-arrival `expired_on_arrival` sign-off | Product | Unchanged — D5b. Engineering agreed the behaviour on 29 Aug 2026 and added a non-zero-counter alert; the signature is still outstanding. |

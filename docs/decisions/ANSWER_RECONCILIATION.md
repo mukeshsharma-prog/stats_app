@@ -87,7 +87,7 @@ These are average rates. **Answered 18 Aug 2026 (Q13a): assume synchronised ten-
 
 Input is sized for 13,333/s (a replica-count decision — it is stateless and CPU-bound on validation). The Writer is sized for **drain**, about 2,000/s per type, not for peak. Writer prefetch starts at 500. Queue depth spiking each cycle is the buffer working: **alert on oldest message age, never on depth.** `max_wal_size` is sized for the burst, not the average.
 
-**Q13b — gateway report jitter — is the single most valuable open question**, worth 10× on hardware.
+~~**Q13b — gateway report jitter — is the single most valuable open question**, worth 10× on hardware.~~ **ANSWERED 4 September 2026 (DL-104): gateways spread reporting across the cycle.** The 13,333/s design target becomes configured headroom rather than the expected case; expected steady state is the average, ~1,333/s. Hardware is not sized down until a `ts.server mod 600` histogram over the first 24 h of real ingest confirms it — a measurement outranks a statement about firmware behaviour across 160,000 devices.
 
 ## `netstats` sample interpretation
 

@@ -138,7 +138,7 @@ Content-Type: application/json
   │                          gate (step W-1a below) and a payload failure
   │                          is a DEAD-LETTER, not a 400. Heimdal retries
   │                          only on a non-2xx, so a 400 here would make a
-  │                          recoverable dialect mismatch unrecoverable.
+  │                          recoverable payload mismatch unrecoverable.
   │                          (ADR-007 §5, DL-088)
   │
   ├─ 6. CLOCK-SKEW CHECK     ts.device > ts.server + max-clock-skew ?
@@ -310,14 +310,16 @@ consume from app_statsstore.<type>      one deployment per type,
   │                       invalid ⇒ DEAD-LETTER, never a 400: the record
   │                       was already accepted, confirmed and published,
   │                       so the caller is long gone.
-  │                       This is where the three lorastats dialects part
-  │                       company: one is encoded, two dead-letter, and
-  │                       nothing on the record discriminates them —
-  │                       all three carry version: 1.
-  │                       (ADR-007 §4/§5, DL-088, DL-089)
-  │                       ⚠ VOLUME: at 115.2M/day this is ~15M msg/day
-  │                         into a DLQ with no TTL (ADR-002 §12).
-  │                         Q15a is what closes it.
+  │                       All THREE lorastats dialects are ACCEPTED here
+  │                       and normalised to one typed row. Selection is
+  │                       STRUCTURAL — nothing on the record discriminates
+  │                       them, and all three carry version: 1, so any
+  │                       branch on version is wrong.
+  │                       The enumeration is CLOSED at three: an unknown
+  │                       FOURTH dialect still dead-letters.
+  │                       (ADR-007 §4 as amended, DL-088, DL-105; T-063)
+  │                       ✔ Q15a answered 4 Sep 2026. The ~15M msg/day
+  │                         into a no-TTL DLQ stops once T-063 ships.
   │
   ├─ 2. RANGE-CHECK       netstats tx/rx: the schema permits 19 digits,
   │                       which is WIDER than signed BIGINT. Check
@@ -588,13 +590,13 @@ what happens if the control is removed.
 | 4 | ACK the original, then publish to retry | Publish → **confirm** → then ACK | Crash in the window loses it silently |
 | 5 | DLQ expiry | **No TTL, ever** — unrepresentable in the API | The last remaining copy of the record is deleted on a timer |
 | 6 | Duplicate suppressed with no counter | `records_duplicate_suppressed{type}` | A cross-tenant `uid` collision becomes invisible |
-| 7 | Late arrival, no live partition | Skip + meter + **alert** (`BLOCKED`) | Either a silent drop, or a write into a partition that does not exist |
+| 7 | Late arrival, no live partition | Skip + meter + **alert** — **D5b SIGNED 4 Sep 2026 (DL-112), T-026 unblocked** | Either a silent drop, or a write into a partition that does not exist. Q15b (DL-106) confirms `ts.device` is genuine device time, so this path is real |
 | 8 | Counter wider than `BIGINT` | Range-check before conversion | Silent value corruption, no error anywhere |
 | 9 | In-flight transformation of any kind | **Byte-identical publication** | Per-partition duplicate suppression stops working, silently |
 | 10 | Unsorted pagination | Fixed `(ts_device DESC, uid DESC)` | A row returned twice or skipped entirely, with no error |
 | 11 | Redrive after ~90 days | Runbook note | A no-op that increments a counter — and looks like a successful recovery |
 | 12 | **Payload validated at Input instead of the Writer** | Two gates: `validateEnvelope()` at Input, `validate()` at the Writer (ADR-007 §5) | A dialect mismatch becomes a 400. Heimdal retries only on a non-2xx, so the record is **destroyed** where a dead-letter would have been redrivable. The one loud window on this list — and loud does not mean recoverable |
-| 13 | **DLQ depth alert drowned by routine dialect volume** | Per-type DLQ thresholds, sized for `lorastats` separately (ADR-002 §12) | ~15M lorastats messages/day sit permanently above a uniform threshold, so a genuine dead-letter in another type is never noticed. The alert is still firing; nobody is still reading it |
+| 13 | **DLQ depth alert drowned by routine dialect volume** — *largely closed 4 Sep 2026 (DL-105)* | Per-type DLQ thresholds (ADR-002 §12). **Accepting all three `lorastats` dialects removes the routine volume**; T-060 is sequenced after T-063 | ~15M lorastats messages/day used to sit permanently above a uniform threshold, so a genuine dead-letter in another type was never noticed. **Still live until T-063 ships**, and any future decision that dead-letters a type by design reintroduces it whole |
 
 **Ten of the thirteen fail silently.** Window 12 is the exception worth
 studying: it is fully logged, fully visible, returns a correct-looking

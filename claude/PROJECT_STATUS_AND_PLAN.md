@@ -73,11 +73,12 @@ migration, so they were living only in this paragraph. Their real status:
 profile), or D14 (unknown fields — the ARD does not address it at all). **All of
 those except D14 were then closed the same day by `2B-ANSWERS-18AUG2026.md`.** It
 proposes but cannot ratify D5a (99.9% / RPO~0 / RTO 30 min) and D5b
-(`expired_on_arrival` → DLQ); both still need product sign-off. **On 29 Aug 2026
+(`expired_on_arrival` → DLQ). **On 29 Aug 2026
 engineering agreed D5b** (adding a non-zero-counter alert) **and put a counter-proposal
 to product on D5a: RPO ≤ 5 min, RTO 1 h per partition / 24 h full cluster.** The ARD's
-`RPO~0 / RTO 30 min` is not achievable at multi-terabyte scale and was never costed;
-neither number is signed yet.
+`RPO~0 / RTO 30 min` is not achievable at multi-terabyte scale and was never costed.
+**Both were SIGNED on 4 September 2026** — D5a as the counter-proposal (DL-111), D5b as
+agreed (DL-112). T-051 and T-026 are unblocked.
 
 ~~**Chase:** the ARD references `Stats_App_OpenAPI_v1_draft.yaml` as "delivered
 separately".~~ **Closed 21 Aug 2026.** It was never delivered, and it was always
@@ -108,7 +109,7 @@ pending ZC confirmation and it gates Phase 4.
 | V1 stat types | `lorastats`, `ltestats`, `sysstats`, `omsstats`, `netstats` — all five |
 | `omsstats` | In scope. Its absence from the STA-21/STA-33 lists was a typo. |
 | `omsstats` timestamp | Heimdal already sends `ts.server`. **No normalisation on our side.** `ts.converter` handling is dead. |
-| `netstats` schema | **Strict and final** (Q4a, 18 Aug 2026): `eth0`/`wwan` mandatory, other interfaces allowed, `apipa` optional, counters digit-only strings stored as `BIGINT`. The Writer must range-check against the signed `BIGINT` maximum. Only IPv6 (Q4b) is open, and it widens one `$def`. |
+| `netstats` schema | **Strict and final** (Q4a, 18 Aug 2026): `eth0`/`wwan` mandatory, other interfaces allowed, `apipa` optional, counters digit-only strings stored as `BIGINT`. The Writer must range-check against the signed `BIGINT` maximum. IPv6 (Q4b) closed provisionally on 4 Sep 2026 — **no, for now** (DL-110) — with a metered per-field rejection code whose non-zero count reopens it. |
 | Every record has a tenant | Yes. A missing tenant is a validation failure, not a placeholder write. |
 | Isolation field | `tenant`, never `maintenant` |
 | `uid` | Unique; Heimdal does not deliver duplicates. Store as its own PG column; uniqueness is `PRIMARY KEY (ts_device, uid)` per partition (ADR-003, G2), and suppressed duplicates are metered. |
@@ -181,8 +182,8 @@ close alone:
 | Item | Needs |
 |---|---|
 | `uid` uniqueness becomes `(ts_device, uid)` — in that column order — scoped per partition — a global unique index is not possible on a partitioned table | A formal amendment to **STA-21B**. Redelivery still cannot duplicate, because a redelivered record carries the same `ts_device`. |
-| Late-arriving records have no live partition to land in | **Product sign-off** on rejecting and metering them, rather than writing rows that retention removes minutes later. Engineering agreed the policy on 29 Aug 2026 and added a non-zero-counter alert; the signature is still outstanding (D5b) |
-| Backup / PITR / restore targets | **An RPO/RTO from product + operations.** ADR-003 D5 has the framing. Engineering's proposal to put in front of them: **RPO ≤ 5 min** via continuous WAL archiving, **RTO 1 h single partition / 24 h full cluster** — RPO tight because lost data is unrecoverable, RTO loose because this is 90-day telemetry (D5a). |
+| ~~Late-arriving records have no live partition to land in~~ | **CLOSED 4 Sep 2026 — D5b SIGNED (DL-112).** Skip, meter `records_expired_on_arrival`, ACK, alert when non-zero. T-026 unblocked. Q15b (DL-106) confirms `ts.device` is genuine device time, so the path is real |
+| ~~Backup / PITR / restore targets~~ | **CLOSED 4 Sep 2026 — D5a SIGNED (DL-111):** RPO ≤ 5 min via continuous WAL archiving; RTO 1 h single partition, 24 h full cluster. Obliges archiver-lag alerting (a stalled archiver silently converts RPO from 5 min to *"however long ago it stopped"*) and a **timed** T-051. |
 
 ### 2b. Was "needs ZC" — ANSWERED 18 August 2026
 
@@ -207,11 +208,8 @@ decision are in `docs/decisions/2B-ANSWERS-18AUG2026.md`. **Do not reopen these.
 |---|---|---|
 | **Q8a-2** — Heimdal inbound auth: mTLS or OAuth2, issuer, audience, identity, rotation | The Input port is unauthenticated until it closes | Nothing today. **Must close before any shared deployment.** |
 | **Q8b-2** — confirmation of the proposed Keycloak values | Every value is a property with no default, so this is a config change | Hardening sign-off, not development |
-| **Q13b** — gateway report jitter | Worth 10× on hardware. **The single most valuable outstanding question.** | Capacity sizing |
-| **Q13c** — agreement on the 2× replay cap | Our own rate limiting cannot substitute for Heimdal honouring it | Replay runbook |
-| **Q4b** — `netstats` IPv6 | One `$def` widens if yes; no code change | Nothing |
 
-**Q14a and Q5a were removed from this table on 29 August 2026** — both were decided, not answered. See §2d.
+**Q13b, Q13c, Q4b and the four Q15 questions were removed from this table on 4 September 2026** — all answered. **Q14a and Q5a were removed on 29 August 2026** — both decided, not answered. See §2c and §2d. Only the two auth items above remain owed by ZC.
 
 ### 2c. Decided 29 August 2026 — was "conflicted" or misfiled
 
@@ -226,7 +224,7 @@ remain: `claude/OPEN_QUESTIONS_STATUS_29AUG2026.md`.
 | **Q5a** | **115.2M records/day.** 160k gateways × 6/h × 24h × 5 types is arithmetic; "around 10 million" reads as an early single-type estimate and is withdrawn. It never blocked freezing the schema — daily `RANGE` partitions, `BIGINT`, `(ts_device, uid)` and the composite index are identical at both figures. The delta is hardware, not rework | ADR-003; §1 capacity table |
 | **DLQ retention** | **No TTL, ever.** A TTL'd dead-letter queue is silent data loss, and a DLQ message has already survived three retry tiers. Alert on depth > 0 and oldest-message age; manual disposition within 14 days; redrive by an authorised ops role, per type, capped at 2× nominal, root cause first | ADR-002 §12; `amqp-topology-v1.md` §6 |
 | **`pg_partman`** | **Never a dependency.** Pre-creation is a scheduled task in `stats-writer` behind the D3 advisory lock — needed anyway, because D8 puts N replicas per type and N replicas racing to create tomorrow's partition is what the lock exists to prevent | ADR-003 D1 |
-| **D5b** | **Engineering agrees** the late-arrival policy — skip, meter `records_expired_on_arrival`, ACK — and adds an **alert when the counter is non-zero**, because a systemic gateway backlog and a one-off look identical in the raw count. **The product signature is still owed; T-026 stays BLOCKED** | ADR-003 |
+| **D5b** | **Engineering agrees** the late-arrival policy — skip, meter `records_expired_on_arrival`, ACK — and adds an **alert when the counter is non-zero**, because a systemic gateway backlog and a one-off look identical in the raw count. **SIGNED 4 Sep 2026 (DL-112) and T-026 is unblocked** — held until then because Q15b left it possible that `ts.device` was stamped on arrival, in which case the policy governed a path production never takes | ADR-003 |
 
 ---
 

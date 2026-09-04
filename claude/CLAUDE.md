@@ -6,6 +6,39 @@ It is still auto-loaded every session: the repository-root `CLAUDE.md` is a
 pointer file whose only content is an `@claude/CLAUDE.md` import. Edit this file,
 not the pointer.
 
+> **Version 1.8 — 4 September 2026.** Closes **nine** open questions against the
+> answers ZC and Hasan returned, and the two signatures that were owed. Governing
+> entries: **DL-104…DL-112**; ADR-007 gains an **Amendment — 4 September 2026**.
+>
+> **Changed in 1.8 — re-read these:**
+>
+> * **All three `lorastats` dialects are now ACCEPTED, not dead-lettered.** Q15a was
+>   answered *"make it work for all the known dialects."* **DL-089 is superseded by
+>   DL-105** and ADR-007 §4 is reversed. Four rules bound it: detection is
+>   **structural, never `version`**; all three normalise to the **same typed
+>   columns** (the dialect is a metric label, not a column); string coercion is
+>   **range-checked against `BIGINT` before conversion** and dead-letters on
+>   overflow; and the enumeration is **closed at three** — an unknown fourth dialect
+>   still dead-letters. T-063.
+> * **`ts.device` is genuinely device-assigned** (Q15b, DL-106). The offline-backfill
+>   trap, the late-arrival policy and the redrive-age trap all describe **real**
+>   paths.
+> * **`status` can report a FAILED conversion** (Q15d, DL-108). It is **stored**,
+>   **metered** as `records_upstream_status_not_ok{type}` and logged at `WARN` —
+>   never dead-lettered. It is the one passthrough member that is now *read*, though
+>   still never branched on.
+> * **`_id` never appears on the wire** (Q15c, DL-107) — it is a Mongo *export*
+>   artifact of Heimdal's own store. That is not permission to reintroduce Mongo here.
+> * **Gateways jitter across the 10-minute cycle** (Q13b, DL-104). Expected steady
+>   state is ~1,333/s; DL-082's 13,333/s is now **configured headroom**, and hardware
+>   is not cut until the `ts.server mod 600` histogram confirms it.
+> * **D5a and D5b are SIGNED** (DL-111, DL-112). RPO ≤ 5 min / RTO 1 h per partition,
+>   24 h full cluster; late arrival is skip-meter-ACK-alert. **T-051 and T-026 are
+>   unblocked.**
+> * **Heimdal agrees the 2× replay cap** (Q13c, DL-109) — and we still cannot enforce
+>   it, so every defence stays. **No IPv6 "for now"** (Q4b, DL-110), with a metered
+>   per-field rejection code as the reopening trigger.
+>
 > **Version 1.7 — 29 August 2026.** Rebuilds the envelope on the **production wire
 > format** after Hasan supplied 15 real records. Governing decision: **ADR-007**.
 >
@@ -180,7 +213,7 @@ Use these terms exactly. Do not invent synonyms.
 | **gateway** | The *physical device* — used in prose only ("160,000 gateways", "a gateway with a bad clock"). **Never a field name.** Do not mechanically rewrite this word to `clsbox`. |
 | **ts.server** | The canonical **arrival** clock — Heimdal's receipt time. What the SRS called `ts.processor`. Clock skew is measured against it (ADR-007 §3). |
 | **ts.device** | When the gateway measured the record. **Retention keys on this**, not on `ts.server` (STA-23B). |
-| **Passthrough members** | `ts.datastore`, `ts.converter`, `ts.expiresOn`, `status`, `version` — accepted, stored, returned verbatim, and **never read**. |
+| **Passthrough members** | `ts.datastore`, `ts.converter`, `ts.expiresOn`, `status`, `version` — accepted, stored, returned verbatim, and **never branched on**. Two are *read* for metering only and change no routing: `ts.converter` (ADR-007 §2) and, since DL-108, `status` — anything other than exactly `["conversion ok"]` increments `records_upstream_status_not_ok{type}`. `version` is read by nothing, ever: it is not a dialect discriminator. |
 | **Heimdal Core** | The Datahub Core module that sends us data. Upstream, owned by ZC. Not ours. |
 | **Statsstore** | The persistence layer — Module 2. Also the queue-name prefix. |
 | **DLQ** | Dead-letter queue. Per stat type. Holds messages that failed processing after the retry limit. |
@@ -308,7 +341,11 @@ does not delay another.
 A gateway that was offline delivers records whose `ts.device` is weeks older than
 `ts.server`. Those records are near expiry the moment they arrive. This is the
 **answered and accepted business rule** — do not "fix" it by quietly switching to
-`ts.server`. Document it and cover it with boundary tests.
+`ts.server`. Document it and cover it with boundary tests. **Confirmed real on
+4 Sep 2026 (Q15b, DL-106):** `ts.device` is genuinely device-assigned. The 15-record
+sample showed `ts.device == ts.server` on 14 of 15 records only because all fifteen
+came from healthy gateways sending immediately — a sample of the healthy path is not
+evidence about the absence of the unhealthy one.
 
 **Unix seconds, not milliseconds.**
 `ts.server` and `ts.device` are in **seconds**. Treating them as milliseconds
@@ -339,8 +376,16 @@ which.**
 Three consecutive production `lorastats` records used three incompatible payload
 shapes — bare names with integers, bare names with strings (`"176"`), and
 `lora_`-prefixed names. **All three carried `version: 1`.** Anything that branches
-on `version` to pick a parser is wrong. We encode one dialect and dead-letter the
-rest (ADR-007 §4); do not "fix" a DLQ spike by widening the schema to absorb them.
+on `version` to pick a parser is wrong — and this got *more* dangerous, not less,
+on 4 Sep 2026: since **DL-105** we accept all three and select between them
+**structurally**, so there is now real dialect-selection code with `version` sitting
+right next to it looking exactly like the discriminator it is not.
+
+Two halves of the original decision still hold. The enumeration is **closed at
+three** — an unknown fourth dialect dead-letters, because a union allowed to grow
+silently is a contract nobody understands. And **you still do not widen a schema to
+make a DLQ spike go away**: DL-105 widened it because ZC explained the dialects, not
+because the DLQ was full.
 
 **The SRS field names are not the wire field names.**
 Every envelope name in SRS v1.0 — `gateway`, `ts.processor` — is wrong, and the
@@ -368,7 +413,8 @@ documented choice — not whatever the deserialiser happens to do.
 
 ## 7. Open questions — do NOT assume answers
 
-Most of the v1.0 blockers are now closed. What remains is below. Do not invent an
+Most of the v1.0 blockers are now closed, and **nine more closed on 4 September 2026**
+(DL-104…DL-112). What remains is below. Do not invent an
 answer to any of these. If a task requires one, say so and stop.
 
 ### Answered 18 August 2026 — do NOT reopen
@@ -383,23 +429,31 @@ derived engineering decisions, is `docs/decisions/2B-ANSWERS-18AUG2026.md`. Read
 | Q4a | `eth0` and `wwan` **mandatory**; other interfaces **allowed**; `apipa` **optional**; counters **stay strings on the wire, stored as `BIGINT`** | `docs/schemas/netstats-v1.schema.json` is strict and no longer a draft. `apipa` is optional because ZC's own sample omits it on `wwan`. The schema caps counters at 19 digits — **the Writer must still range-check** against the signed `BIGINT` maximum, or an overflow corrupts the value silently. IPv6 stays unsupported |
 | Q8a | **Deferred by decision.** Build Input without Heimdal auth for now | Auth is a config-selected filter: `stats.input.auth.mode=none\|mtls\|oauth2`, **no default in code**, `WARN` on every startup when `none`, and a test that refuses to start under the `prod` profile. Until ZC answers, anything reaching the Input port can write |
 | Q8b | **Engineering proposal, live in the dev realm** | Realm `statsapp`, clients `stats-api`/`stats-input`/`stats-dev-cli`, roles `stats.readOnly` and `stats.ingest`, tenant claim **`tenant`, single-valued String**. Working realm at `docs/setup/keycloak-realm-statsapp.json`. Single-valued on purpose: a multi-valued claim turns isolation into `tenant IN (...)`, and one misconfigured user then reads several tenants with every test still green |
-| Q13a | **Assume synchronised 10-minute boundaries** until Heimdal telemetry proves otherwise | Design target is **13,333/s** (10× average — 800,000 records per cycle landing in 60 s). Writer prefetch starts at 500; Writer is sized for drain (~2,000/s per type), not for peak. Queue depth spiking each cycle is the buffer working — alert on **oldest message age**, never on depth. `max_wal_size` sized for the burst, not the average |
-| Q13a (replay) | **Ask Heimdal to cap replay at 2× nominal (2,667/s)** | A 6-hour outage is 28.8M messages and about 3 hours of replay at that cap, holding total ingest at 4,000/s. 503 is the backpressure channel and is the mechanism working, not an incident. Replayed records are duplicates by definition and `ON CONFLICT DO NOTHING` absorbs them |
+| Q13a | ~~Assume synchronised 10-minute boundaries~~ — **amended 4 Sep 2026 (Q13b, DL-104): gateways JITTER** | Design target of **13,333/s** is now **configured headroom**, not the expected case; expected steady state is the average, ~1,333/s. Writer prefetch starts at 500; Writer is sized for drain (~2,000/s per type). **Alert on oldest message age, never on depth — unchanged.** But the reading inverts: a cyclic depth spike used to be the buffer working, and under jitter it is **evidence the answer is wrong**. Hardware is not sized down until the `ts.server mod 600` histogram over the first 24 h of ingest confirms it (T-050) |
+| Q13a (replay) | **Heimdal AGREES the 2× nominal cap (2,667/s)** — Q13c answered 4 Sep 2026, DL-109 | A 6-hour outage is 28.8M messages and about 3 hours of replay at that cap, holding total ingest at 4,000/s. **Not one defence changes: the agreement is a commitment, not a control.** 503 is the backpressure channel and is the mechanism working, not an incident. Replayed records are duplicates by definition and `ON CONFLICT DO NOTHING` absorbs them. T-049 unblocked |
 | Q11a | **Built**, then **rebuilt on production 29 Aug 2026 (ADR-007)**. 77 fixtures across `valid/`, `invalid/`, `edge/`, `malformed/` | `docs/schemas/fixtures/`, catalogued in `MANIFEST.md`. `docs/schemas/validate-fixtures.py` asserts **87** and exits non-zero for CI. The 18 Aug set found three real schema gaps; the 29 Aug production sample found that **four of the five payload schemas and every envelope field name were wrong**, and inverted four fixture assertions outright |
 
 ### Still needs ZC / Hasan
 
+Two items. Everything else on this list was answered on 4 September 2026 — see
+*Decided 4 September 2026* below.
+
 | Ref | Question | Blocks |
 |---|---|---|
-| Q8a-2 | Heimdal inbound auth, when ZC is ready: mTLS or OAuth2 client credentials; issuer, audience, client identity, rotation | Nothing today — deferred by decision. **Must close before any shared deployment** |
+| Q8a-2 | Heimdal inbound auth, when ZC is ready: mTLS or OAuth2 client credentials; issuer, audience, client identity, rotation. Our position is OAuth2 client credentials, to be sent as *"unless you object by \<date\>, we implement OAuth2"* | Nothing today — deferred by decision. **Must close before any shared deployment**; until then anything that can reach the Input port can write |
 | Q8b-2 | Confirmation of the proposed Keycloak realm, client, issuer, audience, role names and tenant claim | Nothing today — the proposal is live and confirmation is a config change |
-| Q13b | **Gateway report jitter.** Do gateways spread reporting across the 10-minute cycle, or fire on the boundary? | Worth 10× on hardware. The single most valuable outstanding question |
-| Q4b | `netstats` IPv6: do any gateways report IPv6 addresses? | One `$def` widens if yes; no code change |
-| Q13c | Agreement on the 2× replay rate cap | Our own rate limiting cannot substitute for Heimdal honouring it |
-| **Q15a** | **Which `lorastats` payload dialect is canonical, and are the others being retired?** Three consecutive production records used three incompatible shapes — bare/integer, bare/string, `lora_`-prefixed/integer — all carrying `version: 1`. Either a migration is in flight or three firmware generations are in the field. | **The most urgent open item.** Nothing is blocked — the schema assumes bare/integer — but that assumption dead-lettered ~2/3 of `lorastats` in the sample, and ADR-002 §12 forbids a DLQ TTL, so the DLQ grows until this is answered |
-| Q15b | **Is `ts.device` genuinely device-assigned?** It equals `ts.server` in 14 of 15 production records and differs by 1 second in the fifteenth. If it is stamped on arrival, retention-on-`ts.device` is retention-on-arrival | Not blocking. Would settle whether the offline-backfill trap and the late-arrival policy (D5b, T-026) describe anything real |
-| Q15c | Does Heimdal POST `_id`? It is in the supplied dump and is a Mongo artifact | Nothing — accepted under D14 either way |
-| Q15d | Is `status` ever anything but `["conversion ok"]`? If it can report a *failed* conversion, we are storing records upstream already knows are bad | Nothing today. Would justify a metric |
+
+**Residuals carried inside a closed decision.** Not open questions — none blocks
+anything, and each is recorded so it is not rediscovered as a surprise. Full table:
+`claude/DECISIONS.md` §12.
+
+| From | Residual |
+|---|---|
+| DL-105 (Q15a) | *Are the other `lorastats` dialects being retired?* Only decides whether a parser can ever be deleted; `records_lorastats_dialect{dialect}` is what will show one going to zero |
+| DL-108 (Q15d) | The vocabulary of non-OK `status` values — the counter is value-agnostic and will enumerate it |
+| DL-110 (Q4b) | IPv6 is *"for now, no"*. **A non-zero count on the metered IPv4 rejection code reopens it** |
+| DL-104 (Q13b) | Jitter is a statement, not a measurement. Hardware is not sized down until the `ts.server mod 600` histogram confirms it (T-050) |
+| DL-109 (Q13c) | The 2× replay cap is agreed and **unenforceable by us** |
 
 ### Decided 29 August 2026 — do NOT reopen
 
@@ -414,13 +468,31 @@ into the remaining conversations: `claude/OPEN_QUESTIONS_STATUS_29AUG2026.md`.
 | Q5a | **115.2M records/day across five types** (160k gateways × 6/h × 24h × 5). The internal "around 10 million" is withdrawn. This never blocked freezing the schema: every schema decision is identical at both figures — the delta is hardware, not rework | ADR-003; capacity tables |
 | — | **DLQ retention: no TTL, ever.** A TTL'd DLQ is silent data loss. Alert on depth > 0 and oldest-message age; manual disposition within 14 days; redrive by an authorised ops role only, per type, capped at 2× nominal, root cause first | ADR-002 §12; `amqp-topology-v1.md` §6 |
 | — | **`pg_partman` is never a dependency.** Partition pre-creation is a scheduled task in `stats-writer` behind the D3 advisory lock | ADR-003 D1 |
-| D5b | **Engineering agrees the late-arrival policy** (skip, meter `records_expired_on_arrival`, ACK) and adds an alert when the counter is non-zero. **Product sign-off is still owed** — see below | ADR-003; T-026 stays BLOCKED |
+| D5b | **Engineering agrees the late-arrival policy** (skip, meter `records_expired_on_arrival`, ACK) and adds an alert when the counter is non-zero. **SIGNED 4 Sep 2026 — DL-112** | ADR-003; **T-026 unblocked** |
 | **ADR-007** | **The production wire format is the contract.** `clsbox` not `gateway`; `ts.server` not `ts.processor`; no rename layer anywhere. `ts.converter` accepted, preserved, metered — ADR-004's rejection clause withdrawn. Two validation gates: envelope at Input (400), payload at the Writer (dead-letter). One `lorastats` dialect encoded, the rest dead-lettered. `netstats` interfaces require only `tx`/`rx`. `ltestats` numerics are strings and the field is `access_Technology` | ADR-007; amends ADR-002 §12, ADR-003, ADR-004 |
 
 **The redrive trap to carry into the runbook:** a message that sat in the DLQ long enough
 becomes `expired_on_arrival` the moment it is redriven, because its `ts.device` has aged
 past the retention window. A redrive after ~90 days is a no-op that increments a counter,
 not a recovery.
+
+### Decided 4 September 2026 — do NOT reopen
+
+Nine rows closed off the open-questions sheet: seven answers from ZC / Hasan and the
+two signatures that were owed. **Approver:** Naman Vashishtha. Full reasoning:
+`claude/DECISIONS.md` DL-104…DL-112.
+
+| Ref | Decision | Lands in |
+|---|---|---|
+| **Q15a** | **All three known `lorastats` dialects are accepted and normalised to one typed row** — bare/integer, bare/string, `lora_`-prefixed/integer. Four rules: detection is **structural, never `version`**; one stored shape and one API shape, with the dialect as the metric label `records_lorastats_dialect{dialect}` rather than a column; string coercion is **range-checked against the signed `BIGINT` maximum before conversion** and dead-letters on overflow or a bad parse, never zeroing or truncating; and the enumeration is **closed at three** — an unknown fourth dialect still dead-letters. **Supersedes DL-089**, reverses ADR-007 §4, and stops ~15M msg/day accumulating in a DLQ that may never expire | DL-105; ADR-007 Amendment §A1; **T-063** |
+| Q15b | **`ts.device` is genuinely device-assigned** and sent as soon as the device records. Retention on `ts.device` is retention on measurement time | DL-106; STA-23B |
+| Q15c | **`_id` never appears on the wire** — a Mongo export artifact of Heimdal's own store. No `_id` handling is built; D14 stays the safety net. **Not permission to reintroduce Mongo here** | DL-107 |
+| Q15d | **`status` can report a failed conversion.** Store the record, meter `records_upstream_status_not_ok{type}` on anything but exactly `["conversion ok"]`, log at `WARN` — **never dead-letter**: the record is valid and a redrive would repeat forever. The comparison is value-agnostic on purpose | DL-108; **T-064** |
+| Q13b | **Gateways jitter across the 10-minute cycle.** Expected steady state ~1,333/s; DL-082's 13,333/s becomes **configured headroom**. Hardware is not cut until the `ts.server mod 600` histogram over the first 24 h of ingest confirms it. **One reading inverts:** a cyclic queue-depth spike used to be the buffer working — under jitter it is evidence this answer is wrong | DL-104; amends DL-082; T-050 |
+| Q13c | **Heimdal agrees the 2× replay cap (2,667/s).** T-049 unblocked. **Not one defence changes** — an agreement is a commitment, not a control | DL-109; T-049, T-052 |
+| Q4b | **No IPv6 "for now."** `netstats` stays IPv4-only and strict, with a **distinct, metered per-field rejection code** whose non-zero count is the reopening trigger — not a calendar review | DL-110 |
+| **D5a** | **SIGNED.** RPO ≤ 5 min via continuous WAL archiving; RTO 1 h per partition, 24 h full cluster. Obliges archiver-lag alerting and a **timed** T-051 | DL-111 ratifies DL-084; **T-051 unblocked** |
+| **D5b** | **SIGNED.** Late arrival: skip, meter `records_expired_on_arrival`, ACK, **alert when non-zero**. Signed now rather than on 29 Aug because DL-106 makes the path real rather than hypothetical | DL-112 ratifies DL-083; **T-026 unblocked** |
 
 ### Ours to decide — decide deliberately, record as an ADR, do not escalate
 
@@ -447,10 +519,9 @@ silent, with `tenant` out of the key until the metric says otherwise; a
 
 ### Needs product / operations
 
-| Ref | Question | Blocks |
-|---|---|---|
-| D5a | Backup, PITR, and restore targets — an RPO/RTO number. **Engineering proposal to take to product: RPO ≤ 5 min via continuous WAL archiving; RTO 1 h for a single partition, 24 h for a full cluster restore.** RPO is the tight one because lost data is unrecoverable — Heimdal retries only on a non-2xx, so anything we 200'd and then lost is gone. RTO is deliberately loose: this is 90-day telemetry, not financial records, and at multi-terabyte scale a tight RTO may not be purchasable. Framing: *"if we lost the last 15 minutes, or took 8 hours to come back, what actually breaks?"* *(BR-30, BR-35, ADR-003 D5)* | Production readiness; T-051 |
-| D5b | Late-arrival policy. A record can arrive with `ts_device` older than the retention window, so no live partition exists for it. Skip the write, meter `records_expired_on_arrival`, ACK — rather than write a row that retention removes minutes later. **Engineering agreed 29 Aug 2026 and added an alert when the counter is non-zero; the product signature is still owed.** It is a deliberate data-loss-by-design path, and the only implementable one: the alternative is writing into a partition that does not exist. *(ADR-003)* | Writer, Phase 2 — **T-026 stays BLOCKED** |
+**Nothing.** D5a and D5b were the two rows here, and both were **signed by Naman
+Vashishtha on 4 September 2026** — see *Decided 4 September 2026*. **T-051 and T-026
+are unblocked.**
 
 **Answered since v1.0 — do not reopen:** database (PostgreSQL only), queue
 structure (per type), language/JDK (Java 21), deployables (one image per module),
@@ -518,10 +589,10 @@ wrong.** Reconciled 18 August 2026.
 |---|---|---|---|
 | ADR-001 | JVM and Spring platform baseline | **APPROVED** | Java 21; Spring Boot **pinned** at 3.5.16 (G6) — not provisional, because Q1a closed on 18 Aug 2026. There is no internal reference project, so CI, logging, secrets and deployment conventions are defined by this project (ADR-001, 2B-ANSWERS §1). No residual. |
 | ADR-002 | Per-type AMQP topology and ownership | **APPROVED** | Queue naming and three retry tiers fixed by G1/G4. **Amended 29 Aug 2026:** §11 closes Q3a — only broker-connected modules declare topology and `stats-api` gets no broker connection; §12 decides dead-letter retention — **no TTL, ever** — with alerting, 14-day manual disposition and per-type authorised redrive. No residual. |
-| ADR-003 | PostgreSQL retention, partitioning, indexes | **APPROVED** (24 Aug 2026) | PG17, daily `RANGE (ts_device)` partitions, typed columns, Flyway; key order `(ts_device, uid)` per G2, with STA-21B/STA-25A amended to match and duplicate suppression metered. Secondary index `(tenant, uid)` carries the `uid`-only lookup, which cannot prune partitions. Restore is per-partition (D5). **Amended 29 Aug 2026:** D1 makes partition pre-creation a scheduled task in `stats-writer` behind the D3 advisory lock, with `pg_partman` never a dependency; **D9 closes Q14a** — a `ts.device` beyond the configured skew tolerance is rejected at Input. Two rows remain open inside an approved ADR: **RPO/RTO targets** still need a number from product/ops (D5a), and the **late-arrival policy** has engineering agreement but still needs product sign-off (D5b). Approval does not close either. |
+| ADR-003 | PostgreSQL retention, partitioning, indexes | **APPROVED** (24 Aug 2026) | PG17, daily `RANGE (ts_device)` partitions, typed columns, Flyway; key order `(ts_device, uid)` per G2, with STA-21B/STA-25A amended to match and duplicate suppression metered. Secondary index `(tenant, uid)` carries the `uid`-only lookup, which cannot prune partitions. Restore is per-partition (D5). **Amended 29 Aug 2026:** D1 makes partition pre-creation a scheduled task in `stats-writer` behind the D3 advisory lock, with `pg_partman` never a dependency; **D9 closes Q14a** — a `ts.device` beyond the configured skew tolerance is rejected at Input. **Amended 4 Sep 2026:** both rows that were open inside this approved ADR are now **signed** — D5a at RPO ≤ 5 min / RTO 1 h per partition and 24 h full cluster (DL-111), and D5b's late-arrival policy (DL-112). T-051 and T-026 are unblocked, and Q15b (DL-106) confirms the `ts.device` basis those decisions rest on. |
 | ADR-004 | OMS timestamp normalisation | **ACCEPTED — amended 29 Aug 2026 by ADR-007 §2** | No normalisation; publication is byte-identical to the received record, which is what makes ADR-003's per-partition duplicate suppression work. **Clause 3 is withdrawn:** a record carrying `ts.converter` is **valid** — production sends it on 100% of records. Accepted, preserved, never read, metered. Cite the ARD's different ADR-004 as `ARD-ADR-04`. |
-| ADR-005 | Delivery semantics and idempotency | **ACCEPTED with implementation defaults** | Writer batching amended by G3. Retry/DLQ handoff must be publish-confirmed *before* ACKing the original — ACK-then-publish opens a silent loss window. Duplicate outcome is `ON CONFLICT (ts_device, uid) DO NOTHING`, metered. Replay spikes the duplicate counter by design; do not alert on it. Q13c (2× replay cap) is not enforceable by us. |
-| ADR-007 | The production wire format is the contract | **ACCEPTED** (29 Aug 2026) | `clsbox`/`ts.server` end to end with no rename layer; `ts.converter` accepted and metered (amends ADR-004); two validation gates with different consequences; one `lorastats` dialect encoded and the rest dead-lettered. **Four open questions raised, Q15a the urgent one** — which dialect is canonical. Also amends ADR-003 (column names) and ADR-002 §12 (DLQ volume). |
+| ADR-005 | Delivery semantics and idempotency | **ACCEPTED with implementation defaults** | Writer batching amended by G3. Retry/DLQ handoff must be publish-confirmed *before* ACKing the original — ACK-then-publish opens a silent loss window. Duplicate outcome is `ON CONFLICT (ts_device, uid) DO NOTHING`, metered. Replay spikes the duplicate counter by design; do not alert on it. Q13c (2× replay cap) is **agreed by Heimdal since 4 Sep 2026 (DL-109) and still not enforceable by us** — 503 backpressure, bounded prefetch and T-018's rate limit stay exactly as they are. |
+| ADR-007 | The production wire format is the contract | **ACCEPTED** (29 Aug 2026) — **§4 amended 4 Sep 2026** | `clsbox`/`ts.server` end to end with no rename layer; `ts.converter` accepted and metered (amends ADR-004); two validation gates with different consequences. **§4 is reversed by the *Amendment — 4 September 2026*: all three known `lorastats` dialects are accepted and normalised to one row (DL-105 supersedes DL-089), under a closed enumeration with structural detection and range-checked coercion.** All four of its open questions (Q15a–Q15d) were answered on 4 Sep 2026 — DL-105…DL-108 — leaving one residual: whether the other dialects are being retired. Also amends ADR-003 (column names); its DLQ-volume warning to ADR-002 §12 is resolved. |
 | ADR-006 | Tenant isolation and API security | **ACCEPTED** | The isolation decisions are settled and buildable; only ZC's confirmation of the Keycloak values (Q8b-2) is outstanding, and it is a config change. Proposed realm is live in dev — read role is `stats.readOnly`, **not** the bare `readOnly` placeholder. Input auth is deferred by decision (Q8a): `stats.input.auth.mode` has no default in code and `prod` must refuse `none`. |
 
 ---
@@ -601,6 +672,7 @@ only `README.md` (the index) and a `CLAUDE.md` pointer that imports this file.
 | `docs/contracts/openapi-v1-design.md` | Design input for the above. Converted 21 Aug 2026 — the YAML wins where they differ |
 | `docs/schemas/` | JSON Schema catalogue, per-type schemas, the 68-file fixture set (`fixtures/MANIFEST.md`), and `validate-fixtures.py` for CI |
 | `docs/decisions/2B-ANSWERS-18AUG2026.md` | The seven §2b answers of 18 Aug 2026 and every engineering decision derived from them |
+| `docs/decisions/DATA-SENSITIVITY-INVENTORY.md` | **Every field in all six schemas, the six sinks it can reach, and what class of identifier it is.** The input document for **D-12** — engineering's, not a classification. Read it before touching logging, masking, or `ltestats`/`netstats` persistence |
 | `docs/setup/keycloak-realm-statsapp.json` | Importable dev realm — proposed Q8b values, four users built for specific tests |
 | `docs/prompts/CLAUDE_PROMPTS.md` | Prompt templates for working on this repo |
 | `docs/setup/VS_CODE_SETUP.md` | Local IDE setup |
