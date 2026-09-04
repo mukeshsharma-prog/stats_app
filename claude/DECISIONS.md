@@ -2628,3 +2628,56 @@ this is a guard and not a code review note.
 **Consequence.** Scanning moved into `MainSourceScan`, shared with `StatTypeFanOutTest`,
 so a module added to `MODULES` is covered by both guards at once. Trap 20's second half
 — the two dialect fixtures moving from `invalid/` to `valid/` — still belongs to T-063.
+
+---
+
+### DL-114 — D-10 and D-12 lose the halves that were engineering's all along
+
+**4 Sep 2026** · `ENGINEERING` · D-10, D-12, ADR-003 D8, DL-099, DL-102, DL-103 · T-065, T-066, T-034
+
+**Decision.** Four fixes, taken together because they share one shape: each was an item
+sitting on a *someone else* row that nobody else could have done.
+
+**1. The Writer refuses a deployment it cannot honour (T-065).** `stats.writer.stat-type`
+defaults to `all`, ADR-003 D8 requires exactly one type per deployment in production, and
+nothing refused it. `StatTypeDeploymentGuard` now fails the context under the `prod`
+profile, and refuses an unrecognised value in *every* profile. The second half is the
+dangerous one: a typo makes every per-type `Condition` evaluate false, so the Writer
+starts, binds no listener, consumes nothing and still reports ready — readiness has no
+opinion about whether a listener exists. `all` outside `prod` stays legal and logs a
+`WARN`; a guard that forbade it everywhere would simply get the property deleted.
+
+**2. The Dockerfile copies every module (D-10 residual).** It listed the four original
+modules and never `stats-testsupport`, a module since 3 Sep (DL-099). It built green only
+because `bootJar -x test` never resolves the test classpath and the warm-up layer ends in
+`|| true`. Both `COPY` lines added; the `|| true` stays, now with a comment saying what it
+cannot catch. `settings.gradle.kts` also still called itself "Four modules" above a list
+of five.
+
+**3. P1, P2 and P3 are adopted (D-12).** The inventory offered five proposals and split
+them by reversibility. The three that need no signature are taken: **P1** never log an
+`ltestats` or `netstats` payload at any level including `DEBUG`; **P2** log the exception
+type and message, never PostgreSQL's `DETAIL:` line; **P3** T-034 does not merge until the
+masking questions are answered. P1 and P2 are now in `DEVELOPMENT.md` §7, which is the
+authoritative logging rule; P3 is T-034's `Blocked by` cell rather than a line in a table
+nobody schedules from. **P4 and P5 remain security's** — they are irreversible, and
+adopting the reversible three pre-decides neither.
+
+**Why adopt logging rules for code that does not exist.** `stats-writer` has no `ERROR` or
+`WARN` path at all until T-024 and T-057. That is the argument for writing them now, not
+against it: a logging rule adopted after the log line exists is a rule someone has to go
+back and enforce, and the first `ERROR` path in this system will be written while chasing
+a failure, which is the worst moment to be deciding what may be printed. Same reasoning as
+DL-113.
+
+**4. Both rows had no task, and that is why they sat.** D-10's STAT_TYPE gap and the whole
+of D-12 had no `T-nnn`, so nothing in the Tasks sheet surfaced either — the defect the
+29 August pass caught for Q14a, repeating twice. T-065 (done) and T-066 (pending T-024 and
+T-057) now exist.
+
+**Consequence.** D-10 is **platform-only**: runtime platform, image registry, promotion
+path, resource requests and limits. Its resource-sizing item is no longer blocked on Q13b
+either, which DL-104 answered — though DL-104 defers sizing down until T-050's histogram
+confirms the jitter. D-12 keeps five questions for security plus two items re-owned to
+platform, and engineering's remaining obligation is to honour what it just adopted.
+

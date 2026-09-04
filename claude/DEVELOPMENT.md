@@ -548,6 +548,25 @@ constraint violation prints the offending key values in its `DETAIL:` line, so a
 exception logged at `ERROR` can carry payload content that `DEBUG`-gating never sees.
 Log the exception type and message, not the driver's detail line.
 
+**Two stricter guards were ADOPTED on 4 September 2026** (DL-114). Both are reversible
+config-level rules that `DATA-SENSITIVITY-INVENTORY.md` §7 offered as P1 and P2, and
+neither needs a signature — they narrow what may be logged, so adopting them cannot
+foreclose anything security later decides:
+
+* **P1 — never log an `ltestats` or `netstats` payload at *any* level, `DEBUG` included.**
+  Stricter than the rule above, for these two types only. They are the two that carry
+  `imsi`, `lac`/`cid` and `ip`/`gw`/`dns`, and an `ltestats` payload in a log *is* an IMSI
+  in Docker logs, under a log-retention policy that does not exist yet. It costs nothing
+  today because neither type is built; adopting it before T-034 is the entire point.
+* **P2 — on a write failure, log the exception type and message only, never the driver's
+  `DETAIL:` line.** This is the paragraph above, now a decision rather than advice.
+
+Both are rules for code that does not exist yet: `stats-writer` has no `ERROR` or `WARN`
+path at all until T-024 and T-057. They are written down first deliberately — a logging
+rule adopted after the log line exists is a rule someone has to go back and enforce.
+**P4 and P5 (masking `imsi`, and treating `lac`/`cid` as location data) are irreversible
+and still need security's signature** — do not infer them from this section.
+
 **Which fields are actually sensitive** is catalogued per field, per stat type, and per
 sink in `docs/decisions/DATA-SENSITIVITY-INVENTORY.md`. The *policy* over them is **D-12**
 and is not decided — do not infer one from this section.

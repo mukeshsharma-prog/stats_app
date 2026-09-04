@@ -1,6 +1,6 @@
 // Stats App — module registration.
 //
-// Four modules, three of which become Docker images (Q2, answered):
+// Five modules, three of which become Docker images (Q2, answered):
 //   stats-common      — shared library, not deployable
 //   stats-testsupport — Docker-backed test infrastructure, test-only, not deployable
 //   stats-input   — Module 1, HTTP POST -> AMQP

@@ -19,16 +19,28 @@ WORKDIR /workspace
 COPY gradlew ./
 COPY gradle ./gradle
 COPY settings.gradle.kts build.gradle.kts gradle.properties ./
-COPY stats-common/build.gradle.kts   ./stats-common/
-COPY stats-input/build.gradle.kts    ./stats-input/
-COPY stats-writer/build.gradle.kts   ./stats-writer/
-COPY stats-api/build.gradle.kts      ./stats-api/
+COPY stats-common/build.gradle.kts      ./stats-common/
+COPY stats-testsupport/build.gradle.kts ./stats-testsupport/
+COPY stats-input/build.gradle.kts       ./stats-input/
+COPY stats-writer/build.gradle.kts      ./stats-writer/
+COPY stats-api/build.gradle.kts         ./stats-api/
+# `|| true` because this layer only warms the dependency cache — a real failure is
+# meant to surface in the bootJar below, with the module's own error. It does mean
+# this layer cannot be relied on to catch a module missing from the COPYs above:
+# every module in settings.gradle.kts must be listed here, or the build fails only
+# when something first resolves the test classpath.
 RUN chmod +x gradlew && ./gradlew --no-daemon dependencies --quiet || true
 
-COPY stats-common ./stats-common
-COPY stats-input  ./stats-input
-COPY stats-writer ./stats-writer
-COPY stats-api    ./stats-api
+# Every module settings.gradle.kts includes — FIVE since 3 Sep 2026 (DL-099).
+# stats-testsupport is test-only and becomes no image, but Gradle still has to
+# configure it: settings.gradle.kts includes it, so a missing copy is a build that
+# breaks the moment anything resolves the test classpath. `bootJar -x test` does not,
+# which is why this was latent rather than red.
+COPY stats-common      ./stats-common
+COPY stats-testsupport ./stats-testsupport
+COPY stats-input       ./stats-input
+COPY stats-writer      ./stats-writer
+COPY stats-api         ./stats-api
 
 # Declared after the COPYs so a change of MODULE does not invalidate them.
 ARG MODULE
