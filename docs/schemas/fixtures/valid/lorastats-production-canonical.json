@@ -33,5 +33,5 @@
   "status": [
     "conversion ok"
   ],
-  "$comment": "Production record, 29 Aug 2026, UNMODIFIED. The canonical lorastats dialect: bare field names, integer values, carrying fsk_received, rx_short_pkt and timespan. This is the dialect the schema encodes; the other two observed dialects dead-letter (ADR-007 §4). NOTE: production sends tenant == maintenant == \"mzc\", which is exactly the trap in claude/CLAUDE.md §6. This fixture is kept byte-faithful because its job is to be a production regression guard; it is NOT an isolation test. The *-tenant-isolation-pair.json fixtures, where the two values deliberately differ, remain the only isolation guards."
+  "$comment": "Production record, 29 Aug 2026, UNMODIFIED. The canonical lorastats dialect: bare field names, integer values, carrying fsk_received, rx_short_pkt and timespan. This is the dialect the schema encodes TODAY; the other two are accepted by DL-105 and arrive with T-063, and dead-letter until then. See invalid/lorastats-dialect-*.json. NOTE: production sends tenant == maintenant == \"mzc\", which is exactly the trap in claude/CLAUDE.md §6. This fixture is kept byte-faithful because its job is to be a production regression guard; it is NOT an isolation test. The *-tenant-isolation-pair.json fixtures, where the two values deliberately differ, remain the only isolation guards."
 }

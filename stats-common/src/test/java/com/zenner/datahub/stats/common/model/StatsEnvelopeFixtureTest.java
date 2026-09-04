@@ -38,8 +38,8 @@ class StatsEnvelopeFixtureTest {
     }
 
     @Test
-    void expandsTheValidDirectoryToThirtyFiveRecords() {
-        assertThat(validRecords()).hasSize(35);
+    void expandsTheValidDirectoryToThirtySixRecords() {
+        assertThat(validRecords()).hasSize(36);
     }
 
     static List<Arguments> validRecords() {

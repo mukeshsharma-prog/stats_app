@@ -47,8 +47,8 @@ class SchemaFixtureParityTest {
     }
 
     @Test
-    void expandsToTheSameEightyOutcomesAsThePythonOracle() {
-        assertThat(fixtureCases()).hasSize(80);
+    void expandsToTheSameEightyOneOutcomesAsThePythonOracle() {
+        assertThat(fixtureCases()).hasSize(81);
         assertThat(fixtureCases())
                 .extracting(arguments -> (String) arguments.get()[0])
                 .noneMatch(description -> description.contains("malformed/"));
@@ -61,10 +61,11 @@ class SchemaFixtureParityTest {
      *
      * <p>The Python gate additionally asserts the seven {@code $expect} markers —
      * {@code "input-reject"} on the five clock-skew fixtures (ADR-003 D9), and
-     * {@code "writer-dlq"} on the two lorastats dialect fixtures (ADR-007 §4) — none
-     * of which are schema cases. So it reports 87 assertions where this test expands
-     * to 80 outcomes. That gap is deliberate — do not "fix" either number to match
-     * the other.</p>
+     * {@code "writer-dlq"} on the two lorastats dialect fixtures, which hold that
+     * marker until T-063 teaches the Writer the other two dialects (DL-105) — none of
+     * which are schema cases. So it reports 88 assertions where this test expands to
+     * 81 outcomes. That gap is deliberate — do not "fix" either number to match the
+     * other.</p>
      */
     static List<Arguments> fixtureCases() {
         List<Path> files = new ArrayList<>();
