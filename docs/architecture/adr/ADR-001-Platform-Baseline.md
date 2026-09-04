@@ -30,7 +30,7 @@ With no reference project to inherit from, CI, logging, secrets, and deployment 
 | Convention | Decision |
 |---|---|
 | Build | Gradle Wrapper only, Kotlin DSL, version catalog in `gradle/libs.versions.toml`; no module declares its own versions |
-| Logging | Structured JSON to stdout, one event per line; `traceId` and `uid` on every record; no payloads on the success path |
+| Logging | Structured JSON to stdout, one event per line; `traceId` and `uid` on every record; **full payloads only at `DEBUG`, which is off in production** — never at `INFO` or above on any path, and no tokens or secrets at any level. *Qualified 4 Sep 2026 by DL-102*: this row previously read "no payloads on the success path", which was silent about the failure path and was then read as permission. `claude/DEVELOPMENT.md` §7 is the authoritative rule |
 | Secrets | Environment variables injected by the platform; never in `application.properties`, images, or Git. The dev stack uses literal dev-only values that are obviously fake |
 | CI | `./gradlew build` plus Testcontainers integration tests on every push; the build fails on a failed schema-fixture assertion |
 | Deployment | Three images, one per application module, tagged with the Git SHA; immutable |

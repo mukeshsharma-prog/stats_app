@@ -1,11 +1,12 @@
 # ADR-007 — The production wire format is the contract
 
-**Status:** `ACCEPTED`
+**Status:** `ACCEPTED` — **§4 amended 4 September 2026** (see *Amendment*, below)
 **Date:** 29 August 2026
 **Decision owner:** Naman Vashishtha (engineering), on production data supplied by Hasan Dogan
 **Requirements:** STA-01A, STA-02, STA-03A, STA-14A, STA-21A, STA-23B
 **Supersedes:** the envelope field names in SRS v1.0 and every document derived from them
 **Amends:** ADR-004 (§2 below), ADR-003 (column names)
+**Amended by:** the *Amendment — 4 September 2026* section below, which answers Q15a–Q15d and **reverses §4**
 
 > **Numbering warning (G5).** `Datahub_Core_StatsApp_ARD_v1_1.pdf` carries its own
 > ADR-007. Cite the ARD's as **`ARD-ADR-07`**. An unqualified "ADR-007" always means
@@ -91,6 +92,15 @@ keys on `ts.device`** (STA-23B) — unchanged.
 
 ### 4. One lorastats dialect is encoded; the others dead-letter
 
+> **AMENDED 4 September 2026 — this section is reversed.** Q15a was answered:
+> *"make it work for all the known dialects."* All three are now accepted and
+> normalised to one typed row, under four rules that keep the enumeration closed.
+> See **Amendment — 4 September 2026 §A1** and **DL-105**. Two findings below
+> survive unchanged and are still binding: `version` is never a parser
+> discriminator, and a union that is allowed to grow silently is a contract nobody
+> understands. The text below is kept as the record of what was decided on
+> 29 August and why.
+
 Three consecutive production `lorastats` records arrived in three mutually
 incompatible dialects:
 
@@ -162,7 +172,13 @@ and ADR-003's DDL. It is affordable only because `stats-input`, `stats-writer` a
 `stats-api` are still empty application shells — this is a schema-and-docs change,
 not a rewrite. Had it been found after Phase 2, it would have been a migration.
 
-**The DLQ volume problem — unresolved and operational.** §4 dead-letters an
+**The DLQ volume problem — resolved 4 Sep 2026 by the Amendment.** The paragraph
+below described the cost of §4 as it stood on 29 August. With all three dialects
+accepted, the ~15M messages/day stops; the paragraph is retained because it is why
+Q15a was escalated as urgent rather than routine, and because DLQ depth alerting
+(T-060) is still owed for the ordinary reasons.
+
+**§4 as originally decided.** §4 dead-letters an
 estimated two thirds of `lorastats` traffic, and ADR-002 §12 says **the DLQ has no
 TTL, ever.** At 115.2M records/day that is roughly 15M messages/day accumulating
 with no expiry. The no-TTL rule is right — a TTL'd DLQ is silent data loss — but it
@@ -178,14 +194,83 @@ production member including `expiresOn`, with `@JsonInclude(NON_NULL)` so absent
 members do not serialise as null. A lossy view would break ADR-004's byte-identical
 publication without failing anything.
 
-## Open questions this raises
+## Open questions this raises — **all four answered 4 September 2026**
 
-| Ref | Question | Owner | Blocks |
+| Ref | Question | Answer (4 Sep 2026) | Decision |
 |---|---|---|---|
-| Q15a | **Which `lorastats` dialect is canonical**, and are the other two being retired? Three dialects in three consecutive records is either a migration in flight or three firmware generations in the field. | ZC / Hasan | Nothing today — the schema assumes one. But it dead-letters ~2/3 of lorastats until answered. **Most urgent open item.** |
-| Q15b | Is `ts.device` genuinely device-assigned? It equals `ts.server` in 14 of 15 records, differing by 1s in the fifteenth. If it is stamped on arrival, then retention-on-`ts.device` is retention-on-arrival, and the offline-gateway backfill trap — plus the whole late-arrival policy (D5b, T-026) — rests on an assumption production does not show. | ZC / Hasan | Not blocking. Would simplify D5b if answered. |
-| Q15c | Does Heimdal POST `_id`? It is in the dump and is a Mongo artifact. The envelope accepts it under D14 either way. | ZC / Hasan | Nothing. |
-| Q15d | Is `status` ever anything other than `["conversion ok"]`? If it can report a *failed* conversion, we are storing records the upstream already knows are bad. | ZC / Hasan | Nothing today. Would justify a metric. |
+| Q15a | **Which `lorastats` dialect is canonical**, and are the other two being retired? | *"Make it work for all the known dialects."* All three are legitimate production traffic. **The second half — retirement — is still unanswered**, and is carried as a residual: it decides only whether a parser can ever be deleted. | **DL-105**, §A1 below |
+| Q15b | Is `ts.device` genuinely device-assigned? | **Yes** — device-assigned, and sent to Heimdal as soon as the device records it. The 14-of-15 match with `ts.server` is healthy gateways sending immediately, not an arrival stamp. | **DL-106** |
+| Q15c | Does Heimdal POST `_id`? | **No.** Heimdal stores in its own MongoDB and the sample was dumped straight out of it. `_id` is an export artifact and never reaches the wire. | **DL-107** |
+| Q15d | Is `status` ever anything other than `["conversion ok"]`? | **Yes — it can report a failed conversion.** | **DL-108** |
+
+## Amendment — 4 September 2026
+
+**Status:** `ACCEPTED` · **Approver:** Naman Vashishtha · **Source:** ZC / Hasan Dogan
+**Amends:** §4 (reversed), the Consequences DLQ-volume paragraph (resolved)
+
+### A1. All three known `lorastats` dialects are accepted and normalised to one row
+
+§4's assumption is replaced by the answer. The schema accepts all three:
+
+| Dialect | Field names | Value types | Example |
+|---|---|---|---|
+| **A** | bare | integer | `"rx_nr_pkts": 176` |
+| **B** | bare | **string** | `"rx_nr_pkts": "176"` |
+| **C** | **`lora_`-prefixed** | integer | `"lora_rx_nr_pkts": 176` |
+
+Four rules bound the widening. Each one exists because of something §4 got right:
+
+1. **Detection is structural, never `version`.** All three carry `version: 1`.
+2. **All three normalise to the same typed columns** — one stored shape, one API
+   shape. The dialect is a **metric label**, `records_lorastats_dialect{dialect}`,
+   never a column: it answers *"how much of the fleet is on C?"* without pushing a
+   three-way branch onto every consumer.
+3. **String coercion is explicit and range-checked** against the signed `BIGINT`
+   maximum *before* conversion — the rule Q4a set for `netstats` counters. A value
+   that does not parse, or that overflows, **dead-letters**; it is never silently
+   zeroed, truncated or defaulted.
+4. **An unknown fourth dialect still dead-letters.** *"All the known dialects"* is
+   exactly three. The schema is a **closed enumeration**, not an open union.
+
+**Why the reversal is not the thing §4 warned against.** §4's Consequences say *"do
+not resolve this by quietly widening the schema."* The operative word is *quietly*.
+§4 rejected a union **while the dialects were unexplained** — accepting them then
+would have ratified a contract nobody understood, and the union would only have
+grown. Q15a explains them: three shapes are in the field simultaneously and none is
+being retired on any timeline we have been given. Rules 1 and 4 keep the unbounded
+half of the original objection impossible.
+
+**What it costs, and what it stops costing.** T-063 widens the schema, moves
+`invalid/lorastats-dialect-prefixed.json` and
+`invalid/lorastats-dialect-string-values.json` into `valid/`, and adds an
+unknown-fourth-dialect fixture that must still dead-letter — that fixture is the
+test that proves the enumeration is closed. What stops is ~15M messages/day
+accumulating in a DLQ that ADR-002 §12 forbids ever expiring.
+
+### A2. Consequences of the other three answers
+
+* **Q15b (DL-106).** Retention on `ts.device` is retention on *measurement* time.
+  Every path that rested on it is real, not theoretical: the offline-backfill trap,
+  the late-arrival policy (**D5b, signed 4 Sep 2026 — DL-112**), the redrive-age
+  trap, and the clock-skew tolerance of ADR-003 D9.
+* **Q15c (DL-107).** No `_id` handling is built. D14 is unchanged and remains the
+  safety net. Fixtures derived from the 29 Aug dump must have `_id` stripped, or
+  they test the exporter rather than the wire. **Heimdal's store being MongoDB is
+  not permission to reintroduce Mongo here.**
+* **Q15d (DL-108).** A `status` other than exactly `["conversion ok"]` is
+  **stored**, **metered** as `records_upstream_status_not_ok{type}` and **logged at
+  `WARN`** — never dead-lettered, because the record is valid and correctly
+  delivered and a redrive would repeat forever. The comparison is value-agnostic:
+  we do not have the vocabulary of failure strings, and a check that recognises
+  only known values goes quiet on the ones it does not. T-064.
+
+### A3. What this amendment does not change
+
+`clsbox`/`ts.server` end to end with no rename layer (§1); `ts.converter` accepted,
+preserved and metered (§2, amending ADR-004); `ts.server` as the arrival clock
+(§3); **the two validation gates and their asymmetric consequences (§5)**; and the
+required-field corrections of §6. The Verification figures below are as at
+29 August and are re-established by T-063.
 
 ## Verification
 

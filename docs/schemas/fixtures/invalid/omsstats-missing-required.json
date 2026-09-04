@@ -14,5 +14,5 @@
     "rx_crc_bad": 41,
     "timespan": 300
   },
-  "$comment": "Mandatory data.device_count removed. Expect 400 with code 'missing' on that field, and NOTHING published."
+  "$comment": "Mandatory data.device_count removed. PAYLOAD failure: accepted by Input, dead-lettered by the WRITER with code 'missing' on that field (ADR-007 \u00a75). Never a 400 -- Heimdal would never retry it."
 }

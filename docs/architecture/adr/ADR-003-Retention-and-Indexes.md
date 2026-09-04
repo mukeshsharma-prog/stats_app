@@ -7,6 +7,12 @@
 **Amended 29 August 2026:** `pg_partman` is no longer a conditional dependency (D1);
 clock skew is decided (D9); the late-arrival policy carries engineering agreement but
 still awaits product sign-off.
+**Amended 4 September 2026 (DL-111, DL-112):** **both rows that were open inside this
+approved ADR are now SIGNED.** D5a — RPO ≤ 5 min via continuous WAL archiving; RTO 1 h
+for a single partition, 24 h for a full cluster restore. D5b — the late-arrival policy
+as agreed, skip / meter / ACK / alert. **T-051 and T-026 are unblocked**, and Q15b
+(DL-106) confirms `ts.device` is genuine device time, so the `ts_device` basis both
+decisions rest on is measurement time rather than arrival time.
 **Amended 3 September 2026 (D14b, DL-095):** every typed stat-type table carries a
 nullable `data_extra jsonb`. D2 chose typed columns for the four stable types, which
 leaves an unknown `data` member — explicitly valid under D14, since the payload schemas
@@ -404,8 +410,11 @@ remove almost immediately anyway. It must be metered and logged, never silent.
 **Engineering agreed Option B on 29 August 2026 (Naman Vashishtha), with one
 addition: alert when `records_expired_on_arrival` is non-zero.** A systemic gateway
 backlog and a harmless one-off look identical in the raw count; only the alert
-distinguishes them. Engineering agreement is *not* the signature — **D5b still needs
-product sign-off, and T-026 stays BLOCKED until it lands.** The alternative to Option B
+distinguishes them. Engineering agreement is *not* the signature — and **that
+signature was given on 4 September 2026 (D5b → DL-112). T-026 is unblocked.** It was
+held until then because Q15b left open the possibility that `ts.device` was stamped on
+arrival, in which case no record could ever be late and this policy governed a path
+production never takes; DL-106 answers that. The alternative to Option B
 is writing rows into a partition that does not exist, so there is no third path to wait
 for.
 
@@ -499,7 +508,7 @@ detach would take against the writer.
 | `uid`-only lookup path | Secondary index `(tenant, uid)` on the parent; revisit a time hint on the endpoint if Phase 5 says so | **DECIDED** |
 | Envelope columns from the ARD | `ingested_at` rejected as a rename of `received_at`; `schema_version smallint NOT NULL` adopted | **DECIDED (D7), 24 Aug 2026** |
 | Writer deployment shape | One image, one deployment per stat type via `STAT_TYPE`; retention stays behind the D3 advisory lock | **DECIDED (D8), 24 Aug 2026** |
-| Late-arrival policy | Option B, reject and meter, plus an alert when the counter is non-zero | **ENGINEERING AGREED 29 Aug 2026 — still needs product sign-off (D5b)** |
+| Late-arrival policy | Option B, reject and meter, plus an alert when the counter is non-zero | **SIGNED 4 Sep 2026 (D5b → DL-112). T-026 unblocked** |
 | Partition pre-creation mechanism | Scheduled task in `stats-writer` behind the D3 advisory lock; `pg_partman` never a dependency | **DECIDED (D1), 29 Aug 2026** |
 | Clock skew — a `ts.device` ahead of `ts.server` | Rejected at Input beyond a configurable tolerance (default 5 min); 400 `clock_skew_exceeded`, metered | **DECIDED (D9), 29 Aug 2026 — closes Q14a** |
 

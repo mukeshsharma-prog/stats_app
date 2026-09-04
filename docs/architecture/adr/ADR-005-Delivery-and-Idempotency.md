@@ -74,7 +74,9 @@ absorbs the entire replay and `records_duplicate_suppressed` will spike for its
 duration. **That spike is the system working**, and alerting must not treat it as
 an incident. Likewise, a 503 from Input during replay is the backpressure channel
 functioning as designed, not a fault. Note that the 2× cap is a request to
-Heimdal, not something the Stats App can enforce — Q13c tracks its confirmation.
+Heimdal, not something the Stats App can enforce. **Q13c closed 4 Sep 2026 (DL-109):
+Heimdal agrees the cap** — and it remains unenforceable by us, so every defence below
+stays exactly as it is.
 
 ## Implementation defaults
 
@@ -85,7 +87,7 @@ Heimdal, not something the Stats App can enforce — Q13c tracks its confirmatio
 | Writer batching | Individual writes first, behind a batch-shaped interface; bounded micro-batching (100–500 records or 50–200 ms, whichever first) with single-record fallback is the target (D11, G3) | Makes batching a tuning change against a real benchmark rather than a rewrite, while single-record fallback preserves per-record DLQ precision. |
 | Duplicate handling | `ON CONFLICT (ts_device, uid) DO NOTHING`, metered | Defence in depth even though upstream says duplicates do not occur. |
 | Input broker failure | HTTP 503, no local buffer | Keeps Input stateless and activates Heimdal retry. |
-| Replay rate | Request 2× nominal (2,667/s) from Heimdal | Bounds catch-up to ~3 h after a 6 h outage. Not enforceable by us (Q13c). |
+| Replay rate | 2× nominal (2,667/s), **agreed by Heimdal 4 Sep 2026 (Q13c, DL-109)** | Bounds catch-up to ~3 h after a 6 h outage. **Still not enforceable by us** — 503 backpressure, bounded prefetch and T-018's rate limit are the controls we own. |
 
 ## Required tests
 
@@ -116,4 +118,4 @@ Heimdal, not something the Stats App can enforce — Q13c tracks its confirmatio
 | Duplicate outcome | `ON CONFLICT (ts_device, uid) DO NOTHING`, metered | **DECIDED** |
 | `uid` uniqueness scope | `(ts_device, uid)`, per partition — see ADR-003 | **DECIDED (G2)** |
 | Writer batching | Individual first behind a batch-shaped interface; micro-batching is the target | **DECIDED (D11, G3)** |
-| Replay rate cap | 2× nominal requested of Heimdal | **ESCALATED (Q13c)** — we cannot enforce it |
+| Replay rate cap | 2× nominal, agreed by Heimdal | **CLOSED 4 Sep 2026 (Q13c → DL-109)** — agreed, and we still cannot enforce it. T-049 unblocked |

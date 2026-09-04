@@ -97,8 +97,9 @@ The SRS specifies field types and mandatory fields but usually not semantic rang
 
 ## 6. The fixture set — built, not aspirational
 
-68 files, built 18 August 2026 in answer to Q11a. `fixtures/MANIFEST.md` records
-what each one proves; the names below are the real ones.
+75 files — built 18 August 2026 in answer to Q11a, then rebuilt on the production
+wire format 29 August 2026 (ADR-007). `fixtures/MANIFEST.md` records what each one
+proves; the names below are the real ones.
 
 | Fixture | What it proves |
 |---|---|

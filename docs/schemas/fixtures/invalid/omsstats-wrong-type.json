@@ -15,5 +15,5 @@
     "device_count": 3.5,
     "timespan": 300
   },
-  "$comment": "data.device_count carries the wrong JSON type. Expect 400 with code 'invalid_type'. The response must NOT echo the offending value."
+  "$comment": "data.device_count carries the wrong JSON type. PAYLOAD failure: Input accepts and publishes it, the WRITER dead-letters it with code 'invalid_type' (ADR-007 \u00a75). The error must NOT echo the offending value."
 }

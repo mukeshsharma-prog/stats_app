@@ -98,13 +98,13 @@ since 18 August.
 |---|---|---|
 | Spring Boot version + platform reference repository | **CLOSED.** 3.5.16 pinned (G6); Q1a answered — there is no reference repo, so CI, logging, secrets and deployment conventions are defined in ADR-001 | Nothing |
 | Inbound Heimdal authentication and identity | **DEFERRED BY DECISION (Q8a).** Config-selected filter, no default in code, `WARN` on `none`, `prod` refuses `none`. **Risk accepted: the Input port is unauthenticated** | Nothing today. **Blocks any shared deployment** (Q8a-2) |
-| `netstats` nested-interface rules | **CLOSED (Q4a).** Schema is strict. Residual: the Writer must range-check counters against the signed `BIGINT` maximum | Nothing. IPv6 (Q4b) widens one `$def` |
+| `netstats` nested-interface rules | **CLOSED (Q4a).** Schema is strict. Residual: the Writer must range-check counters against the signed `BIGINT` maximum | Nothing. **IPv6 (Q4b) closed provisionally 4 Sep 2026 — no, for now (DL-110)**, with a metered per-field rejection code as the reopening trigger |
 | Keycloak realm/client/issuer/audience/role and tenant claim | **CLOSED (Q8b, ADR-006).** Realm `statsapp`, audience `stats-api`, read role `stats.readOnly`, tenant claim `tenant` single-valued String; live in the dev realm | Nothing. ZC confirmation (Q8b-2) is a config change, because none of these has a default in code |
 | Retry count, backoff, DLQ policy | **CLOSED (G1/G4, ADR-002).** Three tiers, fixed delays 30 s / 5 min / 30 min, externalised, never a multiplier. **DLQ retention closed 29 Aug 2026 (ADR-002 §12): no TTL, ever** — alert on depth > 0 and oldest-message age, manual disposition within 14 days, redrive by an authorised ops role per type at ≤ 2× nominal | Nothing. The redrive *runbook* is still to be written (T-052), but its policy is decided |
 | PostgreSQL version, typed columns vs `jsonb`, partition key, migration tool | **CLOSED (ADR-003).** PG17, daily `RANGE (ts_device)`, typed for four types with a `jsonb` hybrid for `netstats`, Flyway | Nothing |
 | Approved OpenAPI | **DRAFTED** — `docs/contracts/openapi.yaml`, 21 Aug 2026, awaiting ZC confirm/decline | Freezing the contract. Controllers wait on confirmation |
-| Capacity/SLO, burst profile, deployment sizing | **PARTIAL (Q13a).** Design target 13,333/s, prefetch 500, Writer sized for drain. **Volume closed at 115.2M/day (Q5a, 29 Aug 2026)** | **RPO/RTO (D5a)** blocks production readiness — engineering's proposal is RPO ≤ 5 min, RTO 1 h per partition / 24 h full cluster. Q13b jitter is worth 10× on hardware |
-| Late-arrival policy | **ENGINEERING AGREED 29 Aug 2026** — skip the write, meter `records_expired_on_arrival`, ACK, and alert when the counter is non-zero (ADR-003) | Writer, Phase 2. **Still needs the product signature (D5b); T-026 stays BLOCKED** |
+| Capacity/SLO, burst profile, deployment sizing | **PARTIAL (Q13a).** Design target 13,333/s, prefetch 500, Writer sized for drain. **Volume closed at 115.2M/day (Q5a, 29 Aug 2026)** | **CLOSED 4 Sep 2026.** D5a **SIGNED** at RPO ≤ 5 min, RTO 1 h per partition / 24 h full cluster (DL-111). **Q13b answered: gateways JITTER** (DL-104) — expected steady state ~1,333/s, 13,333/s is configured headroom, and hardware is not sized down until the `ts.server mod 600` histogram confirms it |
+| Late-arrival policy | **ENGINEERING AGREED 29 Aug 2026** — skip the write, meter `records_expired_on_arrival`, ACK, and alert when the counter is non-zero (ADR-003) | Writer, Phase 2. **SIGNED 4 Sep 2026 (D5b → DL-112); T-026 is unblocked.** Q15b (DL-106) confirms `ts.device` is genuine device time, so this is a real path |
 | Clock skew — future `ts.device` | **CLOSED 29 Aug 2026 (Q14a, ADR-003 D9).** Rejected at Input beyond `stats.input.validation.max-clock-skew` (default `PT5M`): 400, field code `clock_skew_exceeded`, metered as `records_clock_skew_rejected{type}`. Cross-field, so it is code in Input — not a schema rule | Nothing. Implement in T-013 |
 | Partition pre-creation mechanism | **CLOSED 29 Aug 2026 (ADR-003 D1).** Scheduled task in `stats-writer` behind the D3 advisory lock; `pg_partman` is never a dependency | Nothing. T-012 is unblocked |
 | Topology declaration scope | **CLOSED 29 Aug 2026 (Q3a, ADR-002 §11).** Broker-connected modules only; `stats-api` gets no broker connection. T-032 is the enforcement | Nothing. Platform ack is a courtesy |
@@ -173,9 +173,30 @@ The dominant query pattern is `(tenant, clsbox, ts.device)`. PostgreSQL indexes,
 
 ## 8. Logging, security, and data handling
 
-V1 permits payload logging to the Java logger/Docker logs. Keep payload logging configurable and document its production level, retention, access, and data-classification impact. Never log access tokens, passwords, private keys, or secrets; redact them if they appear in a payload. Always include `uid`, stat type, tenant, gateway, module, event, and error code for correlation. Do not echo full payloads in HTTP error responses.
+**The control is the LEVEL, not the path** — `DEVELOPMENT.md` §7 is authoritative and this
+section restates it (DL-102). V1 permits payload logging to the Java logger/Docker logs
+**only at `DEBUG`, which is off in production**. At `INFO` and above, on *every* path
+including failure, never a full payload. Never log access tokens, passwords, private keys,
+or secrets at **any** level, `DEBUG` included; redact them if they appear in a payload.
+Keep payload logging configurable and document its production level, retention, access,
+and data-classification impact. Always include `uid`, stat type, tenant, `clsbox`, module,
+event, and error code for correlation. Do not echo full payloads in HTTP error responses.
 
-The required correlation ID is `uid`, unless an approved replacement is introduced. Log events must permit traceability across `input`, `writer`, and `api` modules. Payload logging is an accepted V1 decision, but Docker log retention/access must be explicitly configured because records can contain IMSI and device identifiers.
+An earlier revision of this section read "V1 permits payload logging to the Java
+logger/Docker logs" with no level qualification, which contradicted DL-080 and read as
+though a payload could be logged at `ERROR`. It could not, and cannot.
+
+The required correlation ID is `uid`, unless an approved replacement is introduced. Log
+events must permit traceability across `input`, `writer`, and `api` modules. Payload
+logging at `DEBUG` is an accepted V1 decision, but Docker log retention/access must be
+explicitly configured because records can contain IMSI, cell identifiers, IP addresses and
+device identifiers — see `docs/decisions/DATA-SENSITIVITY-INVENTORY.md` for which field is
+which, and **D-12** for the policy, which is not yet decided.
+
+A stack trace is not a payload and is not covered by the rule above, but it can carry
+payload values — a PostgreSQL constraint violation prints the offending key in its
+`DETAIL:` line. Log the exception type and message; do not log the driver's full detail
+line on a write failure.
 
 ## 9. Required development workflow for Claude
 

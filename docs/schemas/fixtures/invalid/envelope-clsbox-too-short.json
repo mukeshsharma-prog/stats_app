@@ -17,5 +17,5 @@
     "load15": 0.38,
     "runable": "2/139"
   },
-  "$comment": "gateway is 11 hex characters, not 12. Expect 400."
+  "$comment": "clsbox is 11 hex characters, not 12. ENVELOPE failure: 400 at Input and nothing published. The field is clsbox, never 'gateway' -- that is the SRS name and appears nowhere in production (ADR-007 \u00a71)."
 }

@@ -1,5 +1,15 @@
 # Open questions and decisions — status and recommended answers
 
+> **SUPERSEDED IN PART — 4 September 2026.** This file is a dated snapshot of where
+> every question stood on 29 August and is kept as that. **Nine of the rows it
+> describes as open are now closed:** Q13b, Q13c, Q4b and Q15a–Q15d were answered by
+> ZC / Hasan, and **D5a and D5b were signed** by Naman Vashishtha. See
+> `claude/DECISIONS.md` **DL-104…DL-112** for the current position, and the ADR-007
+> *Amendment — 4 September 2026* for the `lorastats` dialect reversal (**DL-105
+> supersedes DL-089**: all three dialects are now accepted). Only **Q8a-2** and
+> **Q8b-2** remain owed by ZC.
+
+
 **Date:** 29 August 2026 · **Author:** Naman Vashishtha (SSE) · **Status:** working brief
 **Audience:** lead engineer, product owner, platform
 **Sources reconciled:** `Stats_App_Tracker.xlsx` (Open Questions, Decisions, Tasks),

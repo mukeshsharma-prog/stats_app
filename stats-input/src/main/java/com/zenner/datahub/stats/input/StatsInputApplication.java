@@ -2,6 +2,7 @@ package com.zenner.datahub.stats.input;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
 
 /**
  * Module 1 — Input Module.
@@ -14,6 +15,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * RabbitMQ publisher confirm (STA-04A).
  */
 @SpringBootApplication
+@ConfigurationPropertiesScan
 public class StatsInputApplication {
 
     public static void main(String[] args) {

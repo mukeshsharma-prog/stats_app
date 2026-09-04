@@ -17,11 +17,26 @@ plugins {
 dependencies {
     implementation(project(":stats-common"))
 
+    // NOT an API surface. This module serves no application endpoint and never
+    // will (rule 1 puts every GET in stats-api). The servlet container exists so
+    // actuator has somewhere to publish from: without it `server.port`,
+    // `management.endpoints.web.exposure.include` and
+    // `management.endpoint.health.probes.enabled` are all inert, /actuator/prometheus
+    // does not exist, and docker-compose's readiness healthcheck on 8082 can never
+    // pass. Only actuator is mapped; no controller exists in this module, and
+    // ManagementSurfaceTest asserts that stays true.
+    implementation(libs.spring.boot.starter.web)
+
     implementation(libs.spring.boot.starter.amqp)
     implementation(libs.spring.boot.starter.jdbc)
     // LorastatsMessageProcessor deserializes the production envelope with Jackson.
     implementation(libs.spring.boot.starter.json)
     implementation(libs.spring.boot.starter.actuator)
+    // Actuator alone registers counters without exporting them. Without a registry
+    // implementation, /actuator/prometheus 404s and records_duplicate_suppressed --
+    // the only evidence that ON CONFLICT DO NOTHING suppressed a real row rather
+    // than the write silently vanishing (STA-27A) -- never leaves the JVM.
+    runtimeOnly(libs.micrometer.registry.prometheus)
     // LorastatsConsumerProperties is validated at startup so invalid concurrency
     // or prefetch values fail before a listener connects to RabbitMQ.
     implementation(libs.spring.boot.starter.validation)

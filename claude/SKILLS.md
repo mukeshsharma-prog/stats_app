@@ -180,7 +180,7 @@ config. Tenant isolation is a security control, not a feature.
 - [ ] Queue depth spikes each cycle and drains — **this is the buffer working.**
       Alert on *oldest message age*, never on depth
 - [ ] Replay at the requested 2× cap (2,667/s) on top of live traffic, and
-      `records_duplicate_suppressed` spikes without an alert firing *(Q13c)*
+      `records_duplicate_suppressed` spikes without an alert firing *(Q13c — the 2× cap is agreed since 4 Sep 2026, DL-109, and still unenforceable by us)*
 - [ ] Behaviour when consumption is slower than ingestion — queue grows, nothing lost
 - [ ] Behaviour when the database is unavailable — messages buffer, then drain
 - [ ] Retention/deletion lag under sustained write load; table and index growth
@@ -296,8 +296,8 @@ leave a trace someone can act on.
 
 - [ ] Does it log, dead-letter, or return an error? (One of the three —
       never none.)
-- [ ] Does the log line include `uid`, stat type, tenant, and gateway, so the
-      record can be traced across all three modules? *(D1)*
+- [ ] Does the log line include `uid`, stat type, tenant, and `clsbox`, so the
+      record can be traced across all three modules? *(D1, ADR-007 §1)*
 - [ ] Is the **full payload** kept out of `INFO` and above? These records carry
       device identifiers — IMSI, MAC, gateway IDs. *(D2)*
 - [ ] Is the level right? `WARN` for handled-but-abnormal (retry, dead-letter,

@@ -111,7 +111,7 @@ stats.input.validation.max-clock-skew=PT5M   # starting value; externalised, nev
 
 The response is 400 with a `ts.device` field-level error carrying the reason code `clock_skew_exceeded`, and the rejection is metered as `records_clock_skew_rejected{type}`. The tolerance exists because a few seconds of NTP drift is normal and must not be an outage. This is a **cross-field** check comparing two instance locations, which JSON Schema 2020-12 cannot express, so it lives in Input's code rather than in `envelope-v1.schema.json` — the five `edge/<type>-clock-skew-future.json` fixtures stay schema-valid and are marked `$expect: "input-reject"` instead.
 
-Invalid responses use the approved RFC 9457-compatible Problem Details shape. The response may identify field names, reason codes, stat type, and `uid`, but must not echo sensitive offending values or access credentials. The business answer permits payload logging in the Java logger/Docker logs; production data-classification and access policy still governs what is retained and who can see it.
+Invalid responses use the approved RFC 9457-compatible Problem Details shape. The response may identify field names, reason codes, stat type, and `uid`, but must not echo sensitive offending values or access credentials. The business answer permits payload logging in the Java logger/Docker logs **at `DEBUG` only, which is off in production** — never at `INFO` or above, on any path (DL-102; `claude/DEVELOPMENT.md` §7 is authoritative). Production data-classification and access policy still governs what is retained and who can see it, and neither is decided: see **D-12** and the field-level catalogue in `docs/decisions/DATA-SENSITIVITY-INVENTORY.md`.
 
 ## 5. Delivery/replay behavior
 
