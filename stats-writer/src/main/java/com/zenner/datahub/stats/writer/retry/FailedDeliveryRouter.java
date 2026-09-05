@@ -2,6 +2,7 @@ package com.zenner.datahub.stats.writer.retry;
 
 import com.zenner.datahub.stats.common.amqp.AmqpTopology;
 import com.zenner.datahub.stats.common.model.StatType;
+import com.zenner.datahub.stats.writer.log.SafeFailure;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -116,16 +117,18 @@ public class FailedDeliveryRouter {
                 "", queue, copyWithHeaders(message, attempt, reason, null), statType, queue);
 
         metrics.retried(statType, tier);
+        // The failure is DESCRIBED, never passed to the logger: a throwable argument
+        // prints a stack whose driver message carries the offending row values
+        // (guard P2, DEVELOPMENT.md §7). SafeFailure explains what survives and why.
         log.warn(
-                "Write failed for type={}; attempt {} of {} routed to {} (delay {}), reason={}. "
+                "Write failed for type={}; attempt {} of {} routed to {} (delay {}), cause={}. "
                         + "The original is ACKed only now that this copy is confirmed (ADR-005)",
                 statType.wireName(),
                 attempt,
                 properties.maxRetries(),
                 queue,
                 properties.delayForTier(tier),
-                reason,
-                failure);
+                SafeFailure.describe(failure));
     }
 
     private void deadLetter(
@@ -146,7 +149,7 @@ public class FailedDeliveryRouter {
 
         metrics.deadLettered(statType, reason);
         log.error(
-                "Record DEAD-LETTERED to {}: type={} attempt={} permanent={} reason={}. "
+                "Record DEAD-LETTERED to {}: type={} attempt={} permanent={} cause={}. "
                         + "The queue has no TTL, so this record waits for a person "
                         + "(ADR-002 §12); disposition is expected within 14 days and a redrive "
                         + "after ~90 days is a no-op, because ts.device will have aged past "
@@ -155,8 +158,7 @@ public class FailedDeliveryRouter {
                 statType.wireName(),
                 attempt,
                 permanent,
-                reason,
-                failure);
+                SafeFailure.describe(failure));
     }
 
     /**

@@ -57,9 +57,25 @@ sourceSets {
     }
 }
 
-// StatTypeFanOutTest reads the other modules' main sources to prove no code
-// special-cases an individual stat type (STA-22, trap 15). Gradle supplies the
-// repository root rather than the test guessing it from a working directory.
+// The architecture guards in src/test/.../architecture read the OTHER modules' main
+// sources: StatTypeFanOutTest (no code special-cases one stat type, STA-22/trap 15),
+// VersionIsNotADiscriminatorTest (trap 20, DL-105) and WriterLogsCarryNoThrowableTest
+// (guard P2, T-066). Gradle supplies the repository root rather than the tests guessing
+// it from a working directory.
 tasks.test {
     systemProperty("stats.repositoryRoot", rootProject.projectDir.absolutePath)
+
+    // ...and those sources are declared as INPUTS, which is what makes the guards real.
+    // Gradle has no other way to know this task reads them, so without this block an
+    // edit to stats-writer leaves :stats-common:test UP-TO-DATE and every guard above
+    // silently does not run — a gate that passes because it never executed. Verified by
+    // reintroducing the T-066 defect: UP-TO-DATE and green before this, red after.
+    inputs.files(
+        listOf("stats-common", "stats-testsupport", "stats-input", "stats-writer", "stats-api")
+            .map { rootProject.file("$it/src/main/java") }
+            .filter { it.isDirectory }
+    )
+        .withPropertyName("scannedModuleMainSources")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+        .ignoreEmptyDirectories()
 }

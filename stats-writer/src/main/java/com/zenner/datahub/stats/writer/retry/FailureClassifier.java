@@ -1,6 +1,7 @@
 package com.zenner.datahub.stats.writer.retry;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.zenner.datahub.stats.writer.log.SafeFailure;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
 
@@ -53,17 +54,13 @@ public class FailureClassifier {
     /**
      * A short, safe label for the header and the metric tag.
      *
-     * <p>The exception's <em>message</em> is deliberately not used: a JDBC or
-     * validation message routinely quotes the offending value, and STA-03A forbids
-     * echoing payload content — into a response, a log, or a broker header that ops
-     * tooling will happily display. The class name says what happened; the full stack
-     * goes to the ERROR log, which is ours.</p>
+     * <p>The exception's <em>message</em> is deliberately not used: a JDBC or validation
+     * message routinely quotes the offending value, and STA-03A forbids echoing payload
+     * content — into a response, a log, or a broker header that ops tooling will happily
+     * display. {@link SafeFailure} owns that judgement for the whole module; this method
+     * is the metric- and header-shaped view of it.</p>
      */
     public String reasonLabel(Throwable failure) {
-        Throwable root = failure;
-        while (root.getCause() != null && root.getCause() != root) {
-            root = root.getCause();
-        }
-        return root.getClass().getSimpleName();
+        return SafeFailure.rootType(failure);
     }
 }

@@ -224,7 +224,7 @@ signature.
 | # | Proposal | Reversible? | Needs a signature? |
 |---|---|---|---|
 | P1 | **Never log an `ltestats` or `netstats` payload at any level, including `DEBUG`.** Stricter than `DEVELOPMENT.md` §7 for these two types only | Yes — a config change | **No.** Adopt now; it closes the only pre-T-034 escape path at zero cost |
-| P2 | **Log the exception *type and message*, never the full `DETAIL:` line, on a write failure.** Closes §5.1 | Yes | **No** |
+| P2 | **Log the exception *type*, never a message or stack, on a write failure.** Closes §5.1. **ADOPTED 4 Sep, ENFORCED 5 Sep (T-066, DL-124):** `SafeFailure.describe()` keeps the type chain plus `SQLState`; `WriterLogsCarryNoThrowableTest` fails the build on a throwable in a `stats-writer` log call. **Narrowed in implementation:** "type and message" is not implementable — for a `PSQLException` the `DETAIL:` line *is* part of the message, and an application message is no safer, so no message is logged at all | Yes | **No** |
 | P3 | **T-034 does not merge until Q2 and Q3 in §6 are answered.** Not a technical constraint — it is the point after which the answer costs a migration, a DLQ purge ADR-002 §12 forbids, and an API contract change | n/a | **No** — it is a sequencing choice, and it is the whole reason this document exists now |
 | P4 | If IMSI is masked: **mask at the Writer**, storing a stable keyed hash so records for one subscriber still correlate | **NO — irreversible** | **YES** |
 | P5 | Treat `lac`/`cid` as location data and apply whatever IMSI gets | **NO — irreversible** | **YES** |

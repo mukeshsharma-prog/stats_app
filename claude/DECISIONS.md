@@ -3110,3 +3110,63 @@ now uses the production delays and provokes exhaustion with an attempt header in
 Removing even those would mean either a broker client in `stats-common` — which its five
 responsibilities (D15) exclude — or a sixth module. The assertion covers them; the
 duplication is deliberate and bounded.
+
+---
+
+### DL-124 — Guard P2 is enforced by the build, because writing it down first was not enough
+
+**5 Sep 2026** · `ENGINEERING` · D-12, DL-114, STA-03A, DEVELOPMENT.md §7, `DATA-SENSITIVITY-INVENTORY.md` §7 · T-066, T-024, T-021
+
+**Decision.** Three parts.
+
+1. **`SafeFailure` is the only way a failure may enter a `stats-writer` log line.**
+   `describe()` returns the causal chain of exception **type names** plus the `SQLState`
+   when one is present — `DataIntegrityViolationException <- SQLException sqlState=23505`
+   — and no message and no stack, ever. `SQLState` is validated as five alphanumerics
+   before it is included.
+2. **`WriterLogsCarryNoThrowableTest` fails the build** if any `stats-writer` main source
+   hands a throwable to a logger. The allow-list is empty and every future entry needs a
+   written reason.
+3. **The architecture guards' scanned sources are declared as Gradle task inputs.**
+
+**Why the rule had to be narrowed to be implementable.** P2 as adopted said *"log the
+exception type and message, never the driver's `DETAIL:` line"*. That cannot be built: for
+a `PSQLException` the detail **is** part of the message, and there is no substring of it
+that is reliably value-free. Our own exceptions are no safer — nothing stops a processor
+throwing `new PermanentFailureException("uid=… failed the schema")`, and **T-057 is about
+to add exactly that kind of throw**. So the implemented rule is stricter than the adopted
+one: no message at all.
+
+**What survives is more useful than what was removed.** `SQLState` is the diagnostic that
+matters — `23505` is a unique violation, `22003` a numeric overflow, `23514` a violated
+CHECK — and it is a five-character code from the standard, carrying no values by
+construction. The stack is not lost so much as relocated: the record itself is on the
+dead-letter queue with its own headers, under whatever access control the DLQ has
+(ADR-002 §12), rather than under the log-retention policy that does not exist yet.
+
+**The correction this entry exists to record.** DEVELOPMENT.md §7 said on 4 September that
+*"stats-writer has no `ERROR` or `WARN` path at all until T-024 and T-057"*, and the 5
+September status page repeated it as "the rule and the breach arrived together — two
+statements added by T-024". **Both were wrong.** There were **four** sites, and the oldest
+predated the rule: `LorastatsBatchWriter` had logged `LOGGER.error(…, failure)` on the
+INSERT failure path since T-021 — the precise path P2 names — and `PartitionMaintenance`
+had a second. T-024 then added two more by copying the shape, which is exactly how this
+kind of defect propagates.
+
+**Why the Gradle inputs are part of the decision and not housekeeping.** The guard passed
+on its first negative test. It had not run: `:stats-common:test` was UP-TO-DATE, because
+Gradle cannot see that the task reads other modules' sources. That was true of
+`StatTypeFanOutTest` and `VersionIsNotADiscriminatorTest` as well, so **all three
+architecture guards were silently skippable on an incremental build** — a gate that passes
+because it never executed, which is DL-100's failure in a different costume. Verified by
+reintroducing the defect: green and UP-TO-DATE before the input declaration, red after,
+with no `--rerun-tasks`.
+
+**Scope, deliberately.** `stats-input` still logs broker exceptions with their stacks. An
+`AmqpConnectException` carries a host and a port, not a record, and the Writer is the only
+module holding a database connection and a decoded payload at the same time.
+
+**Cost.** An unexpected `RuntimeException` in the Writer now reaches the log as a type
+chain rather than a stack. That is a real loss of diagnostic detail on the paths where the
+cause is our own code rather than the database, and it was accepted: the alternative is a
+rule with an exception in it, and the exception is what the next author copies.

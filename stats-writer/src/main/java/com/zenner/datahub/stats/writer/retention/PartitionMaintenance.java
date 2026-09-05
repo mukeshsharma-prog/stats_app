@@ -1,5 +1,6 @@
 package com.zenner.datahub.stats.writer.retention;
 
+import com.zenner.datahub.stats.writer.log.SafeFailure;
 import com.zenner.datahub.stats.common.model.StatType;
 import com.zenner.datahub.stats.writer.retention.PartitionPrecreator.PartitionPrecreationResult;
 import java.time.LocalDate;
@@ -86,9 +87,10 @@ public class PartitionMaintenance {
                 // other stat types and no partitions tomorrow.
                 LOGGER.error(
                         "Scheduled partition pre-creation FAILED; this stat type will stop "
-                                + "ingesting once the last pre-created day passes: statType={}",
+                                + "ingesting once the last pre-created day passes: statType={}, "
+                                + "cause={}",
                         type.wireName(),
-                        failure);
+                        SafeFailure.describe(failure));
             }
         }
     }

@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.zenner.datahub.stats.common.model.StatType;
 import com.zenner.datahub.stats.common.model.StatsEnvelope;
+import com.zenner.datahub.stats.writer.log.SafeFailure;
 import com.zenner.datahub.stats.common.model.Timestamps;
 import com.zenner.datahub.stats.writer.consumer.LorastatsConsumerDescriptor;
 import io.micrometer.core.instrument.Counter;
@@ -163,18 +164,23 @@ public final class LorastatsBatchWriter implements StatsBatchWriter {
                             "A single-record insert affected an unexpected row count");
                 }
             } catch (RuntimeException failure) {
-                // Never silent (claude/CLAUDE.md §9). The delivery is not acknowledged,
-                // so the broker still holds the only copy, but until T-024 supplies the
-                // retry/DLQ path an unacknowledged delivery holds a prefetch slot for as
-                // long as the process lives. The counter is what makes that visible
-                // before the consumer runs out of slots.
+                // Never silent (claude/CLAUDE.md §9). Since T-024 the delivery is not
+                // dropped either: the consumer hands it to FailedDeliveryRouter, which
+                // confirms a retry or dead-letter copy before the original is ACKed.
+                //
+                // The failure is DESCRIBED, never passed to the logger. This is the exact
+                // path guard P2 was written for (DEVELOPMENT.md §7): PostgreSQL puts the
+                // offending values in its DETAIL: line, the driver puts that line in the
+                // exception message, and a throwable argument prints it at ERROR — where
+                // DEBUG-gating the payload never sees it. uid stays: it is the correlation
+                // ID by decision (D1), and it is what makes a DLQ message findable.
                 writeFailures.increment();
                 LOGGER.error(
-                        "lorastats write FAILED; delivery will not be acknowledged: "
-                                + "uid={}, index={}",
+                        "lorastats write FAILED; delivery is not acknowledged and goes to "
+                                + "the retry arm: uid={}, index={}, cause={}",
                         uidOf(records.get(index)),
                         index,
-                        failure);
+                        SafeFailure.describe(failure));
                 results.add(RecordWriteResult.failed(index, failure));
             }
         }

@@ -591,9 +591,25 @@ foreclose anything security later decides:
 * **P2 — on a write failure, log the exception type and message only, never the driver's
   `DETAIL:` line.** This is the paragraph above, now a decision rather than advice.
 
-Both are rules for code that does not exist yet: `stats-writer` has no `ERROR` or `WARN`
-path at all until T-024 and T-057. They are written down first deliberately — a logging
-rule adopted after the log line exists is a rule someone has to go back and enforce.
+**Both are now ENFORCED IN THE BUILD, not only written down (T-066, DL-124, 5 Sep 2026).**
+`SafeFailure.describe(failure)` is the only way `stats-writer` may put a failure in a log
+line — it keeps the causal chain of exception *types* and the `SQLState`, and drops every
+message and stack — and `WriterLogsCarryNoThrowableTest` fails the build if any
+`stats-writer` main source hands a throwable to a logger.
+
+**The correction that made the guard necessary.** The sentence that stood here on 4 Sep —
+*"rules for code that does not exist yet: stats-writer has no ERROR or WARN path at all
+until T-024 and T-057"* — **was already wrong when it was written.** `LorastatsBatchWriter`
+had logged `LOGGER.error(…, failure)` on the INSERT failure path since T-021, which is the
+precise path P2 names, and `PartitionMaintenance` had a second. T-024 then added two more
+by copying the shape. Four sites, one of them older than the rule. Writing a rule down
+before the code is worth doing and was not enough: what closed it was making the build
+fail. Note also that the guards' scanned sources are declared as Gradle task inputs — until
+5 Sep they were not, so an edit to `stats-writer` left `:stats-common:test` UP-TO-DATE and
+every architecture guard silently did not run.
+
+`stats-input` is deliberately out of scope: it logs broker exceptions, and an
+`AmqpConnectException` carries a host and port rather than a record.
 **P4 and P5 (masking `imsi`, and treating `lac`/`cid` as location data) are irreversible
 and still need security's signature** — do not infer them from this section.
 

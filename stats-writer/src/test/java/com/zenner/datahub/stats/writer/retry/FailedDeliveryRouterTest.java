@@ -20,6 +20,7 @@ import java.time.Duration;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.ArgumentCaptor;
@@ -30,6 +31,8 @@ import org.springframework.amqp.core.MessageProperties;
 import org.springframework.amqp.core.ReturnedMessage;
 import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.dao.DataIntegrityViolationException;
 
 /**
@@ -42,6 +45,7 @@ import org.springframework.dao.DataIntegrityViolationException;
  * survives the round trip, and that an unconfirmed hand-off throws instead of
  * returning.</p>
  */
+@ExtendWith(OutputCaptureExtension.class)
 class FailedDeliveryRouterTest {
 
     private static final byte[] BODY = "{\"uid\":\"retry-routing-proof\"}".getBytes(StandardCharsets.UTF_8);
@@ -257,6 +261,41 @@ class FailedDeliveryRouterTest {
                         anyString(),
                         any(Message.class),
                         any(CorrelationData.class));
+    }
+
+
+    @Test
+    @DisplayName("neither log line carries the driver's DETAIL values — guard P2, end to end")
+    void logLinesCarryNoRowValues(CapturedOutput output) {
+        // The unit-level proof is SafeFailureTest; this is the one that would have caught
+        // the original defect, because it asserts on what actually reached the log rather
+        // than on what was passed to the helper. Both paths are exercised: a retry (WARN)
+        // and a dead-letter (ERROR).
+        String leakedUid = "CLSCON-11d3ec4c-f6e1-403a-a9ef-b6f5fe909eee";
+        java.sql.SQLException driver =
+                new java.sql.SQLException(
+                        "ERROR: duplicate key value violates unique constraint \"lorastats_pkey\"\n"
+                                + "  Detail: Key (ts_device, uid)=(1787833739, "
+                                + leakedUid
+                                + ") already exists.",
+                        "23505");
+
+        router.route(
+                StatType.LORASTATS,
+                delivery(0),
+                new IllegalStateException("transient", driver));
+        router.route(
+                StatType.LORASTATS,
+                delivery(0),
+                new DataIntegrityViolationException("could not execute statement", driver));
+
+        assertThat(output)
+                .doesNotContain(leakedUid)
+                .doesNotContain("1787833739")
+                .doesNotContain("Detail")
+                .doesNotContain("duplicate key value");
+        // And the diagnostic that matters did survive both lines.
+        assertThat(output).contains("sqlState=23505");
     }
 
     private double deadLetterCount(String reason) {
