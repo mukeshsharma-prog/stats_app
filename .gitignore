@@ -33,3 +33,9 @@ Stats_App_Tracker.xlsx
 
 # Claude Code local machine state (the shared .claude/settings.json is tracked)
 .claude/settings.local.json
+
+# Generated OpenAPI documentation bundle. Regenerate from the contract, never edit or
+# commit it — a checked-in bundle is stale the moment docs/contracts/openapi.yaml
+# changes, and it is 165 KB of noise in every diff:
+#     npx @redocly/cli@2.51.2 build-docs docs/contracts/openapi.yaml -o stats-api-v1-draft.html
+stats-api-v1-draft.html

@@ -30,6 +30,11 @@ jobs:
           cache: pip
           cache-dependency-path: docs/schemas/requirements.txt
 
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
@@ -38,6 +43,13 @@ jobs:
 
       - name: Validate JSON Schema fixtures
         run: python docs/schemas/validate-fixtures.py
+
+      # DL-117. Catches OpenAPI defects a YAML parse cannot see — an unquoted
+      # description containing a comma silently becomes an extra schema key.
+      # Version pinned: an unpinned linter can start failing CI on a release we
+      # did not make. Rules and the two deliberate suppressions: redocly.yaml.
+      - name: Lint OpenAPI contract
+        run: npx --yes @redocly/cli@2.51.2 lint
 
       - name: Build and test
         run: ./gradlew build --no-daemon

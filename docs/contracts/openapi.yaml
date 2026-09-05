@@ -760,10 +760,10 @@ components:
         rsrq: { type: string, pattern: '^-?(0|[1-9][0-9]{0,18})$', description: 'Reference signal received quality, dB, as a string.' }
         access_Technology: { type: string, minLength: 1, description: 'Note the capital T. Production spelling; the lowercase form has never appeared on the wire.' }
         operator: { type: string, minLength: 1 }
-        plmn: { type: string, pattern: '^[0-9]{5,6}$', description: Public land mobile network code, as a string. }
+        plmn: { type: string, pattern: '^[0-9]{5,6}$', description: 'Public land mobile network code, as a string.' }
         imsi: { type: string, pattern: '^[0-9]{1,20}$', description: 'SENSITIVE — masking policy pending review.' }
-        lac: { type: string, pattern: '^[0-9A-Fa-f]{1,16}$', description: Location area code, hexadecimal, as reported. }
-        cid: { type: string, pattern: '^[0-9A-Fa-f]{1,16}$', description: Cell identifier, hexadecimal, as reported. }
+        lac: { type: string, pattern: '^[0-9A-Fa-f]{1,16}$', description: 'Location area code, hexadecimal, as reported.' }
+        cid: { type: string, pattern: '^[0-9A-Fa-f]{1,16}$', description: 'Cell identifier, hexadecimal, as reported.' }
         timespan: { type: string, pattern: '^(0|[1-9][0-9]{0,18})$', description: 'Reporting window in seconds, as a string. Optional — production omits it on some records.' }
       additionalProperties: true
 
@@ -788,9 +788,9 @@ components:
         accommodated rather than dead-lettered (ADR-007 §5).
       required: [memfree, uptime, idletime, load1, load5, load15, runable]
       properties:
-        memfree: { type: integer, format: int64, description: Free memory, kilobytes. }
-        uptime: { type: number, format: double, description: Seconds since boot. }
-        idletime: { type: number, format: double, description: Aggregate CPU idle seconds. }
+        memfree: { type: integer, format: int64, description: 'Free memory, kilobytes.' }
+        uptime: { type: number, format: double, description: 'Seconds since boot.' }
+        idletime: { type: number, format: double, description: 'Aggregate CPU idle seconds.' }
         load1: { type: number, format: double }
         load5: { type: number, format: double }
         load15: { type: number, format: double }
@@ -849,7 +849,7 @@ components:
         rx_valid_nr_pkts: { type: integer, format: int64 }
         rx_crc_bad: { type: integer, format: int64 }
         device_count: { type: integer, format: int64 }
-        timespan: { type: integer, format: int64, minimum: 0, description: Reporting window length, seconds. }
+        timespan: { type: integer, format: int64, minimum: 0, description: 'Reporting window length, seconds.' }
       additionalProperties: true
 
     NetstatsRecord:

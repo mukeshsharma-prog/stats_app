@@ -1,0 +1,34 @@
+# Redocly CLI configuration — OpenAPI contract linting.
+#
+# Governs: docs/contracts/openapi.yaml (the Stats API contract, DL-070…DL-073,
+# ADR-006, STA-30A…STA-38A). Introduced by DL-117.
+#
+# Why this file exists: `redocly lint` is a CI gate, so it must be able to exit
+# ZERO on a correct contract. A gate that always warns is a gate nobody reads —
+# the same failure DL-100 was written about. Both suppressions below are
+# deliberate contract decisions, recorded here rather than tolerated as noise.
+#
+# Run locally, from the repository root, before circulating the contract:
+#     npx @redocly/cli@2.51.2 lint docs/contracts/openapi.yaml
+
+apis:
+  stats-api@v1:
+    root: docs/contracts/openapi.yaml
+
+extends:
+  - recommended
+
+rules:
+  # The contract is internal and confidential. `info.license.name` carries that
+  # statement; there is no SPDX identifier or public URL for it, and inventing
+  # one to satisfy a linter would assert a licence that does not exist.
+  info-license-strict: off
+
+  # servers[1] is `http://localhost:8083/v1` on purpose — the docker-compose
+  # stack in docker/docker-compose.yml. It is how a reader tries the API without
+  # a deployment. servers[0] is the real templated ingress and leads the list.
+  no-server-example.com: off
+
+  # Everything else stays at `recommended`. In particular struct/spec compliance
+  # is an ERROR: the 7 unquoted-description defects DL-117 fixed were invisible
+  # to a plain YAML parse and only this rule caught them.
