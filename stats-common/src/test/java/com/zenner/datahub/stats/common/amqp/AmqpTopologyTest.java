@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.zenner.datahub.stats.common.model.StatType;
 import java.time.Duration;
+import java.util.List;
 import java.util.LinkedHashSet;
 import java.util.Locale;
 import java.util.Map;
@@ -185,5 +186,74 @@ class AmqpTopologyTest {
             names.add(AmqpTopology.deadLetterQueue(type));
         }
         return names;
+    }
+
+    @ParameterizedTest
+    @EnumSource(StatType.class)
+    void separatesTheRetryBounceBackFromTheDeadLetterRoute(StatType type) {
+        // Both journeys cross app_stats_dlx. One returns a record to the main queue for
+        // another attempt; the other retires it. If they shared a routing key every
+        // dead-letter would land back on the main queue and retry forever — and the
+        // topology would still declare without complaint.
+        assertThat(AmqpTopology.deadLetterRoutingKey(type))
+                .isNotEqualTo(AmqpTopology.routingKey(type))
+                .isEqualTo(type.wireName() + ".dlq");
+    }
+
+    @Test
+    void definesTheInputExchangeAsDurableTopicWithNoAutoDelete() {
+        // Durability and auto-delete are as fatal to a second declaring module as the
+        // arguments are (T-032). An auto-delete exchange also disappears with its last
+        // binding, and the next publish is then unroutable rather than queued.
+        AmqpTopology.ExchangeDefinition definition = AmqpTopology.inputExchange();
+
+        assertThat(definition.name()).isEqualTo(AmqpTopology.INPUT_EXCHANGE);
+        assertThat(definition.type()).isEqualTo(AmqpTopology.ExchangeDefinition.TOPIC);
+        assertThat(definition.durable()).isTrue();
+        assertThat(definition.autoDelete()).isFalse();
+    }
+
+    @Test
+    void definesTheDeadLetterExchangeIdenticallyToTheIngressExchangeApartFromItsName() {
+        AmqpTopology.ExchangeDefinition dlx = AmqpTopology.deadLetterExchange();
+
+        assertThat(dlx.name()).isEqualTo(AmqpTopology.DEAD_LETTER_EXCHANGE);
+        assertThat(dlx.type()).isEqualTo(AmqpTopology.ExchangeDefinition.TOPIC);
+        assertThat(dlx.durable()).isTrue();
+        assertThat(dlx.autoDelete()).isFalse();
+    }
+
+    @ParameterizedTest
+    @EnumSource(StatType.class)
+    void definesEveryQueueAsDurableNonExclusiveAndNotAutoDelete(StatType type) {
+        // Exclusive or auto-delete would tie the queue to one consumer's connection, so
+        // a Writer restart would drop every buffered record on the floor (rule 10).
+        List<AmqpTopology.QueueDefinition> definitions =
+                List.of(
+                        AmqpTopology.mainQueueDefinition(type),
+                        AmqpTopology.retryQueueDefinition(type, 1, Duration.ofSeconds(30)),
+                        AmqpTopology.deadLetterQueueDefinition(type));
+
+        assertThat(definitions)
+                .allSatisfy(
+                        definition -> {
+                            assertThat(definition.durable()).isTrue();
+                            assertThat(definition.exclusive()).isFalse();
+                            assertThat(definition.autoDelete()).isFalse();
+                        });
+    }
+
+    @ParameterizedTest
+    @EnumSource(StatType.class)
+    void definitionsCarryTheSameNamesAndArgumentsAsTheNameAccessors(StatType type) {
+        // The definitions must not become a second source of truth for names.
+        assertThat(AmqpTopology.mainQueueDefinition(type).name())
+                .isEqualTo(AmqpTopology.mainQueue(type));
+        assertThat(AmqpTopology.deadLetterQueueDefinition(type).name())
+                .isEqualTo(AmqpTopology.deadLetterQueue(type));
+        assertThat(AmqpTopology.deadLetterQueueDefinition(type).arguments())
+                .isEqualTo(AmqpTopology.deadLetterQueueArguments());
+        assertThat(AmqpTopology.retryQueueDefinition(type, 2, Duration.ofMinutes(5)).arguments())
+                .isEqualTo(AmqpTopology.retryQueueArguments(type, 2, Duration.ofMinutes(5)));
     }
 }

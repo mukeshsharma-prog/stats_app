@@ -115,18 +115,12 @@ public class StatsIngestController {
                     "Record passed validation but was not publisher-confirmed: type={}; "
                             + "answering 503 so Heimdal retries (STA-04A, STA-06A)",
                     statType.wireName());
-            return ResponseEntity.status(ErrorCode.SERVICE_UNAVAILABLE.status())
-                    .contentType(MediaType.valueOf(ProblemDetails.CONTENT_TYPE))
-                    .body(
-                            new ProblemDetails(
-                                    ErrorCode.SERVICE_UNAVAILABLE.typeUri(),
-                                    ErrorCode.SERVICE_UNAVAILABLE.title(),
-                                    ErrorCode.SERVICE_UNAVAILABLE.status(),
-                                    "The record was not accepted. Retry.",
-                                    instance,
-                                    statType,
-                                    null,
-                                    null));
+            return problem(
+                    ProblemDetails.of(
+                            ErrorCode.SERVICE_UNAVAILABLE,
+                            "The record was not accepted. Retry.",
+                            instance,
+                            statType));
         }
 
         metrics.accepted(statType);

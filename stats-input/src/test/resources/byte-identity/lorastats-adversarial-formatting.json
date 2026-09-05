@@ -1,0 +1,13 @@
+{
+    "type": "lorastats",
+    "clsbox": "04B64810652B",
+    "uid": "CLSCON-11d3ec4c-f6e1-403a-a9ef-b6f5fe909eee",
+    "maintenant": "manag\u00e9ment-parent",
+    "tenant": "tenant-alpha",
+  "ts": { "server": 1787833739,
+          "device":    1787833700,
+          "expiresOn": "2026-08-27T12:28:59.074Z" },
+    "version": 1,
+    "data": {"tx_success": 9223372036854775807, "rx_nr_pkts": 1487},
+    "status": ["conversion ok"]
+}

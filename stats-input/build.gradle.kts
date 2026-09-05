@@ -31,6 +31,12 @@ dependencies {
     testImplementation(libs.spring.rabbit.test)
     testImplementation(libs.testcontainers.junit.jupiter)
     testImplementation(libs.testcontainers.rabbitmq)
+    // Shared real-infrastructure support. testImplementation only, so nothing here
+    // ever reaches Input's runtime classpath (DL-099). T-014/T-015/T-016 are proved
+    // against a real broker: publisher confirms, unroutable returns and byte-identical
+    // publication are all broker behaviours, and a mocked template asserts our own
+    // assumptions back to us.
+    testImplementation(project(":stats-testsupport"))
 }
 
 // The gate tests run against the NORMATIVE fixtures in docs/schemas/fixtures, the

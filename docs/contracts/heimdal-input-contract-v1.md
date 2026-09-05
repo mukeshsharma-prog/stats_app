@@ -29,12 +29,32 @@ The Input Module validates the received message and publishes it byte-identicall
 | `ts.device` ahead of `ts.server` beyond the tolerance | 400, field code `clock_skew_exceeded` | Do not retry unchanged; **fix the gateway clock**. See §4. |
 | Missing/invalid inbound credentials | 401 | Configuration/credential issue; do not retry blindly. |
 | Authenticated but forbidden | 403 | Configuration/identity issue. |
-| RabbitMQ unavailable/confirm timeout | 503 | Heimdal dead-letter/retry handling applies because response is non-2xx. |
-| Request too large | 413 | Do not retry without correcting payload. |
-| Rate limited/temporary overload | 429 or 503, exact policy pending | Retry using approved backoff. |
+| RabbitMQ unavailable, confirm timeout, **or an unroutable message** | 503 | Heimdal dead-letter/retry handling applies because response is non-2xx. |
+| Request too large | 413 `payload_too_large` | Do not retry without correcting payload. |
+| Rate limited | 429 `too_many_requests`, with `Retry-After: 1` | Retry using approved backoff. |
 | Unexpected Input failure | 5xx | Heimdal dead-letter/retry handling applies. |
 
 The exact successful status, retryable status list, retry schedule, and maximum retry/retention behavior must be approved with ZC.
+
+**Implemented values, 5 September 2026 (T-014 … T-018).** These are engineering
+defaults, not ZC's answer, and each is a property so that closing D-03 is a
+configuration change:
+
+| Bound | Property | Value | On breach |
+|---|---|---|---|
+| Body size | `stats.input.limits.max-request-bytes` | 256 KB | 413 `payload_too_large`, `requests_too_large` |
+| Ingest rate, **per instance** | `stats.input.limits.max-requests-per-second` | 4,000 | 429 `too_many_requests`, `requests_rate_limited` |
+| Confirm wait | `stats.amqp.confirm-timeout` | 5 s | 503, `records_publish_failed{type}` |
+| Read timeout | `server.tomcat.connection-timeout` | 10 s | Connection closed by the container |
+
+**An unroutable message is a 503, not a 200.** Input publishes with `mandatory=true`;
+a message the broker acks and no queue is bound to take is a *failed* acceptance —
+`records_unroutable{type}` and 503, so Heimdal resends (ADR-002 §9, DL-118).
+
+**The rate limit is per instance**, so the cluster ceiling is the configured value
+times the replica count. It is the only replay control the Stats App owns: Heimdal
+agreed the 2x cap on 4 Sep 2026 (Q13c, DL-109) and an agreement is a commitment, not
+a control.
 
 ## 2a. Record shape — as production actually sends it
 

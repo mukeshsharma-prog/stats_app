@@ -2771,3 +2771,342 @@ fixtures already had this exactly right; the wording follows them.
 `BLOCKED on D5b` returns nothing outside the dated historical documents
 (`claude/OUTBOX_03SEP2026.md`, the ADR narratives that record *why* Q15a was escalated),
 where the past tense is correct and must stay.
+
+### DL-117 — The API contract is linted in CI, because a YAML parse cannot see a broken contract
+
+**5 Sep 2026** · `ENGINEERING` · DL-070…DL-073, DL-100, DL-116, ADR-006, STA-38A · T-038, T-039–T-046
+
+**Decision.** `redocly lint` runs on every push and pull request, pinned at `2.51.2`,
+before the Gradle build. Its rule set is `recommended` with exactly two suppressions,
+each recorded with its reason in the new root `redocly.yaml`. Seven defects it found in
+`docs/contracts/openapi.yaml` are fixed in the same change.
+
+**The defect class.** Five `data`-schema properties carried an **unquoted description
+containing a comma inside a YAML flow mapping**:
+
+```yaml
+plmn: { type: string, pattern: '^[0-9]{5,6}$', description: Public land mobile network code, as a string. }
+```
+
+The comma closes the value and `as a string.` is parsed as a **sibling key of the schema
+object**. `LtestatsData.plmn`, `.lac`, `.cid`, `SysstatsData.memfree` and
+`OmsstatsData.timespan` each gained one or two nonsense keywords. Two further properties
+— `SysstatsData.uptime` and `.idletime` — were the same construct without a comma, so they
+parsed correctly today and would have broken the moment anyone edited the sentence; all
+seven are quoted, not just the five that failed.
+
+**Why a linter and not review.** `yaml.safe_load()` accepts every one of these files
+without complaint, and so does a human read — the line looks like prose because it *is*
+prose. Only a validator that knows what an OpenAPI schema object may contain rejects it.
+This is the same shape as the trap in `CLAUDE.md` §6 about consistency across documents
+not being evidence of correctness: the file was internally consistent and wrong.
+
+**Why the two suppressions are decisions rather than noise.** `info-license-strict` wants
+an SPDX identifier or URL on a licence that is `Internal / Confidential` — there is no
+such identifier, and satisfying the rule would mean asserting a licence that does not
+exist. `no-server-example.com` objects to `http://localhost:8083/v1`, which is
+deliberately present so a reader can exercise the API against
+`docker/docker-compose.yml`; the templated ingress leads the list. Both are turned off in
+config with the reasoning inline, so the gate exits **zero** on a correct contract.
+A gate that always emits warnings is a gate that is never read — DL-100.
+
+**Verified, not assumed.** The pinned linter exits `1` on a copy with one description
+un-quoted and `0` on the contract as it now stands. A gate nobody has watched fail is not
+known to be a gate.
+
+**Consequence.** `openapi.yaml` can be circulated for the confirm/decline of T-038 without
+the first thing ZC's tooling reports being our punctuation. Any new stat type added to the
+contract (`CLAUDE.md` §5 rule 6) is linted on the same push that adds it.
+
+**Not closed by this.** The **schema-drift obligation** in the `openapi.yaml` header still
+stands: the per-type `data` schemas are inlined rather than `$ref`'d to
+`docs/schemas/*.schema.json`, and nothing yet asserts the two agree. `redocly lint` checks
+that this file is a *valid* OpenAPI document; it cannot know that `LtestatsData` here and
+`ltestats-v1.schema.json` there describe the same type. That check is still owed before
+the contract is frozen — and DL-116, one day earlier, is the evidence that these two
+sources do drift.
+
+---
+
+### DL-118 — A 2xx follows the confirm, and Input declares the exchange and nothing else
+
+**5 Sep 2026** · `ENGINEERING` · STA-04A, STA-06A, rule 8, ADR-002 §9/§11, ADR-005 · T-014, T-015, T-032
+
+**Decision.** Four parts.
+
+1. **`ConfirmingStatsPublisher` reads the confirm off `CorrelationData.getFuture()`
+   with a bounded wait** (`stats.amqp.confirm-timeout`, 5 s). `CONFIRMED` is returned
+   on an ack with no return, and on nothing else. Nack, timeout, interrupt and
+   `AmqpException` all become `NOT_CONFIRMED`, therefore 503.
+2. **An ack carrying a returned message is a FAILED acceptance** —
+   `records_unroutable{type}` plus the `ERROR` log with the routing key, and 503
+   (ADR-002 §9). `records_publish_failed{type}` moves as well: this counter is the
+   *cause*, that one is the *outcome*.
+3. **`stats-input` declares the `app_stats_input` exchange and no queues.**
+4. **`stats.exchange.name` becomes `stats.amqp.exchange`, is bound, and is checked
+   against `AmqpTopology.INPUT_EXCHANGE`** — any other value refuses to start.
+
+**Why `waitForConfirms` is not used.** It is the `simple`-mode API and this template
+runs `correlated`. Mixed, it answers about a batch the calling thread never published —
+a green test and a 200 for a record nobody holds.
+
+**Why Input declares no queues.** ADR-002 §11 puts declaration in the broker-connected
+modules; it does not say each declares every object, and the distinction earns its keep
+twice. A queue Input declares for a type whose Writer is not deployed is an undrained
+quorum queue nothing alerts on, because depth alerting belongs to the Writer (§12). More
+seriously, declaring the queues would make the missing-binding case unreachable — and
+that case is the *entire* reason `mandatory` is set. A confirm says the broker accepted
+the message, not that a queue wanted it; a half-applied topology change must surface as
+a return, not be papered over by the publisher declaring its own consumer's queue.
+
+**Why the exchange name is checked rather than merely bound.** Pointing Input at an
+exchange no Writer binds to is accepted, broker-confirmed, and silently dropped — every
+component reporting success while the record ceases to exist. The property exists so a
+deployment can *see* the name, not choose it. Unbound, it was documentation with nothing
+reading it, which is the state DL-101 was written about.
+
+**Verified, not assumed.** The framework guarantee this rests on — that Spring AMQP sets
+the returned message on the `CorrelationData` before completing its future — is asserted
+against a real broker with a genuinely unbound routing key in
+`IngestPublishIntegrationTest`, not taken from the reference documentation. The timeout
+path asserts **elapsed time**, because "waits until the socket dies" also returns
+`NOT_CONFIRMED` and would look identical in a test that only checked the outcome.
+
+**Consequence.** `UnconfirmedStatsPublisher` drops out through its own
+`@ConditionalOnMissingBean` and `PublisherConfiguration` was not edited, as it was
+designed for. That condition is evaluated in configuration-registration order, which for
+a component scan follows class name: `InputAmqpConfiguration` sorts before
+`PublisherConfiguration`. A rename could invert it silently and leave a module that
+starts cleanly and publishes nothing, so `PublisherSelectionTest` asserts there is
+exactly one `StatsPublisher` and it is the confirming one.
+
+**Still open.** T-032 — the cross-module declaration-conflict test — is not closed by
+this. `IngestPublishIntegrationTest` pins Input's half (name, durable, non-auto-delete,
+no arguments); the Writer's half is still a second hand-built `TopicExchange`, because
+`AmqpTopology` deliberately holds no Spring AMQP types and `stats-common` has no broker
+dependency. A mismatch is `RESOURCE_LOCKED` for whichever module boots second.
+
+---
+
+### DL-119 — Byte-identity is proved with a fixture built to fail, kept out of the normative set
+
+**5 Sep 2026** · `ENGINEERING` · ADR-004, ADR-005, STA-25A · T-016
+
+**Decision.** Input publishes with `RabbitTemplate.send` and a hand-built `Message`,
+never `convertAndSend`, and the proof is
+`stats-input/src/test/resources/byte-identity/lorastats-adversarial-formatting.json` —
+a record posted through the endpoint and compared byte-for-byte with what arrives on the
+queue.
+
+**Why the fixture is deliberately ugly.** Keys out of canonical order, mixed indentation,
+`é` where Jackson would emit a literal `é`, the signed `BIGINT` maximum, and no
+trailing newline. A well-formed record round-trips through Jackson unchanged, so a test
+using one **passes against a publisher that re-encodes every record** — it asserts field
+equivalence while claiming byte identity. The assertion was removed once and the test
+confirmed failing; an identity test that cannot fail is decoration.
+
+**Why it is not in `docs/schemas/fixtures/`.** It is a *serialisation* fixture, not a
+schema-conformance one. That set is gated by `validate-fixtures.py` on count and
+`MANIFEST.md` entry, and a file whose entire purpose is its byte layout has no business
+in a directory somebody may reasonably reformat.
+
+**Why this matters beyond tidiness.** ADR-005's duplicate outcome is
+`ON CONFLICT (ts_device, uid) DO NOTHING`. That is only correct if a redelivered record
+*is* the same record. Re-encoding at publish makes a replayed record a different sequence
+of bytes carrying the same identity — which still suppresses, but silently changes what
+was stored versus what was sent, and there is no longer any artifact that can prove which.
+
+---
+
+### DL-120 — The inbound auth seam is a servlet filter, not Spring Security — yet
+
+**5 Sep 2026** · `ENGINEERING` · Q8a, Q8a-2, ADR-006, 2B-ANSWERS §3 · T-017
+
+**Decision.** `stats.input.auth.mode` selects the mechanism, with no default in code.
+`none` registers a pass-through filter on the ingest path and WARNs on every startup;
+`mtls` and `oauth2` **fail while the context is building**; the `prod` profile refuses
+`none` outright, in `ProductionAuthModeGuard`. `spring-boot-starter-security` is **not**
+added yet.
+
+**Why not the starter now.** Adding it changes the default posture of the entire
+application — every actuator endpoint included, and the readiness probe
+`docker-compose` health-checks with it — before the mechanism Q8a-2 will choose is even
+known. What T-017 owes is the seam. A filter registered on one URL pattern is the
+smallest thing that is honestly a seam, and the starter arrives *with* the OAuth2
+implementation, where its defaults can be argued against a real requirement.
+
+**Why an unimplemented mode fails at startup rather than per request.** The alternative
+— accept `oauth2`, let requests through until someone implements it — produces an
+endpoint that reports itself as authenticated and is not. That is strictly worse than
+`none`, which is at least honest about what it is.
+
+**Why `none` occupies the seam rather than registering nothing.** A mode that quietly
+registers no filter is indistinguishable, at every later reading, from a mode whose
+filter failed to register — and the difference between those two is whether the endpoint
+is open by decision or by accident.
+
+**Filter order is a decision:** size (10) → auth (20) → rate limit (30). Size first
+because it is a header comparison that reads nothing. Rate limiting after authentication
+so that, once Q8a-2 lands, an unauthenticated caller cannot spend a legitimate sender's
+budget. None of the three touch `/actuator/**`.
+
+**Risk restated, unchanged.** Until Q8a-2 closes, anything that can reach the Input port
+can write statistics. Acceptable on a local dev stack and nowhere else — and now
+enforced by a context that will not build under `prod`.
+
+---
+
+### DL-121 — Request limits are engineering defaults in properties, and 413/429 join the shared catalogue
+
+**5 Sep 2026** · `ENGINEERING` · STA-06B, D-03, DL-109, contract §2 · T-018
+
+**Decision.** `stats.input.limits.max-request-bytes` (256 KB) and
+`stats.input.limits.max-requests-per-second` (4,000, **per instance**) are enforced by
+two filters. `ErrorCode` gains `PAYLOAD_TOO_LARGE` (413) and `TOO_MANY_REQUESTS` (429).
+The read timeout is `server.tomcat.connection-timeout`, not an application property.
+
+**Why now, with D-03 open.** D-03 fixes no numbers — the contract's response matrix says
+413 and "429 or 503, exact policy pending". An **unbounded ingest endpoint is wrong at
+every value D-03 can return**, so waiting was never the safe option. The values live in
+`application.properties` and the record carries no default of its own, so ZC's answer is
+a property change with a decision-log entry behind it.
+
+**The trap this avoids.** The obvious implementation is
+`server.tomcat.max-http-form-post-size`, and it does nothing here: that limit applies to
+form content and Heimdal sends `application/json`. A limit that is configured,
+documented, and never fires is worse than no limit, because nobody looks at it again.
+Content-Length is checked before a byte is read; a chunked body has no declared length,
+so the stream is wrapped and `PayloadTooLargeException` travels out through
+`IngestExceptionHandler` — which also unwraps it from `HttpMessageNotReadableException`,
+because answering that 400 would tell Heimdal to fix a record that is not malformed.
+
+**Why one error catalogue and not two.** Both codes appear only in the inbound contract,
+so an Input-local enum was the obvious alternative. Two catalogues means two type-URI
+bases, and a caller matching on `type` would have to know which module answered before it
+could parse the error. `ErrorCode`'s javadoc naming only `openapi.yaml` is what made a
+second one look necessary — the javadoc was the bug.
+
+**Why the rate limit is per instance.** The cluster ceiling is this value times the
+replica count, and that is the number to reason about when sizing against the 2× replay
+cap. A shared limiter puts a network round trip and a new dependency in front of every
+ingest. DL-109 records that Heimdal has agreed the cap and that we cannot enforce it:
+this filter and rule 8's 503 backpressure are the two controls we own. A 429 is a
+non-2xx, so the record is resent — the limit sheds load, it does not drop records.
+
+**`requests_too_large` and `requests_rate_limited` carry no `type` label**, which is the
+one exception to the per-type rule in `IngestMetrics`. Both fire before the body is read,
+so the type is genuinely unknown rather than unreadable, and `type="unknown"` already
+means "we parsed and could not tell" — reusing it would merge a flood of oversized
+requests into the series an operator watches for malformed records.
+
+---
+
+### DL-122 — The failure arm is built, and the copy is confirmed before the original is ACKed
+
+**5 Sep 2026** · `ENGINEERING` · STA-12, STA-25, STA-25A, rule 5, rule 9, ADR-002 §4/§12, ADR-005, G1/G4 · T-024, T-020, T-057, T-060
+
+**Decision.** `stats-writer` now has the whole failure arm. Five parts.
+
+1. **Three retry tiers and a per-type DLQ are declared** — `app_statsstore.<type>.retry.1..3`
+   with the configured TTL, `app_statsstore.<type>.dlq` with no expiry of any kind, and
+   `app_stats_dlx` carrying both journeys.
+2. **`FailedDeliveryRouter` publishes the onward copy and waits for its confirm.** The
+   consumer ACKs the original only after that call returns. If the copy cannot be
+   confirmed the router throws, nothing is ACKed, and the broker keeps the only copy.
+3. **Attempts are counted in our own header,** `x-stats-attempt`, not in RabbitMQ's
+   `x-death`.
+4. **`FailureClassifier` sends permanent failures straight to the DLQ** — an explicit
+   `PermanentFailureException`, a Jackson parse failure, or a
+   `DataIntegrityViolationException`. Everything else is retried.
+5. **Delays and the ceiling are properties** — `stats.amqp.retry.tier{1,2,3}-delay`
+   (30 s / 5 min / 30 min) and `stats.amqp.max-retries=3`.
+
+**The ordering is the decision, and it is the eleventh loss window.** ACK-then-publish
+is the tempting order and it opens a gap in which the original is gone and the copy does
+not exist. A crash inside that gap loses the record with the broker, the database and
+Heimdal all reporting success — no exception, no counter, no queue depth, nothing.
+`UnconfirmedHandoffException` exists so the safe order cannot be undone by accident, and
+`LorastatsConsumerTest` asserts it as an *order* rather than as two calls that both
+happened.
+
+**Why our own attempt header.** Half of this loop is broker-driven — a tier's TTL
+expiring dead-letters the message back to the main queue, which does append `x-death` —
+and half is ours, an explicit publish that does not. Counting attempts from a field only
+one half maintains gives a number that resets, and a record that never reaches the DLQ
+retries forever. The header is also why a stale `x-death` is stripped from the copy:
+two accounts of one history is worse than one.
+
+**Why permanent failures skip the tiers.** 35½ minutes of queue time per record, and at
+115.2m records/day a systematic permanent failure retried three times is three times the
+broker traffic and three times the delay before DLQ depth is actionable. **The default
+runs the other way on purpose:** anything not recognised as permanent is retried, because
+wrong-and-retry costs 35½ minutes and wrong-and-dead-letter costs a person, a root cause
+and a redrive.
+
+**A duplicate is not a failure.** `ON CONFLICT (ts_device, uid) DO NOTHING` absorbs it
+and meters it long before an exception exists (ADR-005). Nothing in this arm sees one.
+
+**The body is never touched.** The original bytes are republished verbatim; only headers
+change. ADR-004's byte-identical publication has to survive the retry loop, because a
+redriven record must still collide on `(ts_device, uid)` when it finally lands.
+
+**Two things this changed that were previously asserted the other way.**
+`LorastatsConsumerIntegrationTest.aProcessingFailureLeavesTheRecordWithTheBroker…` was
+correct for the code that existed — with no arm, a failure stayed unacknowledged and was
+requeued on channel close, so the same record was redelivered forever. It now asserts the
+new contract. And `stats-writer/application.properties` no longer says the retry queues
+are undeclared.
+
+**Not closed by this.** The payload gate (T-057) is still the missing producer of
+permanent failures — `PermanentFailureException` is the channel it will use. DLQ depth
+and oldest-message-age alerting is T-060, so **the DLQ is real but nobody is watching it
+yet**, and ADR-002 §12's 14-day disposition has no trigger until that lands.
+
+---
+
+### DL-123 — T-032 is closed by construction, not by a two-context test
+
+**5 Sep 2026** · `ENGINEERING` · Q3a, ADR-002 §8/§11, trap 8 · T-032, T-002
+
+**Decision.** Three parts, and together they are T-032.
+
+1. **`AmqpTopology` now owns the whole declaration, not just names and arguments.**
+   `ExchangeDefinition` and `QueueDefinition` carry durability, auto-delete and
+   exclusivity as well. Both broker-connected modules build their Spring AMQP objects
+   from them.
+2. **`AmqpDeclarationAssert` in `stats-testsupport` checks a declared object against its
+   definition,** and both modules' tests call it — one implementation, two modules.
+3. **`stats-api` asserts the absence:** the AMQP client types are not loadable from its
+   classpath in any scope.
+
+**Why not the obvious test.** T-032 was written as a declaration-*conflict* test: start
+both modules against one broker and watch the second fail. It cannot be written that way
+here without a test-scope dependency from one application module to another, which
+`claude/DEVELOPMENT.md` §2 forbids for the good reason that test scope is one edit away
+from compile scope. Moving the values into shared definitions makes the conflict
+*impossible* rather than *detected*, which is strictly better: a detected conflict is
+still a conflict somebody has to diagnose.
+
+**What was actually wrong.** Names and argument maps were already shared (T-002). The
+durability and auto-delete flags were not: each module passed them positionally into its
+own `new TopicExchange(...)` and `new Queue(...)`. They are exactly as fatal — RabbitMQ
+rejects a mismatched declaration with `RESOURCE_LOCKED` and that module fails to start,
+in whichever environment happens to boot them in the wrong order, which is rarely the one
+where the change was made. Quorum sharpens it again: a queue's type is fixed at
+declaration, so correcting one means deleting and redeclaring it (ADR-002 §8).
+
+**Why the `stats-api` half is a classpath assertion.** "No `ConnectionFactory` bean" can
+only be written by a test that can name the type, which means putting spring-amqp on that
+module's test classpath — and the moment it is there, someone can promote it to
+`implementation` and the test still passes. Asserting the class cannot be loaded fails the
+day the dependency appears.
+
+**Proved by hitting it.** `RetryAndDeadLetterIntegrationTest` originally shortened the
+tier delays to one second and failed on the shared broker with inequivalent
+`x-message-ttl` arguments — the exact trap, met by the test written to prove the arm. It
+now uses the production delays and provokes exhaustion with an attempt header instead.
+
+**Residual.** Four lines per module still turn a definition into a Spring object.
+Removing even those would mean either a broker client in `stats-common` — which its five
+responsibilities (D15) exclude — or a sixth module. The assertion covers them; the
+duplication is deliberate and bounded.

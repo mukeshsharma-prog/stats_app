@@ -79,6 +79,20 @@ There is no `retry-multiplier` and no `retry-max-delay-ms`: the tiers are explic
 
 **Ordering hazard (ADR-005).** Publish to the retry or dead-letter destination, wait for the publisher confirm on *that* publish, and only then ACK the original. The tempting order — ACK the failed message, then publish it onward — opens a window in which the original is gone and the copy does not exist yet, and a crash inside it loses the record *silently*.
 
+> **BUILT 5 September 2026 — T-024, DL-122.** `FailedDeliveryRouter` returns only once
+> the onward copy is confirmed, and `LorastatsConsumer` ACKs only after it returns; an
+> unconfirmed hand-off throws `UnconfirmedHandoffException` and nothing is acknowledged.
+> Attempts are counted in `x-stats-attempt` — **our** header, because a tier's TTL
+> expiring appends `x-death` and our explicit publish does not, so a count taken from
+> `x-death` would reset and the record would retry forever. A **permanent** failure
+> (`PermanentFailureException`, a Jackson parse failure, `DataIntegrityViolationException`)
+> skips all three tiers; anything unrecognised is retried, because wrong-and-retry costs
+> 35½ minutes and wrong-and-dead-letter costs a person.
+>
+> Values are properties, exactly as specified below. The **payload gate that produces most
+> permanent failures is still T-057**, and DLQ depth/age alerting is still T-060 — the
+> queue is real and nobody is watching it yet.
+
 ## 5. Required consumer configuration
 
 | Setting | Requirement |
@@ -113,11 +127,13 @@ The operations runbook must additionally define access, payload masking, audit e
 
 The automated integration suite must prove all of the following for each type:
 
-1. A validated message uses the correct routing key and reaches only its type queue.
-1. **A message published with a routing key no queue is bound to returns 503 and increments `records_unroutable`** — asserting only the publisher confirm would pass while the record is silently discarded.
-2. Main/retry/DLQ queues are durable and accepted messages survive broker restart.
-3. A database outage follows the approved retry path; it does not discard or pre-ACK a message.
-4. A permanent failure reaches only the appropriate type DLQ.
-5. A poison message in one type does not prevent a different type from persisting.
-6. A redelivery after persistence does not produce duplicate data.
-7. All metrics and logs identify the stat type and `uid` without sensitive payload leakage.
+| # | Contract test | Status, 5 September 2026 |
+|---|---|---|
+| 1 | A validated message uses the correct routing key and reaches only its type queue | **DONE** — `IngestPublishIntegrationTest` |
+| 2 | **A message published with a routing key no queue is bound to returns 503 and increments `records_unroutable`** — asserting only the publisher confirm would pass while the record is silently discarded | **DONE** (T-015, DL-118) — against a real broker with a genuinely unbound key |
+| 3 | Main/retry/DLQ queues are durable and accepted messages survive broker restart | **PART** — durability is asserted on the declarations (T-032); the restart drill is Phase 5 |
+| 4 | A database outage follows the approved retry path; it does not discard or pre-ACK a message | **DONE** (T-024) — `RetryAndDeadLetterIntegrationTest`; the main queue is empty only *after* the copy exists |
+| 5 | A permanent failure reaches only the appropriate type DLQ | **DONE** (T-024) — and on the first attempt, not after three tiers |
+| 6 | A poison message in one type does not prevent a different type from persisting | **NOT DONE** — needs a second type; Phase 3 |
+| 7 | A redelivery after persistence does not produce duplicate data | **DONE** — `LorastatsBatchWriterIntegrationTest`, metered not silent |
+| 8 | All metrics and logs identify the stat type and `uid` without sensitive payload leakage | **PART** — the stat type is on every counter and the failure header carries a class name, never an exception message (STA-03A); `uid` is not yet on the Writer's failure logs, because reading it means parsing a body that has already failed to parse |

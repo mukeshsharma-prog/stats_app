@@ -3,6 +3,7 @@ package com.zenner.datahub.stats.common.error;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.Arrays;
+import java.util.Set;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -21,6 +22,8 @@ class ErrorCodeTest {
         "FORBIDDEN, forbidden, Forbidden, 403",
         "RECORD_NOT_FOUND, record_not_found, 'Record not found', 404",
         "METHOD_NOT_ALLOWED, method_not_allowed, 'Method not allowed', 405",
+        "PAYLOAD_TOO_LARGE, payload_too_large, 'Payload too large', 413",
+        "TOO_MANY_REQUESTS, too_many_requests, 'Too many requests', 429",
         "SERVICE_UNAVAILABLE, service_unavailable, 'Service unavailable', 503"
     })
     void ownsItsWireCodeTitleStatusAndTypeUri(
@@ -36,11 +39,19 @@ class ErrorCodeTest {
     }
 
     @Test
-    void catalogueContainsTenUniqueWireCodes() {
-        assertThat(ErrorCode.values()).hasSize(10);
+    void catalogueContainsTwelveUniqueWireCodes() {
+        assertThat(ErrorCode.values()).hasSize(12);
         assertThat(Arrays.stream(ErrorCode.values())
                         .map(ErrorCode::wireCode)
                         .collect(Collectors.toSet()))
-                .hasSize(10);
+                .hasSize(12);
+    }
+
+    @Test
+    void everyStatusIsOneTheContractsActuallyPublish() {
+        // Both contracts enumerate their responses; a status that appears in neither
+        // is a code path no caller has been told about (openapi.yaml, contract 2).
+        assertThat(Arrays.stream(ErrorCode.values()).map(ErrorCode::status))
+                .allMatch(status -> Set.of(400, 401, 403, 404, 405, 413, 429, 503).contains(status));
     }
 }

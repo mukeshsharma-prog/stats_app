@@ -11,10 +11,15 @@ or accepted. The Gradle multi-project builds: five modules (`stats-common`,
 Compose stack with PostgreSQL 17, RabbitMQ and Keycloak, and 75 schema fixture
 files gated by `docs/schemas/validate-fixtures.py` at 88 assertions.
 
-`stats-writer` persists `lorastats` idempotently and `stats-input` validates the
-envelope, but **no record has yet travelled the whole path**: Input cannot publish
-until T-014, and the Writer has no retry/DLQ arm until T-024. `stats-api` is a stub
-awaiting the OpenAPI confirmation (D-09). See `claude/PROJECT_STATUS_AND_PLAN.md`
+Since **5 September 2026 a `lorastats` record travels the whole path**: `stats-input`
+validates the envelope and publishes only after a broker confirm, `stats-writer`
+persists it idempotently, and a failed write goes through three retry tiers to a
+per-type dead-letter queue that expires nothing — with the onward copy confirmed
+before the original is acknowledged (T-014 … T-018, T-024, T-032). What is still
+missing before Phase 2 closes is the per-type **payload gate** (T-057), which is what
+will produce most dead-letters, **DLQ depth and age alerting** (T-060) — the queue is
+real and nobody is watching it — and the **retention job** (T-025). `stats-api` is a
+stub awaiting the OpenAPI confirmation (D-09). See `claude/PROJECT_STATUS_AND_PLAN.md`
 and `claude/FLOW.md` for what is BUILT versus SPECIFIED.
 
 ```

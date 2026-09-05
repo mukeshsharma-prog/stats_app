@@ -27,6 +27,15 @@ dependencies {
     api(libs.testcontainers.postgresql)
     api(libs.testcontainers.rabbitmq)
 
+    // AmqpDeclarationAssert compares a module's Spring AMQP objects against the
+    // definitions in stats-common. It is the T-032 enforcement, and it has to live
+    // where BOTH broker-connected modules can call it — stats-common cannot hold it
+    // (no broker client, D15) and neither application module may depend on the other
+    // (claude/DEVELOPMENT.md §2). Test scope only, in every consumer.
+    api(project(":stats-common"))
+    api(libs.spring.boot.starter.amqp)
+    api(libs.assertj)
+
     // The support classes are proved against the real services they start: the
     // PostgreSQL smoke test runs SQL through the JDBC driver and the RabbitMQ one
     // opens an actual protocol connection.

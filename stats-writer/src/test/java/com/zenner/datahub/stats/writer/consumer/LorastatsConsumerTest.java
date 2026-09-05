@@ -10,6 +10,8 @@ import static org.mockito.Mockito.when;
 
 import com.rabbitmq.client.Channel;
 import com.zenner.datahub.stats.common.model.StatType;
+import com.zenner.datahub.stats.writer.retry.FailedDeliveryRouter;
+import com.zenner.datahub.stats.writer.retry.UnconfirmedHandoffException;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
 import org.springframework.amqp.core.Message;
@@ -25,7 +27,8 @@ class LorastatsConsumerTest {
         when(availability.requiredProcessor(StatType.LORASTATS)).thenReturn(processor);
         Channel channel = mock(Channel.class);
         Message message = delivery(42L);
-        LorastatsConsumer consumer = new LorastatsConsumer(availability);
+        FailedDeliveryRouter router = mock(FailedDeliveryRouter.class);
+        LorastatsConsumer consumer = new LorastatsConsumer(availability, router);
 
         consumer.consume(message, channel);
 
@@ -33,10 +36,37 @@ class LorastatsConsumerTest {
         order.verify(processor).process(StatType.LORASTATS, message);
         order.verify(channel).basicAck(42L, false);
         order.verifyNoMoreInteractions();
+        verifyNoInteractions(router);
     }
 
     @Test
-    void leavesTheDeliveryUnacknowledgedWhenProcessingFails() throws Exception {
+    void routesAFailedDeliveryOnwardBeforeAcknowledgingIt() throws Exception {
+        // ADR-005's ordering hazard, asserted as an ORDER and not just as two calls.
+        // ACK-then-publish leaves a window in which the original is gone and the copy
+        // does not exist yet, and a crash inside it loses the record silently.
+        StatsMessageProcessor processor = mock(StatsMessageProcessor.class);
+        StatsMessageProcessorAvailability availability =
+                mock(StatsMessageProcessorAvailability.class);
+        when(availability.requiredProcessor(StatType.LORASTATS)).thenReturn(processor);
+        Channel channel = mock(Channel.class);
+        Message message = delivery(51L);
+        IllegalStateException failure = new IllegalStateException("connection reset");
+        org.mockito.Mockito.doThrow(failure)
+                .when(processor)
+                .process(StatType.LORASTATS, message);
+        FailedDeliveryRouter router = mock(FailedDeliveryRouter.class);
+        LorastatsConsumer consumer = new LorastatsConsumer(availability, router);
+
+        consumer.consume(message, channel);
+
+        InOrder order = inOrder(router, channel);
+        order.verify(router).route(StatType.LORASTATS, message, failure);
+        order.verify(channel).basicAck(51L, false);
+        order.verifyNoMoreInteractions();
+    }
+
+    @Test
+    void leavesTheDeliveryUnacknowledgedWhenTheHandOffCannotBeConfirmed() throws Exception {
         StatsMessageProcessor processor = mock(StatsMessageProcessor.class);
         StatsMessageProcessorAvailability availability =
                 mock(StatsMessageProcessorAvailability.class);
@@ -47,18 +77,38 @@ class LorastatsConsumerTest {
         org.mockito.Mockito.doThrow(failure)
                 .when(processor)
                 .process(StatType.LORASTATS, message);
-        LorastatsConsumer consumer = new LorastatsConsumer(availability);
+        FailedDeliveryRouter router = mock(FailedDeliveryRouter.class);
+        UnconfirmedHandoffException unconfirmed =
+                new UnconfirmedHandoffException("retry copy was not confirmed");
+        org.mockito.Mockito.doThrow(unconfirmed)
+                .when(router)
+                .route(StatType.LORASTATS, message, failure);
+        LorastatsConsumer consumer = new LorastatsConsumer(availability, router);
 
-        assertThatThrownBy(() -> consumer.consume(message, channel)).isSameAs(failure);
+        assertThatThrownBy(() -> consumer.consume(message, channel)).isSameAs(unconfirmed);
 
+        // Nothing was acknowledged, so the broker still holds the only copy. A hot
+        // redelivery loop is visible and recoverable; a lost record is neither.
         verifyNoInteractions(channel);
     }
 
     @Test
     void rejectsAMissingProcessorInsteadOfCreatingANoOpConsumer() {
         assertThatNullPointerException()
-                .isThrownBy(() -> new LorastatsConsumer(null))
+                .isThrownBy(() -> new LorastatsConsumer(null, mock(FailedDeliveryRouter.class)))
                 .withMessage("processorAvailability");
+    }
+
+    @Test
+    void rejectsAMissingRouterInsteadOfConsumingWithNoFailureArm() {
+        // A consumer with no router would throw on failure and requeue forever, which
+        // looks like the pre-T-024 behaviour and is why it must not be constructible.
+        assertThatNullPointerException()
+                .isThrownBy(
+                        () ->
+                                new LorastatsConsumer(
+                                        mock(StatsMessageProcessorAvailability.class), null))
+                .withMessage("failedDeliveryRouter");
     }
 
     private static Message delivery(long deliveryTag) {

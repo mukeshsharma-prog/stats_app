@@ -5,6 +5,9 @@ import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
 import static org.mockito.Mockito.mock;
 
 import com.zenner.datahub.stats.common.model.StatType;
+import com.zenner.datahub.stats.writer.retry.FailedDeliveryRouter;
+import com.zenner.datahub.stats.writer.retry.WriterAmqpProperties;
+import java.time.Duration;
 import org.junit.jupiter.api.Test;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
 import org.springframework.boot.autoconfigure.amqp.SimpleRabbitListenerContainerFactoryConfigurer;
@@ -20,6 +23,22 @@ class LorastatsConsumerActivationTest {
                     SimpleRabbitListenerContainerFactoryConfigurer.class,
                     () -> mock(SimpleRabbitListenerContainerFactoryConfigurer.class))
             .withBean(ConnectionFactory.class, () -> mock(ConnectionFactory.class))
+            // The configuration declares the whole failure arm since T-024, so the tier
+            // delays it reads and the router the consumer takes both have to be present.
+            // Supplied directly rather than bound from properties: what this class tests
+            // is ACTIVATION, and the delays are covered by WriterAmqpPropertiesTest and
+            // LorastatsTopologyDeclarationTest.
+            .withBean(
+                    WriterAmqpProperties.class,
+                    () ->
+                            new WriterAmqpProperties(
+                                    new WriterAmqpProperties.Retry(
+                                            Duration.ofSeconds(30),
+                                            Duration.ofMinutes(5),
+                                            Duration.ofMinutes(30)),
+                                    3,
+                                    Duration.ofSeconds(5)))
+            .withBean(FailedDeliveryRouter.class, () -> mock(FailedDeliveryRouter.class))
             .withPropertyValues(
                     "stats.consumer.lorastats.concurrency=1",
                     "stats.consumer.lorastats.prefetch=500");

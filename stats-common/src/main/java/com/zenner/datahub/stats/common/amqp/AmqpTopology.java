@@ -126,6 +126,95 @@ public final class AmqpTopology {
         return Map.copyOf(arguments);
     }
 
+    // --- Declaration definitions (T-032) -----------------------------------
+    //
+    // Names and argument maps were already shared; the DURABILITY and AUTO-DELETE
+    // flags were not, and each module hand-built its own Spring AMQP object from
+    // memory. Those flags are exactly as fatal as the arguments: a mismatch on any
+    // one of them is RESOURCE_LOCKED at startup for whichever module boots second,
+    // and quorum sharpens it further because a queue's type is fixed at declaration
+    // (ADR-002 §8). Definitions below carry every field of a declaration, so the two
+    // modules can differ only in the four lines that turn a definition into a Spring
+    // object — and stats-testsupport's AmqpDeclarationAssert checks those in both.
+    //
+    // Deliberately free of Spring AMQP types: stats-common holds no broker client
+    // (D15), and giving it one to share a factory would trade a small duplication
+    // for a large dependency.
+
+    /** Everything needed to declare one exchange, with no Spring AMQP types. */
+    public record ExchangeDefinition(
+            String name, String type, boolean durable, boolean autoDelete) {
+
+        public static final String TOPIC = "topic";
+
+        public ExchangeDefinition {
+            Objects.requireNonNull(name, "name");
+            Objects.requireNonNull(type, "type");
+        }
+    }
+
+    /** Everything needed to declare one queue, with no Spring AMQP types. */
+    public record QueueDefinition(
+            String name,
+            boolean durable,
+            boolean exclusive,
+            boolean autoDelete,
+            Map<String, Object> arguments) {
+
+        public QueueDefinition {
+            Objects.requireNonNull(name, "name");
+            arguments = Map.copyOf(Objects.requireNonNull(arguments, "arguments"));
+        }
+    }
+
+    /**
+     * The ingress exchange every broker-connected module declares (ADR-002 §11).
+     *
+     * <p>Durable and not auto-delete: an auto-delete exchange disappears the moment the
+     * last binding goes, and the next publish is then unroutable rather than queued.</p>
+     */
+    public static ExchangeDefinition inputExchange() {
+        return new ExchangeDefinition(
+                INPUT_EXCHANGE, ExchangeDefinition.TOPIC, true, false);
+    }
+
+    /**
+     * The dead-letter exchange. It carries both the retry bounce-back and the
+     * dead-letter route, separated by routing key — see {@link #deadLetterRoutingKey}.
+     */
+    public static ExchangeDefinition deadLetterExchange() {
+        return new ExchangeDefinition(
+                DEAD_LETTER_EXCHANGE, ExchangeDefinition.TOPIC, true, false);
+    }
+
+    /**
+     * The routing key that carries a message to a type's DLQ, as distinct from
+     * {@link #routingKey(StatType)}, which carries an expired retry message back to the
+     * main queue. Both travel through {@link #DEAD_LETTER_EXCHANGE}: one key returns the
+     * record for another attempt, the other retires it. Sharing a key would silently
+     * turn every dead-letter into an infinite retry loop.
+     */
+    public static String deadLetterRoutingKey(StatType type) {
+        return wireName(type) + ".dlq";
+    }
+
+    /** The main work queue, durable and non-exclusive (rule 10, STA-13A). */
+    public static QueueDefinition mainQueueDefinition(StatType type) {
+        return new QueueDefinition(mainQueue(type), true, false, false, mainQueueArguments());
+    }
+
+    /** One retry tier, holding messages for {@code delay} before bouncing them back. */
+    public static QueueDefinition retryQueueDefinition(StatType type, int tier, Duration delay) {
+        return new QueueDefinition(
+                retryQueue(type, tier), true, false, false, retryQueueArguments(type, tier, delay));
+    }
+
+    /** The DLQ. No expiry and no onward route, by construction (ADR-002 §12). */
+    public static QueueDefinition deadLetterQueueDefinition(StatType type) {
+        return new QueueDefinition(
+                deadLetterQueue(type), true, false, false, deadLetterQueueArguments());
+    }
+
     private static String wireName(StatType type) {
         return Objects.requireNonNull(type, "Stat type must not be null").wireName();
     }

@@ -36,6 +36,34 @@ public record ProblemDetails(
         errors = errors == null ? null : List.copyOf(errors);
     }
 
+    /**
+     * A problem body for an error that has no per-field detail — 413, 429, 503 and
+     * anything else whose cause is the request as a whole rather than one member.
+     *
+     * <p>It exists so those responses cannot drift from the catalogue: the type URI,
+     * title and status all come from {@code errorCode}, and a caller therefore cannot
+     * be handed a 429 carrying a 503 type URI because someone assembled the record by
+     * hand at the call site.</p>
+     */
+    public static ProblemDetails of(ErrorCode errorCode, String detail, String instance) {
+        return of(errorCode, detail, instance, null);
+    }
+
+    /** As {@link #of(ErrorCode, String, String)}, with the stat type when it is known. */
+    public static ProblemDetails of(
+            ErrorCode errorCode, String detail, String instance, StatType statType) {
+        Objects.requireNonNull(errorCode, "errorCode");
+        return new ProblemDetails(
+                errorCode.typeUri(),
+                errorCode.title(),
+                errorCode.status(),
+                detail,
+                instance,
+                statType,
+                null,
+                null);
+    }
+
     public static ProblemDetails validationFailure(
             ErrorCode errorCode,
             List<FieldError> errors,

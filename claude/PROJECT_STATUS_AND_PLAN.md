@@ -59,7 +59,7 @@ migration, so they were living only in this paragraph. Their real status:
 | The envelope column list including `ingested_at` and `schema_version` | **Resolved — ADR-003 D7, 24 Aug 2026.** `ingested_at` is **rejected as a rename** of `received_at`; `schema_version smallint NOT NULL` is **adopted**. Both are in `V1__lorastats_table.sql` as built |
 | Quorum queues | **Adopted and propagated** — ADR-002 §8 declares every main, retry and dead-letter queue with `x-queue-type: quorum`, from the shared constants only. `AmqpTopologyTest` asserts the argument map |
 | Writer deployed once per stat type via `STAT_TYPE`, plus a sixth scheduled invocation for partition maintenance | **Adopted with one deliberate difference** — ADR-003 D8 takes the one-deployment-per-type shape, built in T-019 as `LorastatsDeploymentCondition`. The sixth scheduled invocation was **not** taken: partition maintenance is a scheduled task inside every writer replica behind the D3 advisory lock (ADR-003 D1), which N replicas per type require anyway. Compose still runs a single image — that is a dev convenience, not the production shape |
-| `mandatory` routing, unroutable treated as a failed acceptance | **Adopted and propagated** — ADR-002 §9. Input publishes with `mandatory=true` and a `ReturnsCallback`; a returned message is a failed acceptance: 503 plus `records_unroutable{type}`. T-015 is the implementation |
+| `mandatory` routing, unroutable treated as a failed acceptance | **Adopted and propagated** — ADR-002 §9. Input publishes with `mandatory=true` and a `ReturnsCallback`; a returned message is a failed acceptance: 503 plus `records_unroutable{type}`. **BUILT 5 Sep 2026 (T-015, DL-118)** — proved against a real broker with a genuinely unbound routing key |
 | Separate database roles per module | **Adopted and propagated** — ADR-006: `stats` (write) for the Writer, `stats_ro` (SELECT only) for the API, and **no database role at all** for Input, which holds no datasource. T-009 is PARTIAL on the *proof*, not the decision — nothing yet tests that a write as `stats_ro` is refused |
 | RLS with `SET LOCAL app.tenant_id` | **Not adopted, and it conflicts.** ADR-006 enforces isolation as a mandatory query predicate, not row-level security. RLS would be defence in depth, not a replacement — it needs its own ADR before anyone builds it. **The one genuinely unresolved row here** |
 
@@ -281,6 +281,16 @@ Decide typed columns vs `jsonb` here — everything else inherits it.
 broker down returns 503; DB down grows the queue and eventually DLQs; duplicate `uid`
 is a harmless no-op; retention boundary test passes on both sides.
 
+> **Status, 5 September 2026.** Everything on that list is built except the two that
+> depend on the payload gate. Ingest is publisher-confirmed with the unroutable case
+> closed and the bytes proved identical (T-014 … T-016, DL-118/DL-119); the endpoint is
+> bounded and has an authentication seam (T-017/T-018, DL-120/DL-121); the Writer has
+> three retry tiers and a per-type DLQ with the hand-off confirmed before the ACK
+> (T-024, DL-122); and the two modules can no longer disagree about the topology they
+> declare (T-032, DL-123). **Outstanding for exit: T-057** (payload gate — the producer
+> of most dead-letters), **T-060** (DLQ depth and age alerting — the queue exists and
+> nobody is watching it) and **T-025** (retention boundary).
+
 ### Phase 3 — Type fan-out (juniors, parallel)
 
 `ltestats`, `sysstats`, `omsstats` — one per junior, each an additive copy of the
@@ -333,7 +343,7 @@ all pass naive tests while being wrong.
 |---|---|
 | ADRs 001, 003, 005, 006 | Architecture decisions with no rollback |
 | Tenant isolation — implementation *and* its tests | Security control. A junior writing both the code and its test can be consistently wrong and green. |
-| Publisher confirm + ACK-after-commit semantics | Subtly wrong versions look identical until you lose data |
+| Publisher confirm + ACK-after-commit semantics | Subtly wrong versions look identical until you lose data. **BUILT 5 Sep 2026** — DL-118 (confirm before 2xx) and DL-122 (confirmed hand-off before ACK) |
 | PostgreSQL schema, partitioning, index design, migrations | Expensive to change at 115M rows/day |
 | Retention job | Wrong timestamp or unbounded delete = data loss or a locked table |
 | Keyset pagination and cursor encoding | Off-by-one duplicates or skips records; hard to spot |

@@ -82,6 +82,10 @@ flyway-database-postgresql = { module = "org.flywaydb:flyway-database-postgresql
 
 # --- test -------------------------------------------------------------------
 spring-boot-starter-test = { module = "org.springframework.boot:spring-boot-starter-test" }
+# AssertJ comes transitively with the test starter for the application modules;
+# stats-testsupport needs it on its MAIN classpath, because AmqpDeclarationAssert
+# is production code of a test-support library. Version from the Boot BOM.
+assertj = { module = "org.assertj:assertj-core" }
 spring-boot-test = { module = "org.springframework.boot:spring-boot-test" }
 # Supplies @ServiceConnection so Spring test contexts consume Testcontainers
 # connection details without duplicated host, port, credential, or URL properties.

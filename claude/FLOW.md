@@ -34,16 +34,22 @@ built, and `stats-api` is still a stub.
 | `ErrorCode`, `FieldError`, `ProblemDetails` (RFC 9457) | **`BUILT`** (T-003) |
 | `StatsSchemaValidator`, `ValidationResult` (Draft 2020-12) | **`BUILT`** (T-004) |
 | `stats-input` — envelope gate, clock-skew policy, ingest metrics, controller | **`BUILT`** (T-013, T-059) |
-| `stats-input` — publish with confirms | **`SPECIFIED`** (T-014). The `StatsPublisher` port exists and its stand-in answers `NOT_CONFIRMED`, so every accepted record is answered **503** |
+| `stats-input` — publish with confirms, mandatory/return, byte-identical publication | **`BUILT`** (T-014, T-015, T-016; DL-118, DL-119). `CONFIRMED` follows a broker ack with no return and nothing else; an unroutable message is a failed acceptance — 503 and `records_unroutable{type}` |
+| `stats-input` — auth seam and request limits | **`BUILT`** (T-017, T-018; DL-120, DL-121). The *mechanism* behind the auth seam is still Q8a-2; `mode=none` is unauthenticated by decision and refused under `prod` |
 | `stats-writer` — `lorastats` table, indexes, partition pre-creation | **`BUILT`** (T-010 … T-012) |
 | `stats-writer` — per-type consumer, manual ACK, batch-shaped idempotent insert, range check, `passthrough` | **`BUILT`** (T-019 … T-023, T-058) |
-| `stats-writer` — retry tiers + DLQ, payload gate, retention, dialects | **`SPECIFIED`** (T-024, T-057, T-025, T-063) |
+| `stats-writer` — three retry tiers, per-type DLQ, confirmed hand-off before ACK | **`BUILT`** (T-024; DL-122). Delays and the ceiling are properties; a permanent failure skips the tiers |
+| `stats-writer` — payload gate, retention, dialects | **`SPECIFIED`** (T-057, T-025, T-063) |
+| Cross-module topology declaration agreement | **`BUILT`** (T-032; DL-123). One set of definitions in `stats-common`, one assertion in `stats-testsupport` called by both modules, and `stats-api` asserts it has no AMQP client at all |
 | Liveness/readiness groups per module | **`BUILT`** (T-006, DL-103) |
 | `stats-api` | `@SpringBootApplication` **stub only** — Phase 4, gated on D-09 |
 
-So: the **shared vocabulary** is real, and so is most of one type's path into
-PostgreSQL. **No record has yet travelled the whole path**, because Input cannot
-publish (T-014) and the Writer has no retry/DLQ arm (T-024). Phase 2 finishes it
+So: the **shared vocabulary** is real, and so is one type's whole path. Since
+5 Sep 2026 a record travels from Heimdal to a queue, from the queue into a partition,
+and — when the write fails — through three retry tiers to a dead-letter queue that
+never expires anything. **What is still missing is the gate that produces most
+dead-letters:** the per-type payload validation of T-057, and the DLQ depth alerting of
+T-060, so the queue is real and nobody is watching it. Phase 2 finishes it
 end to end for `lorastats` first (DL-030 rationale; see
 `CODE_START_CHECKLIST.md` §B).
 
@@ -117,11 +123,17 @@ end to end for `lorastats` first (DL-030 rationale; see
 
 ## 2. Ingest — `stats-input`   `PART BUILT`
 
-> **`BUILT`:** parse, envelope validation, the clock-skew check, the error shape
-> and the per-type counters (T-013, T-059). **`SPECIFIED`:** authentication
-> (T-017), publish-and-confirm (T-014), the mandatory/return path (T-015) and
-> request limits (T-018). Today a record that passes the gate is answered **503**,
-> because a 2xx follows a publisher confirm and nothing else.
+> **`BUILT`:** parse, envelope validation, the clock-skew check, the error shape and
+> the per-type counters (T-013, T-059); publish-and-confirm (T-014), the
+> mandatory/return path (T-015), byte-identical publication (T-016), the
+> authentication seam (T-017) and the request limits (T-018) — DL-118 … DL-121.
+> A record that passes the gate is now published and answered with the configured
+> success status **after** the broker confirms, and 503 on anything else.
+>
+> **`SPECIFIED`:** the authentication *mechanism*. `stats.input.auth.mode` has no
+> default in code, `none` WARNs on every startup and the `prod` profile refuses to
+> start with it — but while `none` is selected, anything that can reach the Input port
+> can write. Q8a-2 is what closes that.
 
 ### 2.1 The happy path
 
@@ -211,7 +223,7 @@ backpressure channel and it is the mechanism working, not an incident
 
 ---
 
-## 3. Broker — routing, retry, and the DLQ   `PART BUILT` (names and consumers `BUILT`; retry/DLQ arm is T-024)
+## 3. Broker — routing, retry, and the DLQ   `BUILT` (T-024, T-032; the alerting on top of it is T-060)
 
 ### 3.1 Topology, and who declares it
 
@@ -315,9 +327,13 @@ unrepresentable, not merely documented (DL-034).
 > **`BUILT`:** the per-type consumer and `STAT_TYPE` selection, manual ACK after
 > commit, the batch-shaped idempotent insert with duplicate metering, the counter
 > range check, `passthrough` round-tripping and partition pre-creation
-> (T-010 … T-012, T-019 … T-023, T-058). **`SPECIFIED`:** retry tiers and DLQ
-> routing (T-024), the payload gate (T-057), retention (T-025), late arrival
-> (T-026) and the three-dialect normalisation (T-063).
+> (T-010 … T-012, T-019 … T-023, T-058), and — since 5 Sep 2026 — the three retry
+> tiers and per-type DLQ, with the onward copy confirmed before the original is
+> ACKed (T-024, DL-122). **`SPECIFIED`:** the payload gate (T-057), retention
+> (T-025), late arrival (T-026) and the three-dialect normalisation (T-063).
+>
+> The arm is built and **idle**: nothing yet throws a permanent failure, because
+> the gate that would is T-057. And nothing watches the DLQ until T-060.
 
 ### 4.1 Per-message flow
 
@@ -544,8 +560,11 @@ blip restarts the container instead of removing it from the load balancer
 for thirty seconds.
 
 **Topology declarations must be byte-identical between Input and Writer**,
-which is why both build their arguments from `AmqpTopology`. T-032 is the
-test that proves it (DL-035).
+which is why both build every field — durability and auto-delete included, not
+just names and arguments — from `AmqpTopology`'s definitions. `AmqpDeclarationAssert`
+in `stats-testsupport` is the single assertion both modules' tests call, and
+`stats-api` asserts it cannot load an AMQP type at all. T-032 is **DONE**
+(DL-035, DL-123).
 
 ---
 

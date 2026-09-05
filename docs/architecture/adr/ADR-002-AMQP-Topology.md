@@ -198,8 +198,12 @@ Added by the decisions above:
   request receives 503 and `records_unroutable` increments.** A test that asserts
   only the publisher confirm would pass while the record is silently discarded —
   which is the entire reason `mandatory` is set.
-* The declaration-conflict test (T-032) covers `stats-input` and `stats-writer` only.
-  `stats-api` starting without any broker connection is itself an assertion (§11).
+* The declaration agreement (T-032, **DONE 5 Sep 2026**) covers `stats-input` and
+  `stats-writer` through `AmqpDeclarationAssert`, called from both modules' tests against
+  the definitions in `AmqpTopology`. `stats-api` holding no broker connection is itself an
+  assertion, and it is written as a classpath check rather than a bean check — a bean
+  check would need spring-amqp on that module's test classpath, and would then keep
+  passing after someone promoted it to `implementation` (§11, DL-123).
 * No DLQ declaration carries `x-message-ttl` or a dead-letter exchange. **Asserted:**
   `AmqpTopologyTest.declaresDeadLetterQueuesWithNoExpiryAndNoOnwardRoute` (§12).
 * Both broker-connected modules build their queue arguments from `AmqpTopology`'s maps

@@ -53,6 +53,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 class LorastatsConsumerIntegrationTest {
 
     private static final String QUEUE = AmqpTopology.mainQueue(StatType.LORASTATS);
+    private static final String RETRY_TIER_1 = AmqpTopology.retryQueue(StatType.LORASTATS, 1);
     private static final byte[] BODY = "{\"uid\":\"ack-order-proof\"}".getBytes(UTF_8);
 
     @MockitoBean
@@ -93,6 +94,10 @@ class LorastatsConsumerIntegrationTest {
             container.stop();
         }
         rabbitAdmin.purgeQueue(QUEUE, false);
+        // The broker is a JVM singleton shared by every test class. A record left in a
+        // retry tier bounces back to the main queue when its TTL expires — 30 seconds
+        // later, inside whichever test happens to be running then.
+        rabbitAdmin.purgeQueue(RETRY_TIER_1, false);
     }
 
     @Test
@@ -138,18 +143,24 @@ class LorastatsConsumerIntegrationTest {
     }
 
     /**
-     * The other half of the T-020 contract: a processing failure must not acknowledge,
-     * so the broker keeps the only copy of the record.
+     * The other half of the T-020 contract, as T-024 changed it: a processing failure
+     * moves the record to retry tier 1 and acknowledges the original <em>only then</em>.
      *
-     * <p>This is also the honest record of today's limitation. Spring AMQP in
-     * {@code MANUAL} mode does not {@code basicNack} unless the exception is an
-     * {@code AmqpRejectAndDontRequeueException}, so the delivery stays unacknowledged
-     * and holds a prefetch slot until the channel closes. Nothing is lost — proved
-     * here — but disposition is T-024's retry/DLQ path, and until that lands
-     * {@code records_write_failed} is how the situation becomes visible.</p>
+     * <p><strong>This test asserted the opposite until 5 Sep 2026</strong>, and the old
+     * assertion was correct for the code that existed: without a failure arm, a failed
+     * delivery stayed unacknowledged and the broker requeued it when the channel closed.
+     * Nothing was lost, but nothing progressed either — the same record was redelivered
+     * forever and only {@code records_write_failed} said so. With the arm in place the
+     * record leaves the main queue, waits its tier delay, and comes back for a bounded
+     * number of attempts (DL-122).</p>
+     *
+     * <p>The order is the load-bearing part and it is asserted as an end state: the main
+     * queue is empty (the original was ACKed) <em>and</em> tier 1 holds the record (the
+     * copy exists). ACK-then-publish would produce the same main-queue reading with an
+     * empty tier 1 for as long as the gap lasted (ADR-005).</p>
      */
     @Test
-    void aProcessingFailureLeavesTheRecordWithTheBrokerRatherThanAcknowledgingIt()
+    void aProcessingFailureMovesTheRecordToRetryTierOneBeforeAcknowledgingIt()
             throws Exception {
         doThrow(new IllegalStateException("database transaction failed"))
                 .when(processor)
@@ -159,13 +170,15 @@ class LorastatsConsumerIntegrationTest {
         rabbitTemplate.convertAndSend(
                 AmqpTopology.INPUT_EXCHANGE, AmqpTopology.routingKey(StatType.LORASTATS), BODY);
 
-        await().atMost(ofSeconds(10)).untilAsserted(() -> assertThat(consumers()).isEqualTo(1));
-        // Give the delivery time to be taken and to fail before closing the channel.
-        await().atMost(ofSeconds(10)).untilAsserted(() -> assertThat(readyMessages()).isZero());
-        container.stop();
+        // Tier 1 holds it for 30 s here — the production delay, not a shortened one — so
+        // there is no race between the copy landing and this assertion.
+        await().atMost(ofSeconds(15))
+                .untilAsserted(() -> assertThat(readyMessages(RETRY_TIER_1)).isEqualTo(1));
 
-        // Requeued on channel close: unacknowledged is not lost.
-        await().atMost(ofSeconds(10)).untilAsserted(() -> assertThat(readyMessages()).isEqualTo(1));
+        container.stop();
+        // Empty AFTER the stop is the acknowledgement: anything still unacknowledged on
+        // the channel would have been requeued when it closed.
+        await().atMost(ofSeconds(10)).untilAsserted(() -> assertThat(readyMessages()).isZero());
     }
 
     private void blockInsideProcessor() throws Exception {
@@ -186,7 +199,12 @@ class LorastatsConsumerIntegrationTest {
 
     /** Messages READY on the queue. Excludes deliveries that are out and unacknowledged. */
     private int readyMessages() {
-        Properties properties = rabbitAdmin.getQueueProperties(QUEUE);
+        return readyMessages(QUEUE);
+    }
+
+    /** As above, for any queue in the type's topology. */
+    private int readyMessages(String queue) {
+        Properties properties = rabbitAdmin.getQueueProperties(queue);
         assertThat(properties).isNotNull();
         return (int) properties.get(RabbitAdmin.QUEUE_MESSAGE_COUNT);
     }

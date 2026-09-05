@@ -195,23 +195,53 @@ spring.rabbitmq.port=${RABBITMQ_PORT:5672}
 
 # Publisher confirms — STA-04A. A 2xx is only returned after the broker confirms.
 spring.rabbitmq.publisher-confirm-type=correlated
-stats.amqp.confirm-timeout-ms=5000
+stats.amqp.confirm-timeout=5s
 
-stats.exchange.name=app_stats_input
+# mandatory + a ReturnsCallback — ADR-002 §9. A confirm says the BROKER accepted the
+# message, not that a queue wanted it; a returned message is a FAILED acceptance.
+spring.rabbitmq.template.mandatory=true
+
+# Bound AND checked against AmqpTopology.INPUT_EXCHANGE — any other value refuses to
+# start (DL-118). Renamed from stats.exchange.name, which nothing read.
+stats.amqp.exchange=app_stats_input
 
 # Clock skew — Q14a, decided 29 Aug 2026 (ADR-003 D9). A ts.device more than this
 # ahead of ts.server is a 400 with the field code clock_skew_exceeded, metered as
 # records_clock_skew_rejected{type}. Cross-field, so it cannot live in the schema.
 stats.input.validation.max-clock-skew=PT5M
 
-# Request limits — STA-06B
-stats.input.max-request-bytes=TBC
-stats.input.request-timeout-ms=TBC
+# Request limits — STA-06B, T-018 (DL-121). ENGINEERING DEFAULTS, not ZC's answer:
+# D-03 fixes no numbers, and an unbounded ingest endpoint is wrong at every value it
+# can return. Over the limit is 413; over the rate is 429 with Retry-After. The rate
+# is PER INSTANCE — the cluster ceiling is this times the replica count.
+stats.input.limits.max-request-bytes=256KB
+stats.input.limits.max-requests-per-second=4000
+
+# The read timeout is the container's; a stalled TCP connection is not something
+# application code can observe.
+server.tomcat.connection-timeout=10s
 ```
 
 ### Module 2 — Stats Writer
 ```properties
 server.port=8082
+# ACK only after the PostgreSQL transaction commits — D7, STA-25A.
+spring.rabbitmq.listener.simple.acknowledge-mode=manual
+
+# The Writer publishes exactly one thing: the retry or dead-letter copy of a delivery
+# it could not persist. That copy is CONFIRMED before the original is ACKed (ADR-005,
+# DL-122) — the reverse order loses the record with everything reporting success.
+spring.rabbitmq.publisher-confirm-type=correlated
+spring.rabbitmq.template.mandatory=true
+stats.amqp.confirm-timeout=5s
+
+# Three explicit tiers, never a multiplier, every value externalised (G1/G4). One
+# attempt per tier, so a fourth failure retires the record to <type>.dlq. There is
+# deliberately NO dlq TTL property and no code that could read one (ADR-002 §12).
+stats.amqp.retry.tier1-delay=PT30S
+stats.amqp.retry.tier2-delay=PT5M
+stats.amqp.retry.tier3-delay=PT30M
+stats.amqp.max-retries=3
 spring.datasource.url=${POSTGRES_URL:jdbc:postgresql://localhost:5432/statsdb}
 spring.datasource.username=${POSTGRES_USER:stats}
 spring.datasource.password=${POSTGRES_PASSWORD:stats}
