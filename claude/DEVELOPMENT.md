@@ -435,16 +435,20 @@ columns for the four stable types, `jsonb` only for the `netstats` interface map
 
 ```sql
 CREATE TABLE <stat_type> (
-    uid           text        NOT NULL,
-    tenant        text        NOT NULL,
-    maintenant    text        NOT NULL,
-    clsbox       text        NOT NULL,
-    ts_server  timestamptz NOT NULL,
-    ts_device     timestamptz NOT NULL,
-    received_at   timestamptz NOT NULL DEFAULT now(),
+    uid            text        NOT NULL,
+    tenant         text        NOT NULL,
+    maintenant     text        NOT NULL,
+    clsbox         text        NOT NULL,
+    ts_server      timestamptz NOT NULL,
+    ts_device      timestamptz NOT NULL,
+    received_at    timestamptz NOT NULL DEFAULT now(),
+    record_version smallint    NOT NULL,
     -- typed payload columns; bigint for counters, never integer
     <payload columns>,
-    PRIMARY KEY (ts_device, uid)
+    passthrough    jsonb,   -- ts.datastore / ts.converter / ts.expiresOn / status
+    data_extra     jsonb,   -- unmapped `data` members, DL-095. NEVER omit this
+    PRIMARY KEY (ts_device, uid),
+    CONSTRAINT <stat_type>_clsbox_canonical CHECK (clsbox ~ '^[0-9A-F]{12}$')
 ) PARTITION BY RANGE (ts_device);
 
 -- Created on the parent; PostgreSQL propagates it to every partition.
@@ -470,6 +474,17 @@ Three things to know before you write a migration:
   retention mechanism; a column would be a second source of truth.
 - **Counters are `bigint`.** The SRS says "integer", but these are monotonic
   counters over long device uptimes and `int4` overflow is silent corruption.
+- **`data_extra jsonb` is not optional (DL-095).** The typed columns have nowhere to
+  put an unmapped `data` member, Input preserves it byte-identically, and the Writer
+  used to drop it at the `INSERT`. Omitting the column silently reopens that loss.
+  Almost every row is `NULL`, so it does not reintroduce the key-name overhead
+  ADR-003 D2 rejected. Meter a use as `records_unmapped_data_field{type}`.
+- **The `clsbox` CHECK is not optional either (DL-115).** The Writer uppercases with
+  `Locale.ROOT` before the `INSERT` and the constraint holds the invariant at the
+  table, so the rule survives a future writer that forgets. The envelope schema keeps
+  `^[0-9A-Fa-f]{12}$` on purpose: a lowercase record is **normalised, never 400'd**.
+  And the API filter is `clsbox = upper(:clsbox)` — putting `upper()` on the column
+  side silently stops the index being used.
 
 The idempotent write is:
 

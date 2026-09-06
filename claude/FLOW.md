@@ -22,7 +22,7 @@ flow, because a specified flow and a running one are not the same claim.
 | **`SPECIFIED`** | Decided and contracted; not yet implemented |
 | **`BLOCKED`** | Cannot be built — an open question owns it |
 
-### What exists today (4 September 2026)
+### What exists today (5 September 2026)
 
 `stats-common` is complete, `stats-writer` and `stats-input` are substantially
 built, and `stats-api` is still a stub.
@@ -37,7 +37,11 @@ built, and `stats-api` is still a stub.
 | `stats-input` — publish with confirms, mandatory/return, byte-identical publication | **`BUILT`** (T-014, T-015, T-016; DL-118, DL-119). `CONFIRMED` follows a broker ack with no return and nothing else; an unroutable message is a failed acceptance — 503 and `records_unroutable{type}` |
 | `stats-input` — auth seam and request limits | **`BUILT`** (T-017, T-018; DL-120, DL-121). The *mechanism* behind the auth seam is still Q8a-2; `mode=none` is unauthenticated by decision and refused under `prod` |
 | `stats-writer` — `lorastats` table, indexes, partition pre-creation | **`BUILT`** (T-010 … T-012) |
-| `stats-writer` — per-type consumer, manual ACK, batch-shaped idempotent insert, range check, `passthrough` | **`BUILT`** (T-019 … T-023, T-058) |
+| `stats-writer` — per-type consumer, manual ACK, batch-shaped idempotent insert, range check, `passthrough`, `data_extra` | **`BUILT`** (T-019 … T-023, T-058; DL-095) |
+| `stats-writer` — `clsbox` normalised to one canonical case, with the table's own `CHECK` | **`BUILT`** (T-011, T-022; DL-115, V5). The schema still accepts either case: a lowercase record is normalised, never rejected. **Every new stat-type table must carry the `CHECK`** |
+| `stats-writer` — `SafeFailure`: no throwable, and therefore no payload value, in a log line | **`BUILT`** (T-066; DL-124). Type chain plus a validated `SQLState`, never a message. `WriterLogsCarryNoThrowableTest` fails the build |
+| Architecture guards — nothing branches on `version`; no stat type named in main source | **`BUILT`** (DL-113, trap 15). Written *before* T-063 creates the dialect-selection code that will sit beside `version` |
+| API contract linted in CI (`redocly lint` 2.51.2) | **`BUILT`** (DL-117) |
 | `stats-writer` — three retry tiers, per-type DLQ, confirmed hand-off before ACK | **`BUILT`** (T-024; DL-122). Delays and the ceiling are properties; a permanent failure skips the tiers |
 | `stats-writer` — payload gate, retention, dialects | **`SPECIFIED`** (T-057, T-025, T-063) |
 | Cross-module topology declaration agreement | **`BUILT`** (T-032; DL-123). One set of definitions in `stats-common`, one assertion in `stats-testsupport` called by both modules, and `stats-api` asserts it has no AMQP client at all |
@@ -49,7 +53,10 @@ So: the **shared vocabulary** is real, and so is one type's whole path. Since
 and — when the write fails — through three retry tiers to a dead-letter queue that
 never expires anything. **What is still missing is the gate that produces most
 dead-letters:** the per-type payload validation of T-057, and the DLQ depth alerting of
-T-060, so the queue is real and nobody is watching it. Phase 2 finishes it
+T-060, so the queue is real and nobody is watching it. Before either, **T-063** — three
+`lorastats` dialects were accepted as a decision on 4 Sep (DL-105) and the code still
+accepts one, so two thirds of that type would dead-letter into a queue that expires
+nothing. The ranked order is `Stats_App_Tracker.xlsx` → `Next Up`. Phase 2 finishes it
 end to end for `lorastats` first (DL-030 rationale; see
 `CODE_START_CHECKLIST.md` §B).
 

@@ -6,6 +6,51 @@ It is still auto-loaded every session: the repository-root `CLAUDE.md` is a
 pointer file whose only content is an `@claude/CLAUDE.md` import. Edit this file,
 not the pointer.
 
+> **Version 1.9 — 5 September 2026.** No decision in 1.8 changes. What changes is
+> that **most of the `lorastats` path is now code**, and four rules below are now
+> enforced by tests that fail the build rather than by this document asking nicely.
+> Governing entries: **DL-113…DL-124**.
+>
+> **Changed in 1.9 — re-read these:**
+>
+> * **The ingest path is real.** A 2xx follows the publisher confirm and nothing
+>   else; an acked-but-*returned* message is a **failed** acceptance (503 +
+>   `records_unroutable{type}`); publication is byte-identical, proved by a fixture
+>   built to fail under any re-serialisation. The auth **seam** exists —
+>   `stats.input.auth.mode` has no default in code and `prod` refuses `none` — and the
+>   endpoint is bounded (256 KB → 413, 4,000 req/s per instance → 429). DL-118…DL-121.
+> * **The Writer's failure arm is real.** Three retry tiers, a per-type DLQ that
+>   expires nothing, and **the onward copy is publish-confirmed before the original is
+>   ACKed**. It is built and *idle*: nothing yet produces a permanent failure, which is
+>   T-057. DL-122.
+> * **The two broker-connected modules cannot disagree about topology.**
+>   `AmqpTopology` owns the complete declaration — durability and auto-delete as well
+>   as names and arguments — and one assertion checks both. DL-123.
+> * **`clsbox` is stored in ONE canonical case** — uppercased by the Writer, with
+>   `CHECK (clsbox ~ '^[0-9A-F]{12}$')` as the table's own backstop. The envelope schema
+>   still accepts either case, so a lowercase record is never 400'd. The API filter is
+>   `clsbox = upper(:clsbox)`, never `upper(clsbox) = …`, which would stop the index
+>   being used. **Every new stat-type table must carry the CHECK — like `data_extra`.**
+>   DL-115.
+> * **Two guards now fail the build, and both were written before the code they
+>   constrain.** `VersionIsNotADiscriminatorTest` fails if any main source outside a
+>   three-entry whitelist names the bare identifier `version` (DL-113).
+>   `WriterLogsCarryNoThrowableTest` plus `SafeFailure` make it impossible for a
+>   throwable — and therefore a payload value — to reach a `stats-writer` log line
+>   (DL-124). The implemented rule is **stricter** than adopted guard P2, because
+>   "type and message, never `DETAIL`" cannot be built.
+> * **The API contract is linted in CI**, not merely parsed: `redocly lint` pinned at
+>   2.51.2, before the Gradle build. DL-117.
+> * **The non-Markdown files caught up.** Seven artifacts still stated the reversed
+>   ADR-007 §4 — a live properties file, the schema catalogue, the fixture manifest and
+>   the API contract among them. DL-116. Note what that decision preserves: **DL-105
+>   changed the decision, T-063 changes the behaviour, and T-063 is not built.** Today
+>   only the bare/integer dialect validates.
+> * **What to do next is now a sheet.** `Stats_App_Tracker.xlsx` → **Next Up**, ranked
+>   across both owners with the gate on each. Short version: **T-063**, then T-057,
+>   then T-064; T-060 waits for T-063; the fan-out starts at **`sysstats`**, not
+>   `ltestats`, and starts when T-033 is green.
+>
 > **Version 1.8 — 4 September 2026.** Closes **nine** open questions against the
 > answers ZC and Hasan returned, and the two signatures that were owed. Governing
 > entries: **DL-104…DL-112**; ADR-007 gains an **Amendment — 4 September 2026**.
@@ -395,6 +440,17 @@ documents is not evidence of correctness when they all derive from one source. I
 you are adding a field, check it against a production record, not against another
 document.
 
+**The same gateway in two letter cases is two gateways.**
+`clsbox` is 12 hex characters and hex has two spellings. Store both and the key
+`(ts_device, uid)` still suppresses duplicates — but `WHERE clsbox = :clsbox` finds
+half a device's history, and a case-variant record looks like a new gateway. Since
+**DL-115** the Writer uppercases before the `INSERT`, `CHECK (clsbox ~
+'^[0-9A-F]{12}$')` holds the invariant at the table, and **every new stat-type table
+must carry that CHECK**. Two things not to "tidy": the envelope schema still accepts
+either case on purpose — a lowercase record is never 400'd — and the API filter is
+`clsbox = upper(:clsbox)`, because `upper(clsbox) = …` silently stops the
+`(tenant, clsbox, ts_device DESC, uid DESC)` index being used.
+
 **A required field that is absent because the device is broken.**
 `netstats` required `ip`/`gw`/`mask`/`dns` on every interface, which dead-lettered
 every record from a modem that never came up — exactly the record ops most needs.
@@ -494,6 +550,31 @@ two signatures that were owed. **Approver:** Naman Vashishtha. Full reasoning:
 | Q4b | **No IPv6 "for now."** `netstats` stays IPv4-only and strict, with a **distinct, metered per-field rejection code** whose non-zero count is the reopening trigger — not a calendar review | DL-110 |
 | **D5a** | **SIGNED.** RPO ≤ 5 min via continuous WAL archiving; RTO 1 h per partition, 24 h full cluster. Obliges archiver-lag alerting and a **timed** T-051 | DL-111 ratifies DL-084; **T-051 unblocked** |
 | **D5b** | **SIGNED.** Late arrival: skip, meter `records_expired_on_arrival`, ACK, **alert when non-zero**. Signed now rather than on 29 Aug because DL-106 makes the path real rather than hypothetical | DL-112 ratifies DL-083; **T-026 unblocked** |
+
+### Built and decided 5 September 2026 — the state the next task starts from
+
+Nothing here reopens a question. It is what exists in the repository now, so that a
+plan is not written against a repository that no longer exists. Full reasoning:
+`claude/DECISIONS.md` DL-113…DL-124.
+
+| Ref | What is now true | Where |
+|---|---|---|
+| DL-118 | **2xx follows the confirm and nothing else.** Nack, timeout, interrupt and connection failure are all 503. An acked-but-**returned** message is a failed acceptance: 503 + `records_unroutable{type}`. Input declares the exchange and no queues | T-014, T-015 |
+| DL-119 | **Byte-identity is proved by a fixture built to fail** — keys out of order, mixed indentation, a unicode escape, the `BIGINT` maximum, no trailing newline. `RabbitTemplate.send` with a hand-built message, never `convertAndSend` | T-016 |
+| DL-120 | **The auth seam is a servlet filter, not Spring Security — yet.** No default in code; `none` warns on every startup; `mtls`/`oauth2` fail while the context builds; `prod` refuses `none` | T-017 |
+| DL-121 | **Request limits are engineering defaults in properties.** 256 KB → 413 `payload_too_large`; 4,000 req/s **per instance** → 429 with `Retry-After`. D-03 can still return any number; an unbounded ingest endpoint is wrong at all of them | T-018 |
+| DL-122 | **The failure arm is built and idle.** Three tiers, a per-type DLQ that expires nothing, and the onward copy **confirmed before** the original is ACKed. Nothing produces a permanent failure until T-057 | T-024 |
+| DL-123 | **One topology, by construction.** `AmqpTopology` owns durability and auto-delete as well as names and arguments; both broker-connected modules build from it; one assertion checks both | T-032 |
+| DL-115 | **`clsbox` is stored in one canonical case** — Writer uppercases, `CHECK (clsbox ~ '^[0-9A-F]{12}$')` backs it at the table, schema still accepts either case, API filters `clsbox = upper(:clsbox)`. **Every new stat-type table must carry the CHECK** | T-011, T-022, T-040 |
+| DL-113, DL-124 | **Two build-failing guards, both written before the code they constrain.** No main source may branch on `version`; no throwable may reach a `stats-writer` log line — `SafeFailure` gives type names and a validated `SQLState`, never a message | T-063, T-066 |
+| DL-117 | **`redocly lint` 2.51.2 gates the API contract in CI**, before the Gradle build | T-038…T-046 |
+| DL-116 | **The non-Markdown artifacts caught up with DL-105** — properties, `.env.example`, schema catalogue, fixture manifest, `openapi.yaml`. They state **today's** behaviour: one dialect validates, two still dead-letter, until T-063 | T-063 |
+
+> **What to do next lives in `Stats_App_Tracker.xlsx` → the `Next Up` sheet**, ranked
+> across both owners with the gate on each row. In one line: **T-063** (three dialects
+> — it is what stops ~15M msg/day dead-lettering), then **T-057** (payload gate), then
+> **T-064**; **T-060 waits for T-063**; the fan-out starts at **`sysstats`** — not
+> `ltestats`, which is blocked on D-12 P3 — and starts when **T-033** is green.
 
 ### Ours to decide — decide deliberately, record as an ADR, do not escalate
 

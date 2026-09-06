@@ -3170,3 +3170,52 @@ module holding a database connection and a decoded payload at the same time.
 chain rather than a stack. That is a real loss of diagnostic detail on the paths where the
 cause is our own code rather than the database, and it was accepted: the alternative is a
 rule with an exception in it, and the exception is what the next author copies.
+
+### DL-125 — The tracker gets a sequence, because a backlog does not answer "what next"
+
+**5 Sep 2026** · `HOUSEKEEPING` · DL-113…DL-124, DL-095, DL-105, D-12 P3 · T-035, T-037, T-047, T-060
+
+**Decision.** Five changes, all recorded in `Stats_App_Tracker.xlsx` and reflected in
+the working documents.
+
+1. **A `Next Up` sheet.** Fourteen ranked rows across both owners, each carrying the gate
+   that must close before it starts. The Tasks sheet stays the backlog; this sheet is the
+   order. `claude/CLAUDE.md` §7, `PROJECT_STATUS_AND_PLAN.md` §3 and `README.md` all point
+   at it rather than restating it.
+2. **The fan-out starts at `sysstats`, not `ltestats`.** `T-034` is blocked on D-12 P3 —
+   whether `imsi` is stored masked or raw and whether it may be a query predicate — and
+   `T-035` is blocked on nothing. Its only sharp edge is `timespan` arriving as the string
+   `"300"`, which is the T-062 lesson learned on the cheapest type.
+3. **`T-037` (`netstats`) now depends on `T-033`, not `T-034`.** The old dependency made
+   `netstats` inherit a block about a field it does not have. `netstats` is last because it
+   is the `jsonb` hybrid the typed-column reference slice templates least well — a plan,
+   not a prerequisite.
+4. **The six missing decisions and four missing evidence rows were added** — DL-113,
+   DL-114, DL-115, DL-116, DL-117 and DL-124 on the Decisions sheet, DN-41…DN-44 on the
+   Done sheet. The tracker had recorded the ingest work of 5 September and none of the six
+   decisions taken the same day.
+5. **The fixture figures are corrected to 76 JSON fixtures and 88 assertions.** The sheet
+   said 77 and 87; `validate-fixtures.py` says 88 over 76, and `valid/` gained
+   `lorastats-clsbox-lowercase.json` with DL-115. The stale `A1:H22` range on the Open
+   Questions table — spanning fifteen deleted rows — was shrunk to the six that remain.
+
+**Why a sheet rather than a paragraph.** The Tasks sheet answers *what is outstanding*
+and answers it well: sixty-six rows with acceptance criteria, requirement IDs and
+blockers. It does not answer *what do I open now*, and neither does ID order — T-034
+precedes T-035 and must not be started first, T-060 precedes nothing and must wait for
+T-063. Every reader was re-deriving that sequence from dependencies, priority and three
+"blocked by" columns, and two of them derived it differently.
+
+**Why the ordering corrections are decisions and not tidying.** A false dependency and a
+true one are indistinguishable to whoever reads the row next. `T-037 → T-034` would have
+held `netstats` behind a data-classification question about IMSI for as long as D-12 P3
+stayed open, and the reason would have been invisible: the sheet would simply have shown
+`netstats` as not startable. That is the same failure as a stale `OPEN` item — the
+expensive kind, because someone eventually spends a day re-deciding it (DL-116's opening
+paragraph makes the same point about a live properties file).
+
+**What this deliberately does not do.** It does not change a single status. Nothing was
+marked DONE that was not already DONE in the repository, and nothing was reprioritised
+except by naming the gate that was already true. The one behavioural claim it makes —
+that the fan-out may start at `sysstats` — follows from D-12 P3 blocking `ltestats` alone,
+which DL-114 established on 4 September.

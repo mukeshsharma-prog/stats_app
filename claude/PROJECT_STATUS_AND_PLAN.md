@@ -206,8 +206,8 @@ decision are in `docs/decisions/2B-ANSWERS-18AUG2026.md`. **Do not reopen these.
 | `netstats` nested rules | **Answered.** `eth0`/`wwan` mandatory; other interfaces allowed via `patternProperties`; `apipa` optional (ZC's own sample omits it on `wwan`); counters stay digit-only strings on the wire, `BIGINT` in the column. The schema is strict. **The Writer must range-check counters** — 19 digits is wider than signed `BIGINT`. |
 | Inbound Heimdal auth | **Deferred by decision.** Build Input without it, behind `stats.input.auth.mode=none\|mtls\|oauth2` with no default in code, a `WARN` on every `none` startup, and a test that refuses `prod`. **Risk accepted: anything reaching the Input port can write until Q8a-2 closes.** |
 | Keycloak realm and claims | **Proposed by engineering and live in the dev realm.** Realm `statsapp`; clients `stats-api` / `stats-input` / `stats-dev-cli`; audience `stats-api`; read role `stats.readOnly`; ingest role `stats.ingest`; tenant claim `tenant`, **single-valued String** — because a multi-valued claim turns isolation into `tenant IN (...)` and one misconfigured user then reads several tenants with every test still green. |
-| Burst profile | **Assume the worst until measured.** Synchronised 10-minute boundaries: 800,000 records per cycle, design target **13,333/s** (10× average). Input sized for peak, Writer for drain (~2,000/s per type), prefetch 500, `max_wal_size` for the burst. **Alert on oldest message age, never on queue depth** — a depth spike each cycle is the buffer working. |
-| Replay burst | **Ask Heimdal to cap replay at 2× nominal (2,667/s).** A 6-hour outage is 28.8M messages and ~3 hours of replay at that cap, holding total ingest at 4,000/s. A 503 during replay is the backpressure channel working, not an incident. |
+| Burst profile | **Assume the worst until measured** — and **amended 4 Sep 2026 (Q13b, DL-104): gateways JITTER across the cycle.** 13,333/s survives as *configured headroom*, not the expected case; expected steady state is the ~1,333/s average. Input sized for peak, Writer for drain (~2,000/s per type), prefetch 500, `max_wal_size` for the burst. **Alert on oldest message age, never on queue depth** — but the *reading* inverts: a cyclic depth spike used to be the buffer working, and under jitter it is evidence this answer is wrong. Hardware is not sized down until the `ts.server mod 600` histogram over the first 24 h of ingest confirms it (T-050). |
+| Replay burst | **Heimdal AGREED the 2× nominal cap (2,667/s) on 4 Sep 2026 (Q13c, DL-109) — and it stays unenforceable by us, so not one defence changes.** A 6-hour outage is 28.8M messages and ~3 hours of replay at that cap, holding total ingest at 4,000/s. A 503 during replay is the backpressure channel working, not an incident. |
 | Realistic samples | **Built, then rebuilt on production 29 Aug 2026 (ADR-007).** 76 fixture files across `valid/`, `invalid/`, `edge/`, `malformed/`, including 9 byte-faithful production records; `validate-fixtures.py` asserts 88 and exits non-zero for CI (the 76th is `lorastats-clsbox-lowercase.json`, added 5 Sep 2026 by DL-115). The production sample invalidated every envelope field name and four of the five payload schemas. |
 
 ### 2b-2. What is genuinely still open with ZC
@@ -287,15 +287,46 @@ is a harmless no-op; retention boundary test passes on both sides.
 > bounded and has an authentication seam (T-017/T-018, DL-120/DL-121); the Writer has
 > three retry tiers and a per-type DLQ with the hand-off confirmed before the ACK
 > (T-024, DL-122); and the two modules can no longer disagree about the topology they
-> declare (T-032, DL-123). **Outstanding for exit: T-057** (payload gate — the producer
-> of most dead-letters), **T-060** (DLQ depth and age alerting — the queue exists and
-> nobody is watching it) and **T-025** (retention boundary).
+> declare (T-032, DL-123). The same day also landed `clsbox` normalisation with a
+> `CHECK` **every new stat-type table must carry** (DL-115), two build-failing guards —
+> nothing may branch on `version` (DL-113), no throwable may reach a `stats-writer` log
+> line (DL-124) — and a `redocly lint` gate on the contract (DL-117).
+>
+> **Outstanding for exit, in the order to build them:** **T-063** (the three `lorastats`
+> dialects — highest priority on the sheet, and what stops ~15M msg/day dead-lettering),
+> **T-057** (payload gate — the producer of most dead-letters, and the thing that finally
+> makes the built failure arm do something), **T-064** (non-OK upstream status),
+> **T-025/T-026/T-031** (retention, late arrival, boundary), **T-029/T-030/T-033**
+> (poison isolation, crash window, outage drill — T-033 is Phase 3's entry criterion)
+> and **T-060** (DLQ depth and age alerting, sized *after* T-063).
+
+### What to pick up next — 5 September 2026
+
+The ranked list lives in `Stats_App_Tracker.xlsx` → **`Next Up`**, one row per action
+with the gate that must close first. The summary, by owner:
+
+| | Naman | Mukesh |
+|---|---|---|
+| **Now** | T-063, then T-057, then T-064 | T-009 (prove `stats_ro` cannot write), T-027 (finish the metrics, assert the *scrape*), T-005 (logging discipline), T-047 (the OpenAPI **drift** check — DL-117 landed only the lint half) |
+| **Then** | T-025/T-026/T-031, then T-029/T-030/T-033 | T-060 — **after** T-063, or the thresholds are sized against a dead-letter volume that is about to change by two orders of magnitude |
+| **When T-033 is green** | reviews the first fan-out end to end | T-035 `sysstats` **first** — not `ltestats`, which is blocked on D-12 P3 — then T-036 `omsstats`, then T-034 `ltestats`, then T-037 `netstats` |
+| **Held** | T-039, T-042, T-045, T-046 | T-038, T-040, T-041, T-043, T-044 — all gated on ZC confirming `openapi.yaml` (D-09) |
+
+Two sequencing corrections made on 5 September, both recorded in DL-125: the fan-out
+starts at `sysstats` rather than `ltestats`, and T-037 `netstats` no longer depends on
+T-034 — that dependency made `netstats` inherit a block about `imsi`, a field it does
+not have.
 
 ### Phase 3 — Type fan-out (juniors, parallel)
 
-`ltestats`, `sysstats`, `omsstats` — one per junior, each an additive copy of the
-Phase 2 pattern. `netstats` last — its schema was finalised by Q4a on 18 Aug 2026, so
-nothing gates it but the reference slice. If any of these requires
+`sysstats`, `omsstats`, `ltestats` — each an additive copy of the Phase 2 pattern.
+**`sysstats` goes first** (5 Sep 2026): `ltestats` is blocked on D-12 P3 — whether
+`imsi` is stored masked or raw and whether it may be a query predicate — and `sysstats`
+is blocked on nothing, so the copy is rehearsed on the cheapest type. `netstats` last —
+its schema was finalised by Q4a on 18 Aug 2026, so nothing gates it but the reference
+slice, and it is the `jsonb` hybrid the typed-column slice templates least well.
+Every new type's table carries `data_extra jsonb` (DL-095) **and** the `clsbox` CHECK
+(DL-115). If any of these requires
 editing Phase 2 code, the abstraction is wrong — that comes back to you.
 
 **Exit:** all approved types ingesting; poison-message isolation test proves one bad

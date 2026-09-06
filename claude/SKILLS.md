@@ -4,6 +4,14 @@ Reusable, repeatable procedures for the Stats App. Each skill is a checklist
 for a task that will be done more than once — the point is that the *second*
 time it is done, it is done the same way as the first.
 
+> **Version 1.3 — 5 September 2026.** Skill 1 and Skill 3 rebuilt against the
+> reference slice **as it now exists in the repository**, and against the two changes
+> that make the old wording wrong: the **two validation gates** (ADR-007 §5 — an
+> envelope failure is a 400, a *payload* failure is a **dead-letter**, so "missing
+> payload field → 400" is no longer true) and the columns every new table must carry
+> — `passthrough`, **`data_extra jsonb`** (DL-095) and the **`clsbox` CHECK**
+> (DL-115).
+>
 > **Version 1.2 — 16 August 2026.** Updated for **PostgreSQL**. The v1.0 version
 > of this file described MongoDB TTL indexes and left C1, Q10, and Q23 open; all
 > three are now answered. Retention keys on **`ts.device`**.
@@ -19,12 +27,25 @@ an existing stat type's code, **stop** — that violates STA-14/STA-22.
 ### Prerequisites
 - [ ] The schema for the new type is documented (fields, types, mandatory/optional)
 - [ ] The type name is confirmed and matches the routing key exactly
+- [ ] **T-033 is green.** The broker/database outage drill is Phase 3's entry criterion:
+      fan out before the reference slice is proven and you get five divergent
+      implementations to reconcile
+- [ ] You have read the reference slice you are copying — `LorastatsConsumer`,
+      `LorastatsMessageProcessor`, `LorastatsDeploymentCondition`,
+      `LorastatsBatchWriter`, and `V1__lorastats_table.sql` … `V5__…_clsbox_canonical_case.sql`
 
 ### Steps
 
 1. **Define the payload model**
    - Add the `data` payload class. The envelope is shared — do not redefine it.
+     `StatsEnvelope` and `Timestamps` are lossless already and must not be touched.
    - Mandatory envelope fields: `uid`, `tenant`, `maintenant`, `clsbox`, `type`, `ts.server`, `ts.device`
+   - **Parse the wire types this type actually sends, not the ones the SRS implies.**
+     `timespan` is an integer in `lorastats`/`omsstats`/`netstats` and the string
+     `"300"` in `sysstats`; every `ltestats` numeric is a string; `netstats` counters
+     are digit-only strings up to 19 digits. Range-check against the signed `BIGINT`
+     maximum **before** conversion and dead-letter on overflow — never zero, never
+     truncate *(T-062, STA-04C)*
 
 2. **Register validation** *(Module 1, STA-03)*
    - Add the schema to the validation registry keyed by type name
@@ -56,7 +77,17 @@ an existing stat type's code, **stop** — that violates STA-14/STA-22.
 
 5. **Add the table, migration, and indexes** *(Module 2, STA-21A)*
    - New table named after the stat type, created by a **versioned migration**
-   - Common envelope columns plus the type's `data` representation
+   - Common envelope columns in the **production** names — `clsbox`, `ts_server`,
+     `ts_device`, `tenant`, `maintenant`, `uid`, `record_version` — plus the type's
+     `data` representation
+   - A nullable **`passthrough jsonb`** for `ts.datastore`, `ts.converter`,
+     `ts.expiresOn` and `status`, and a nullable **`data_extra jsonb`** for unmapped
+     `data` members. **Omitting `data_extra` silently reopens a data-loss path**
+     *(DL-094, DL-095)*
+   - **`CHECK (clsbox ~ '^[0-9A-F]{12}$')`, and the Writer uppercases before the
+     `INSERT`** — one canonical case, by normalisation and never by rejection. The
+     envelope schema still accepts either case, so a lowercase record is never 400'd
+     *(DL-115)*
    - `uid` as its own column, with `PRIMARY KEY (ts_device, uid)` **in that column
      order** — scoped per partition, not global *(STA-21B, ADR-003, G2)*
    - Insert with `ON CONFLICT (ts_device, uid) DO NOTHING`, and **increment
@@ -128,11 +159,15 @@ config. Tenant isolation is a security control, not a feature.
 
 ## Skill 3 — Write tests for a stat type
 
-### Unit — validation *(Module 1)*
-- [ ] Valid payload accepted
-- [ ] Each mandatory envelope field missing → 400
-- [ ] Each mandatory payload field missing → 400
-- [ ] Wrong data type in a field → 400
+### Unit — validation: TWO GATES, TWO CONSEQUENCES *(ADR-007 §5)*
+- [ ] Valid record accepted
+- [ ] Each mandatory **envelope** field missing → **400**, nothing published *(Input)*
+- [ ] `ts.device` beyond `stats.input.validation.max-clock-skew` → 400
+      `clock_skew_exceeded`, metered *(ADR-003 D9)*
+- [ ] Each mandatory **payload** field missing → **dead-letter at the Writer**, never a
+      400 — by then the record has been accepted, confirmed and published, and Heimdal
+      retries only on a non-2xx *(the fixtures carry `$expect: "writer-dlq"`)*
+- [ ] Wrong data type in a payload field → dead-letter; in an envelope field → 400
 - [ ] Unknown stat type → 400
 - [ ] Extra unexpected fields → confirm intended behaviour (reject or ignore)
 - [ ] `ts` in **seconds**, not milliseconds

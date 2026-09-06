@@ -4,11 +4,11 @@ A **Datahub Core** add-on at Zenner. It receives statistics pushed from the
 **Heimdal Core**, buffers them through RabbitMQ, persists them per statistics type
 in **PostgreSQL**, and exposes them through a read-only, tenant-scoped REST API.
 
-**Status (4 September 2026):** Phase 2 — the `lorastats` vertical slice, in
+**Status (5 September 2026):** Phase 2 — the `lorastats` vertical slice, in
 progress. Requirements and architecture are settled and ADRs 001–007 are approved
 or accepted. The Gradle multi-project builds: five modules (`stats-common`,
 `stats-testsupport` and the three applications), three deployable images, a Docker
-Compose stack with PostgreSQL 17, RabbitMQ and Keycloak, and 75 schema fixture
+Compose stack with PostgreSQL 17, RabbitMQ and Keycloak, and 76 JSON schema fixture
 files gated by `docs/schemas/validate-fixtures.py` at 88 assertions.
 
 Since **5 September 2026 a `lorastats` record travels the whole path**: `stats-input`
@@ -20,7 +20,14 @@ missing before Phase 2 closes is the per-type **payload gate** (T-057), which is
 will produce most dead-letters, **DLQ depth and age alerting** (T-060) — the queue is
 real and nobody is watching it — and the **retention job** (T-025). `stats-api` is a
 stub awaiting the OpenAPI confirmation (D-09). See `claude/PROJECT_STATUS_AND_PLAN.md`
-and `claude/FLOW.md` for what is BUILT versus SPECIFIED.
+and `claude/FLOW.md` for what is BUILT versus SPECIFIED, and **`Stats_App_Tracker.xlsx`
+→ the `Next Up` sheet** for the ranked answer to *what do I pick up now*.
+
+The same day also landed the work that is easy to miss because it is not on the happy
+path: `clsbox` is now stored in one canonical case with a `CHECK` **every new stat-type
+table must carry** (DL-115), two guards fail the build rather than asking politely — no
+main source may branch on `version` (DL-113) and no throwable may reach a `stats-writer`
+log line (DL-124) — and `redocly lint` gates the API contract in CI (DL-117).
 
 ```
 Heimdal Core ──POST──> stats-input ──AMQP──> RabbitMQ ──> stats-writer ──> PostgreSQL
@@ -48,12 +55,16 @@ Heimdal Core ──POST──> stats-input ──AMQP──> RabbitMQ ──> st
 New to Gradle or Spring Boot? This section is the whole loop, start to finish.
 `claude/DEVELOPMENT.md` is the deeper reference; this is the short path.
 
-> **What exists today.** The three modules are Spring Boot skeletons — one
-> `main()` class each, no controllers, no consumers, no migrations yet. The build
-> succeeds and all three applications start. There is no `POST /stats` endpoint
-> and no `GET /v1/stats/...` endpoint until the `lorastats` vertical slice lands,
-> so the smoke test in `claude/DEVELOPMENT.md` §3.4 describes the target, not the
-> current state.
+> **What exists today (5 September 2026).** `stats-input` has a real `POST` endpoint:
+> it validates the **envelope**, applies the clock-skew check, and returns 2xx only
+> after the publisher confirm — 503 on a broker failure or an unroutable message, 400
+> on a bad envelope, 413 over 256 KB, 429 over the rate limit. `stats-writer` consumes
+> `lorastats`, writes it idempotently into a daily partition, ACKs only after the
+> commit, and routes a failed delivery through three retry tiers to a per-type DLQ.
+> Migrations V1–V5 exist. **`stats-api` is still a skeleton** — one `main()` class, no
+> controllers — because the OpenAPI contract is not confirmed yet (D-09), so the `GET`
+> half of the smoke test in `claude/DEVELOPMENT.md` §3.4 still describes the target
+> rather than the current state.
 
 ### Prerequisites
 
@@ -204,7 +215,8 @@ Every working document lives in `claude/`. The repository root holds only this
 | `claude/SKILLS.md` | Repeatable procedures — add a stat type, review tenant isolation, write tests, diagnose a queue, change retention |
 | `claude/CODE_START_CHECKLIST.md` | Stop/go decision register and phase entry criteria |
 | `claude/OPEN_QUESTIONS_STATUS_29AUG2026.md` | Every open question and decision as at 29 Aug 2026: what was decided that day and why, what actually blocks which task, and the tracker inconsistencies found |
-| `Stats_App_Tracker.xlsx` (repository root) | **The working task tracker.** 56 tasks across phases 1–5 with acceptance criteria, requirement IDs and blockers; plus what is already done, the open questions by owner, every decision, the 18 known traps with the test that catches each and whether that test exists yet, and a change log. Start here if you are picking up work. |
+| `Stats_App_Tracker.xlsx` (repository root) | **The working task tracker.** 66 tasks across phases 1–5 with acceptance criteria, requirement IDs and blockers; plus what is already done, the open questions by owner, every decision, the 22 known traps with the test that catches each and whether that test exists yet, and a change log. **Read the `Next Up` sheet first** — added 5 Sep 2026, it is the ranked sequence across both owners with the gate on each row; the Tasks sheet is the backlog behind it. |
+| `Stats_App_Work_Brief_Mukesh_05SEP2026.pdf` (repository root) | **The delegation brief.** The same information aimed at one person: what Mukesh owns, in what order, the procedure for each block of work, the traps with the test that catches each, and the definition of done. Generated 5 Sep 2026; the tracker is the live source, this is the readable snapshot. |
 
 ### Specifications — `docs/`
 

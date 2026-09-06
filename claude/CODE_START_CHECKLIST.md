@@ -126,13 +126,25 @@ Build **exactly one type end to end** — `lorastats` — as the reference slice
 
 Include validation, **no transformation** of the received record, publisher confirmation before any 2xx, durable per-type broker topology with three retry tiers and a DLQ, manual ACK after commit, `PRIMARY KEY (ts_device, uid)` with metered `ON CONFLICT DO NOTHING`, daily `RANGE (ts_device)` partitions with pre-creation, the `(tenant, clsbox, ts_device DESC, uid DESC)` index, retention keyed on `ts.device`, per-type metrics, and Testcontainers integration tests.
 
-**Exit criteria:** a valid record lands in the table; an invalid one returns 400 and publishes nothing; broker down returns 503; database down grows the queue and eventually dead-letters; a duplicate `uid` is a harmless no-op **that increments `records_duplicate_suppressed`**; retention boundary tests pass on both sides.
+**Exit criteria:** a valid record lands in the table; an invalid **envelope** returns 400 and publishes nothing while an invalid **payload** is dead-lettered by the Writer (ADR-007 §5); broker down returns 503; database down grows the queue and eventually dead-letters; a duplicate `uid` is a harmless no-op **that increments `records_duplicate_suppressed`**; retention boundary tests pass on both sides.
+
+> **Where the sequence stands, 5 September 2026.** Phase 2's happy path is built: the
+> envelope gate, publisher confirms with the unroutable case closed, byte-identical
+> publication, the auth seam, request limits, the partitioned table with pre-creation,
+> the metered idempotent insert, manual ACK after commit, three retry tiers with a
+> per-type DLQ whose hand-off is confirmed before the ACK, and one topology by
+> construction (DL-118…DL-123). **Phase 2 does not exit until** T-063 (three
+> `lorastats` dialects), T-057 (payload gate), T-064 (non-OK status), T-025/T-026/T-031
+> (retention, late arrival, boundary), T-029/T-030/T-033 (poison, crash window, outage
+> drill) and T-060 (DLQ alerting, sized after T-063) are done. **T-033 is Phase 3's
+> entry criterion**, so it is the row that releases the fan-out. The ranked order,
+> per owner, is `Stats_App_Tracker.xlsx` → `Next Up`.
 
 ### Phase 3 — Type fan-out
 
 **Entry criteria:** Phase 2's reference slice exists and is green.
 
-`ltestats`, `sysstats`, `omsstats`, then `netstats` — each an **additive** copy of the Phase 2 pattern. If any of them requires editing Phase 2 code, the abstraction is wrong and that is a design smell to raise, not to work around (STA-14A, STA-22).
+`sysstats`, `omsstats`, `ltestats`, then `netstats` — each an **additive** copy of the Phase 2 pattern. **Order corrected 5 Sep 2026 (DL-125):** `ltestats` is blocked on D-12 P3 (whether `imsi` is stored masked or raw and whether it may be a predicate) and `sysstats` is not, so the first copy is rehearsed on the type nothing gates; `netstats` stays last as the `jsonb` hybrid. If any of them requires editing Phase 2 code, the abstraction is wrong and that is a design smell to raise, not to work around (STA-14A, STA-22).
 
 **Exit criteria:** all approved types ingesting; the poison-message isolation test proves one bad type does not stall another.
 
