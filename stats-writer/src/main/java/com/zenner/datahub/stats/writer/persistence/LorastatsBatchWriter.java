@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.zenner.datahub.stats.common.model.StatType;
 import com.zenner.datahub.stats.common.model.StatsEnvelope;
 import com.zenner.datahub.stats.writer.log.SafeFailure;
+import com.zenner.datahub.stats.writer.log.WriterLogContext;
 import com.zenner.datahub.stats.common.model.Timestamps;
 import com.zenner.datahub.stats.writer.consumer.LorastatsConsumerDescriptor;
 import com.zenner.datahub.stats.writer.persistence.LorastatsDialects.Dialect;
@@ -231,13 +232,19 @@ public final class LorastatsBatchWriter implements StatsBatchWriter {
                 // DEBUG-gating the payload never sees it. uid stays: it is the correlation
                 // ID by decision (D1), and it is what makes a DLQ message findable.
                 writeFailures.increment();
-                LOGGER.error(
-                        "lorastats INSERT failed; delivery is not acknowledged and is handed "
-                                + "to the failure arm -- a retry tier, or straight to the DLQ "
-                                + "if the cause is permanent: uid={}, index={}, cause={}",
-                        uidOf(records.get(index)),
-                        index,
-                        SafeFailure.describe(failure));
+                WriterLogContext.errorCode("write_failed");
+                // uid is carried explicitly as well as in the MDC: this is a batch-shaped
+                // API, and once G3 batches for real the MDC will name the delivery, not
+                // the record at this index.
+                LOGGER.atError()
+                        .addKeyValue("event", "write_failed")
+                        .addKeyValue("uid", uidOf(records.get(index)))
+                        .addKeyValue("recordIndex", index)
+                        .addKeyValue("cause", SafeFailure.describe(failure))
+                        .log(
+                                "lorastats INSERT failed; delivery is not acknowledged and is handed "
+                                        + "to the failure arm -- a retry tier, or straight to the DLQ "
+                                        + "if the cause is permanent");
                 results.add(RecordWriteResult.failed(index, failure));
             }
         }
@@ -281,10 +288,10 @@ public final class LorastatsBatchWriter implements StatsBatchWriter {
         String dataExtra = dataExtraJson(data);
         if (dataExtra != null) {
             unmappedDataFields.increment();
-            LOGGER.debug(
-                    "Preserving unmapped lorastats data members in data_extra: uid={}, members={}",
-                    record.uid(),
-                    unmappedFieldNames(data));
+            LOGGER.atDebug()
+                    .addKeyValue("event", "unmapped_data_preserved")
+                    .addKeyValue("members", unmappedFieldNames(data))
+                    .log("Preserving unmapped lorastats data members in data_extra");
         }
 
         MapSqlParameterSource parameters = new MapSqlParameterSource();

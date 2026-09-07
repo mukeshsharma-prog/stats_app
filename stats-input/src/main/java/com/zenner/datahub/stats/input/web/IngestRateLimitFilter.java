@@ -5,6 +5,7 @@ import com.zenner.datahub.stats.common.error.ErrorCode;
 import com.zenner.datahub.stats.common.error.ProblemDetails;
 import com.zenner.datahub.stats.input.config.RequestLimitProperties;
 import com.zenner.datahub.stats.input.ingest.IngestMetrics;
+import com.zenner.datahub.stats.input.log.IngestLogContext;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -66,18 +67,22 @@ public class IngestRateLimitFilter extends OncePerRequestFilter {
         }
 
         metrics.rateLimited();
-        log.warn(
-                "Ingest rate limit reached: {} requests/second on this instance "
-                        + "(stats.input.limits.max-requests-per-second). Answering 429; Heimdal "
-                        + "resends on any non-2xx",
-                permitsPerSecond);
+        IngestLogContext.errorCode(ErrorCode.TOO_MANY_REQUESTS);
+        log.atWarn()
+                .addKeyValue("event", "rate_limited")
+                .addKeyValue("permitsPerSecond", permitsPerSecond)
+                .log(
+                        "Ingest rate limit reached on this instance; answering 429 so Heimdal "
+                                + "resends");
         response.setHeader("Retry-After", "1");
         problemWriter.write(
                 response,
                 ProblemDetails.of(
                         ErrorCode.TOO_MANY_REQUESTS,
                         "This instance is at its configured ingest rate. Retry after 1 second.",
-                        request.getRequestURI()));
+                        request.getRequestURI(),
+                        null,
+                        IngestLogContext.traceId()));
     }
 
     /**

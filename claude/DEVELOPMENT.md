@@ -587,6 +587,14 @@ module       — input | writer | api
 event        — validation_failed | published | persisted | retried | dead_lettered
 ```
 
+T-005 carries correlation across the broker in AMQP's standard properties:
+`correlationId` is the request's generated `traceId`, and `messageId` is the validated
+record `uid`. The Writer restores both before parsing and retains them on retry and DLQ
+copies. Input and Writer scope MDC with `try`/`finally` semantics so one pooled request or
+consumer thread cannot inherit the previous record's identifiers. Before parsing, fields
+whose values are not yet trustworthy use the bounded literal `unknown`; raw unvalidated
+values are never copied into logs merely to fill a field.
+
 **What may be logged on failure** *(D2, NFR-03)*: the business permits payload
 logging. Keep it **configurable**, redact tokens and secrets always, and default
 full payloads to `DEBUG`. These records contain device identifiers (IMSI, MAC),

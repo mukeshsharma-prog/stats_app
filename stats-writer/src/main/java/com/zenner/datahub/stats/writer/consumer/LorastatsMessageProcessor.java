@@ -4,11 +4,14 @@ import com.zenner.datahub.stats.common.model.StatType;
 import com.zenner.datahub.stats.writer.persistence.RecordWriteResult;
 import com.zenner.datahub.stats.writer.persistence.RecordWriteStatus;
 import com.zenner.datahub.stats.writer.persistence.StatsBatchWriter;
+import com.zenner.datahub.stats.writer.log.WriterLogContext;
 import com.zenner.datahub.stats.writer.retention.RetentionGuard;
 import com.zenner.datahub.stats.writer.validation.PayloadGate;
 import com.zenner.datahub.stats.writer.validation.ValidatedRecord;
 import java.util.List;
 import java.util.Objects;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.amqp.core.Message;
 import org.springframework.context.annotation.Conditional;
 import org.springframework.stereotype.Component;
@@ -33,6 +36,8 @@ import org.springframework.stereotype.Component;
 @Component
 @Conditional(LorastatsDeploymentCondition.class)
 public final class LorastatsMessageProcessor implements StatsMessageProcessor {
+
+    private static final Logger log = LoggerFactory.getLogger(LorastatsMessageProcessor.class);
 
     private final PayloadGate gate;
     private final RetentionGuard retentionGuard;
@@ -59,6 +64,10 @@ public final class LorastatsMessageProcessor implements StatsMessageProcessor {
         Objects.requireNonNull(message, "message");
 
         ValidatedRecord validated = gate.admit(LorastatsConsumerDescriptor.TYPE, message);
+        // Bound only now: the gate has validated the envelope, so uid, tenant and clsbox
+        // are the schema's values rather than whatever an unvalidated body carried (T-005).
+        WriterLogContext.bindRecord(validated.envelope());
+        log.atDebug().addKeyValue("event", "consumed").log("Record admitted by the payload gate");
 
         if (!retentionGuard.admit(LorastatsConsumerDescriptor.TYPE, validated)) {
             // Past its retention window: skipped, metered and logged by the guard, and
@@ -77,6 +86,12 @@ public final class LorastatsMessageProcessor implements StatsMessageProcessor {
         if (result.status() == RecordWriteStatus.FAILED) {
             throw result.failureOptional().orElseThrow();
         }
+        String event = result.status() == RecordWriteStatus.INSERTED
+                ? "persisted"
+                : "duplicate_suppressed";
+        log.atDebug()
+                .addKeyValue("event", event)
+                .log("Record reached a committed, durable outcome");
         // INSERTED and DUPLICATE_SUPPRESSED are both committed, durable outcomes.
         // Returning lets LorastatsConsumer issue the manual broker ACK.
     }

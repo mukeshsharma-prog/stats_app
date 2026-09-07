@@ -72,12 +72,12 @@ public class InputAuthConfiguration {
     }
 
     private static void warnThatIngestIsUnauthenticated(IngestEndpointProperties endpoint) {
-        log.warn(
-                "INGEST IS UNAUTHENTICATED: stats.input.auth.mode=none, so anything that can reach "
-                        + "{} may write statistics. This is deferred BY DECISION (Q8a, 18 Aug 2026) "
-                        + "and is acceptable on a local dev stack and nowhere else. Q8a-2 must close "
-                        + "before any shared deployment; the prod profile already refuses to start "
-                        + "in this mode.",
-                endpoint.path());
+        log.atWarn()
+                .addKeyValue("event", "authentication_disabled")
+                .addKeyValue("path", endpoint.path())
+                .log(
+                        "INGEST IS UNAUTHENTICATED: stats.input.auth.mode=none. This is acceptable "
+                                + "on a local dev stack and nowhere else; the prod profile refuses "
+                                + "to start in this mode (Q8a)");
     }
 }

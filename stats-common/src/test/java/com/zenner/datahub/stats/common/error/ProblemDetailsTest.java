@@ -16,6 +16,19 @@ import org.junit.jupiter.api.Test;
 
 class ProblemDetailsTest {
 
+    @Test
+    void nonValidationProblemCanCarryTheRequestTraceId() {
+        ProblemDetails problem = ProblemDetails.of(
+                ErrorCode.SERVICE_UNAVAILABLE,
+                "Retry.",
+                "/stats",
+                StatType.LORASTATS,
+                "trace-503");
+
+        assertThat(problem.traceId()).isEqualTo("trace-503");
+        assertThat(problem.statType()).isEqualTo(StatType.LORASTATS);
+    }
+
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     @Test

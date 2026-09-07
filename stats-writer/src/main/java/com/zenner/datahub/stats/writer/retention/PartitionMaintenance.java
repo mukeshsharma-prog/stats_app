@@ -132,12 +132,14 @@ public class PartitionMaintenance {
             } catch (RuntimeException failure) {
                 // Never rethrow here: this loop is the only thing standing between the
                 // other stat types and no partitions tomorrow.
-                LOGGER.error(
-                        "Scheduled partition pre-creation FAILED; this stat type will stop "
-                                + "ingesting once the last pre-created day passes: statType={}, "
-                                + "cause={}",
-                        type.wireName(),
-                        SafeFailure.describe(failure));
+                LOGGER.atError()
+                        .addKeyValue("event", "partition_precreation_failed")
+                        .addKeyValue("statType", type.wireName())
+                        .addKeyValue("errorCode", "partition_precreation_failed")
+                        .addKeyValue("cause", SafeFailure.describe(failure))
+                        .log(
+                                "Scheduled partition pre-creation failed; this stat type will "
+                                        + "stop ingesting once the last pre-created day passes");
             }
             try {
                 retainOne(type);
@@ -159,21 +161,21 @@ public class PartitionMaintenance {
                 precreator.ensurePartitions(type, todayUtc, properties.preCreateDays());
         if (!result.lockAcquired()) {
             // ADR-003 D3: another replica owns this type's maintenance run. Not an error.
-            LOGGER.debug(
-                    "Skipping partition pre-creation because the advisory lock is held: "
-                            + "statType={}, trigger={}",
-                    type.wireName(),
-                    trigger);
+            LOGGER.atDebug()
+                    .addKeyValue("event", "partition_precreation_skipped")
+                    .addKeyValue("statType", type.wireName())
+                    .addKeyValue("trigger", trigger)
+                    .log("Skipping partition pre-creation because the advisory lock is held");
             return;
         }
-        LOGGER.info(
-                "Ensured daily partitions: statType={}, trigger={}, firstDay={}, "
-                        + "preCreateDays={}, partitionCount={}",
-                type.wireName(),
-                trigger,
-                todayUtc,
-                properties.preCreateDays(),
-                result.partitionsEnsured());
+        LOGGER.atInfo()
+                .addKeyValue("event", "partitions_ensured")
+                .addKeyValue("statType", type.wireName())
+                .addKeyValue("trigger", trigger)
+                .addKeyValue("firstDay", todayUtc)
+                .addKeyValue("preCreateDays", properties.preCreateDays())
+                .addKeyValue("partitionCount", result.partitionsEnsured())
+                .log("Ensured daily partitions");
     }
 
     private void retainOne(StatType type) {

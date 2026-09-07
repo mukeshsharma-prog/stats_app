@@ -5,6 +5,7 @@ import com.zenner.datahub.stats.common.error.FieldError;
 import com.zenner.datahub.stats.common.error.FieldError.SafeMessage;
 import com.zenner.datahub.stats.common.error.ProblemDetails;
 import com.zenner.datahub.stats.input.ingest.IngestMetrics;
+import com.zenner.datahub.stats.input.log.IngestLogContext;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
 import java.util.Objects;
@@ -61,26 +62,34 @@ public class IngestExceptionHandler {
         }
 
         metrics.validationFailed(null);
-        log.warn("Rejected an unreadable request body at the ingest boundary; nothing published");
+        IngestLogContext.errorCode(ErrorCode.INVALID_PARAMETER);
+        log.atWarn()
+                .addKeyValue("event", "validation_failed")
+                .log("Rejected an unreadable request body at the ingest boundary; nothing published");
         return problem(
                 ProblemDetails.validationFailure(
                         ErrorCode.INVALID_PARAMETER,
                         null,
                         List.of(FieldError.of("/", "unreadable_body", SafeMessage.INVALID_FIELD_TYPE)),
                         request.getRequestURI(),
-                        null));
+                        IngestLogContext.traceId()));
     }
 
     private ResponseEntity<ProblemDetails> payloadTooLarge(HttpServletRequest request) {
         metrics.requestTooLarge();
-        log.warn(
-                "Rejected a chunked request body that exceeded the configured limit while being "
-                        + "read; nothing published");
+        IngestLogContext.errorCode(ErrorCode.PAYLOAD_TOO_LARGE);
+        log.atWarn()
+                .addKeyValue("event", "request_too_large")
+                .log(
+                        "Rejected a chunked request body that exceeded the configured limit while "
+                                + "being read; nothing published");
         return problem(
                 ProblemDetails.of(
                         ErrorCode.PAYLOAD_TOO_LARGE,
                         "The request body exceeds the configured maximum.",
-                        request.getRequestURI()));
+                        request.getRequestURI(),
+                        null,
+                        IngestLogContext.traceId()));
     }
 
     private static ResponseEntity<ProblemDetails> problem(ProblemDetails problem) {

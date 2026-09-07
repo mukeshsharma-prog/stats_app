@@ -9,6 +9,7 @@ import com.zenner.datahub.stats.input.config.IngestEndpointProperties;
 import com.zenner.datahub.stats.input.ingest.EnvelopeGate;
 import com.zenner.datahub.stats.input.ingest.GateResult;
 import com.zenner.datahub.stats.input.ingest.IngestMetrics;
+import com.zenner.datahub.stats.input.log.IngestLogContext;
 import com.zenner.datahub.stats.input.publish.PublishOutcome;
 import com.zenner.datahub.stats.input.publish.StatsPublisher;
 import jakarta.servlet.http.HttpServletRequest;
@@ -77,7 +78,10 @@ public class StatsIngestController {
 
         if (body == null || body.length == 0) {
             metrics.validationFailed(null);
-            log.warn("Rejected an empty request body at the Input gate; nothing published");
+            IngestLogContext.errorCode(ErrorCode.INVALID_PARAMETER);
+            log.atWarn()
+                    .addKeyValue("event", "validation_failed")
+                    .log("Rejected an empty request body at the Input gate; nothing published");
             return problem(
                     ProblemDetails.validationFailure(
                             ErrorCode.INVALID_PARAMETER,
@@ -86,7 +90,7 @@ public class StatsIngestController {
                                     FieldError.of(
                                             "/", "empty_body", SafeMessage.MANDATORY_FIELD_ABSENT)),
                             instance,
-                            null));
+                            IngestLogContext.traceId()));
         }
 
         GateResult result = gate.evaluate(body, instance);
@@ -111,19 +115,25 @@ public class StatsIngestController {
         PublishOutcome outcome = publisher.publish(statType, body);
         if (outcome != PublishOutcome.CONFIRMED) {
             metrics.publishFailed(statType);
-            log.error(
-                    "Record passed validation but was not publisher-confirmed: type={}; "
-                            + "answering 503 so Heimdal retries (STA-04A, STA-06A)",
-                    statType.wireName());
+            IngestLogContext.errorCode(ErrorCode.SERVICE_UNAVAILABLE);
+            log.atError()
+                    .addKeyValue("event", "publish_failed")
+                    .log(
+                            "Record passed validation but was not publisher-confirmed; answering "
+                                    + "503 so Heimdal retries (STA-04A, STA-06A)");
             return problem(
                     ProblemDetails.of(
                             ErrorCode.SERVICE_UNAVAILABLE,
                             "The record was not accepted. Retry.",
                             instance,
-                            statType));
+                            statType,
+                            IngestLogContext.traceId()));
         }
 
         metrics.accepted(statType);
+        log.atDebug()
+                .addKeyValue("event", "published")
+                .log("Record publisher-confirmed and accepted");
         return ResponseEntity.status(endpointProperties.successStatus()).build();
     }
 

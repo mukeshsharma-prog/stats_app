@@ -3,6 +3,8 @@ package com.zenner.datahub.stats.input.publish;
 import com.zenner.datahub.stats.common.amqp.AmqpTopology;
 import com.zenner.datahub.stats.common.amqp.AmqpTopology.ExchangeDefinition;
 import com.zenner.datahub.stats.input.ingest.IngestMetrics;
+import com.zenner.datahub.stats.input.log.IngestLogContext;
+import org.springframework.amqp.core.MessageProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.amqp.core.TopicExchange;
@@ -70,18 +72,29 @@ public class InputAmqpConfiguration {
      */
     @Bean
     public RabbitTemplateCustomizer statsReturnsCallbackCustomizer() {
-        return template -> template.setReturnsCallback(returned ->
-                log.error(
-                        "Message returned as UNROUTABLE: exchange={} routingKey={} replyCode={} "
-                                + "replyText={}. The broker accepted the publish and no queue was "
-                                + "bound to take it — a queue is missing or the topology is "
-                                + "half-applied. The request is answered 503 so Heimdal resends "
-                                + "(ADR-002 §9, {} counter)",
-                        returned.getExchange(),
-                        returned.getRoutingKey(),
-                        returned.getReplyCode(),
-                        returned.getReplyText(),
-                        IngestMetrics.UNROUTABLE));
+        return template -> template.setReturnsCallback(returned -> {
+            MessageProperties message = returned.getMessage().getMessageProperties();
+            log.atError()
+                    .addKeyValue("event", "unroutable")
+                    .addKeyValue("traceId", valueOrUnknown(message.getCorrelationId()))
+                    .addKeyValue("uid", valueOrUnknown(message.getMessageId()))
+                    .addKeyValue("statType", returned.getRoutingKey())
+                    .addKeyValue("tenant", IngestLogContext.UNKNOWN)
+                    .addKeyValue("clsbox", IngestLogContext.UNKNOWN)
+                    .addKeyValue("errorCode", "unroutable")
+                    .addKeyValue("exchange", returned.getExchange())
+                    .addKeyValue("routingKey", returned.getRoutingKey())
+                    .addKeyValue("replyCode", returned.getReplyCode())
+                    .log(
+                            "Message returned as unroutable. The broker accepted the publish and "
+                                    + "no queue was bound to take it; the request is answered 503 "
+                                    + "so Heimdal resends (ADR-002 §9, {} counter)",
+                            IngestMetrics.UNROUTABLE);
+        });
+    }
+
+    private static String valueOrUnknown(String value) {
+        return value == null || value.isBlank() ? IngestLogContext.UNKNOWN : value;
     }
 
     /**

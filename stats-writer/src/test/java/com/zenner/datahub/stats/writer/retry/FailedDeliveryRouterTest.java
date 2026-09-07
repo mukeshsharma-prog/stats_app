@@ -149,6 +149,8 @@ class FailedDeliveryRouterTest {
         assertThat(published.getMessageProperties().getHeaders())
                 .containsEntry(FailedDeliveryRouter.ATTEMPT_HEADER, 2)
                 .containsEntry(FailedDeliveryRouter.FAILURE_HEADER, "IllegalStateException");
+        assertThat(published.getMessageProperties().getCorrelationId()).isEqualTo("trace-from-input");
+        assertThat(published.getMessageProperties().getMessageId()).isEqualTo("uid-from-input");
     }
 
     @Test
@@ -331,6 +333,8 @@ class FailedDeliveryRouterTest {
     private static Message delivery(int previousAttempts) {
         MessageProperties properties = new MessageProperties();
         properties.setDeliveryTag(7L);
+        properties.setCorrelationId("trace-from-input");
+        properties.setMessageId("uid-from-input");
         if (previousAttempts > 0) {
             properties.setHeader(FailedDeliveryRouter.ATTEMPT_HEADER, previousAttempts);
         }

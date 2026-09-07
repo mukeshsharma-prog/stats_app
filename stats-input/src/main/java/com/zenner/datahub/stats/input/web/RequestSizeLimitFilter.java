@@ -5,6 +5,7 @@ import com.zenner.datahub.stats.common.error.ErrorCode;
 import com.zenner.datahub.stats.common.error.ProblemDetails;
 import com.zenner.datahub.stats.input.config.RequestLimitProperties;
 import com.zenner.datahub.stats.input.ingest.IngestMetrics;
+import com.zenner.datahub.stats.input.log.IngestLogContext;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ReadListener;
 import jakarta.servlet.ServletException;
@@ -73,20 +74,24 @@ public class RequestSizeLimitFilter extends OncePerRequestFilter {
     private void reject(HttpServletRequest request, HttpServletResponse response, long declaredLength)
             throws IOException {
         metrics.requestTooLarge();
+        IngestLogContext.errorCode(ErrorCode.PAYLOAD_TOO_LARGE);
         // The declared length is ours, not the sender's payload, so logging it discloses
         // nothing (STA-03A).
-        log.warn(
-                "Rejected a {}-byte request body at the ingest boundary; the limit is {} bytes "
-                        + "(stats.input.limits.max-request-bytes). Nothing was read and nothing "
-                        + "published",
-                declaredLength,
-                maxBytes);
+        log.atWarn()
+                .addKeyValue("event", "request_too_large")
+                .addKeyValue("declaredBytes", declaredLength)
+                .addKeyValue("limitBytes", maxBytes)
+                .log(
+                        "Rejected an oversized request body at the ingest boundary; nothing was "
+                                + "read and nothing published");
         problemWriter.write(
                 response,
                 ProblemDetails.of(
                         ErrorCode.PAYLOAD_TOO_LARGE,
                         "The request body exceeds the configured maximum of " + maxBytes + " bytes.",
-                        request.getRequestURI()));
+                        request.getRequestURI(),
+                        null,
+                        IngestLogContext.traceId()));
     }
 
     /** Applies the limit to a body whose length was never declared. */

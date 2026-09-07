@@ -12,6 +12,7 @@ import com.zenner.datahub.stats.common.validation.StatsSchemaValidator;
 import com.zenner.datahub.stats.common.validation.ValidationResult;
 import com.zenner.datahub.stats.input.config.InputValidationProperties;
 import com.zenner.datahub.stats.input.ingest.GateResult.RejectionReason;
+import com.zenner.datahub.stats.input.log.IngestLogContext;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
@@ -80,9 +81,12 @@ public class EnvelopeGate {
         } catch (JsonProcessingException malformed) {
             // The message may quote the offending input, so it is deliberately not
             // propagated into the response or the log line.
-            log.warn(
-                    "Rejected a request body that is not valid JSON: parse failed at the "
-                            + "Input gate; nothing published");
+            IngestLogContext.errorCode(ErrorCode.INVALID_PARAMETER);
+            log.atWarn()
+                    .addKeyValue("event", "validation_failed")
+                    .log(
+                            "Rejected a request body that is not valid JSON: parse failed at the "
+                                    + "Input gate; nothing published");
             return rejection(
                     ErrorCode.INVALID_PARAMETER,
                     null,
@@ -92,6 +96,10 @@ public class EnvelopeGate {
         }
 
         if (record == null || record.isMissingNode()) {
+            IngestLogContext.errorCode(ErrorCode.INVALID_PARAMETER);
+            log.atWarn()
+                    .addKeyValue("event", "validation_failed")
+                    .log("Rejected an empty JSON value at the Input gate; nothing published");
             return rejection(
                     ErrorCode.INVALID_PARAMETER,
                     null,
@@ -102,19 +110,21 @@ public class EnvelopeGate {
 
         ValidationResult envelope = validator.validateEnvelope(record);
         StatType statType = readStatType(record);
+        IngestLogContext.statType(statType);
 
         if (!envelope.valid()) {
             ErrorCode errorCode =
                     isUnknownStatType(envelope) ? ErrorCode.UNKNOWN_STAT_TYPE : ErrorCode.INVALID_PARAMETER;
-            log.warn(
-                    "Rejected a record at the envelope gate: type={} errorCode={} fieldErrors={}; "
-                            + "nothing published",
-                    statType == null ? IngestMetrics.UNKNOWN_TYPE : statType.wireName(),
-                    errorCode.wireCode(),
-                    envelope.errors().size());
+            IngestLogContext.errorCode(errorCode);
+            log.atWarn()
+                    .addKeyValue("event", "validation_failed")
+                    .addKeyValue("fieldErrorCount", envelope.errors().size())
+                    .log("Rejected a record at the envelope gate; nothing published");
             return rejection(
                     errorCode, statType, envelope.errors(), instance, RejectionReason.INVALID_ENVELOPE);
         }
+
+        IngestLogContext.bindValidatedRecord(record, statType);
 
         // Safe from here: the envelope schema has already guaranteed that ts.server
         // and ts.device are present and are epoch-second integers.
@@ -122,11 +132,14 @@ public class EnvelopeGate {
         Instant device = epochSeconds(record, DEVICE);
 
         if (clockSkewPolicy.exceeded(device, server)) {
-            log.warn(
-                    "Rejected a record for clock skew: type={} skew exceeds tolerance {}; "
-                            + "fix the gateway clock (Q14a, ADR-003 D9)",
-                    statType == null ? IngestMetrics.UNKNOWN_TYPE : statType.wireName(),
-                    clockSkewPolicy.tolerance());
+            IngestLogContext.errorCode(ErrorCode.INVALID_PARAMETER);
+            log.atWarn()
+                    .addKeyValue("event", "validation_failed")
+                    .addKeyValue("validationCode", ClockSkewPolicy.CLOCK_SKEW_CODE)
+                    .addKeyValue("clockSkewTolerance", clockSkewPolicy.tolerance())
+                    .log(
+                            "Rejected a record because clock skew exceeds tolerance; fix the "
+                                    + "gateway clock (Q14a, ADR-003 D9)");
             return rejection(
                     ErrorCode.INVALID_PARAMETER,
                     statType,
@@ -149,7 +162,8 @@ public class EnvelopeGate {
             String instance,
             RejectionReason reason) {
         ProblemDetails problem =
-                ProblemDetails.validationFailure(errorCode, statType, errors, instance, null);
+                ProblemDetails.validationFailure(
+                        errorCode, statType, errors, instance, IngestLogContext.traceId());
         return new GateResult.Rejected(problem, statType, reason);
     }
 

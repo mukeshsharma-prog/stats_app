@@ -3798,3 +3798,33 @@ integration test that proves the same boundary through a dropped partition.
 **The alert is not built.** The counter is exported and registered at zero from startup, but
 nothing watches it; that is T-050, and it is the half of D5b that separates a systemic
 backlog from a harmless one-off.
+
+---
+
+### DL-134 — Record correlation uses standard AMQP properties and scoped MDC
+
+**7 Sep 2026, merged 10 Sep 2026** · `ENGINEERING` · D1, ADR-001, NFR-02, P1/P2, DL-124 · T-005
+
+**Decision.** Input generates one `traceId` at the ingest boundary, returns it as
+`X-Trace-Id`, and places it in AMQP `correlationId`; the validated record `uid` goes in
+AMQP `messageId`. Writer restores both before parsing and preserves them on every retry
+and DLQ copy. The record fields `uid`, `statType`, `tenant`, `clsbox` and `errorCode` live
+in a scoped MDC, while each application log statement owns a bounded `event` key and
+each module adds its stable `module` field through the structured JSON formatter.
+
+**Why standard properties.** Custom `x-stats-*` correlation headers would create a
+second message contract for values AMQP already names. Standard properties are visible
+to broker tooling, survive hand-off without touching the byte-identical body, and can be
+restored before a malformed body is parsed.
+
+**Why placeholders exist.** Size, rate and malformed-JSON failures happen before a
+record can be trusted. Those events use the bounded literal `unknown` for unavailable
+record fields rather than copying unvalidated strings into logs or silently changing the
+JSON shape.
+
+**Enforcement.** `StructuredLoggingContractTest` requires an `event` field on every
+application-owned log statement, the stable module formatter setting in all three apps,
+and no direct body/payload/data expression handed to a logger. Runtime tests assert the
+actual ECS line, correlation hand-off and context cleanup. P1 and P2 remain stricter:
+`ltestats`/`netstats` payloads never reach a log at any level, and Writer failures use
+`SafeFailure.describe()` rather than messages or stacks.
