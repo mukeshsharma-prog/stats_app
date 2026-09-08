@@ -18,8 +18,22 @@ A fixture may additionally declare "$expect" with a "$expectCode":
                     stats-writer dead-letters it). Added 29 Aug 2026 with ADR-007:
                     the envelope is Input's gate and the payload schema is the
                     Writer's, so "invalid" no longer implies "400". Without this
-                    marker the lorastats dialect fixtures would sit in invalid/
+                    marker the unknown-dialect fixture would sit in invalid/
                     asserting a 400 that will never happen.
+
+    "writer-range-reject"
+                    schema-VALID, but dead-lettered by stats-writer on a rule the
+                    schema cannot express -- the signed BIGINT range check applied
+                    before conversion (DL-105 rule 3, STA-04C). Added 8 Sep 2026
+                    with T-063. It is to the Writer what "input-reject" is to
+                    Input: both mark a record the catalogue admits and the code
+                    refuses, and both exist because the rule is arithmetic or
+                    cross-field rather than structural. A string counter is capped
+                    at 19 digits by pattern, the BIGINT maximum is
+                    9223372036854775807, and no regex expresses the gap -- so the
+                    only place the line can be held is the Writer, and this marker
+                    is what says so out loud instead of leaving the fixture looking
+                    like an ordinary accepted record.
 
 Without a marker an edge/ fixture silently asserts "accepted", which is how an
 undecided question ended up with a default answer baked into ten green assertions.
@@ -45,7 +59,7 @@ TYPES = ("sysstats", "lorastats", "ltestats", "omsstats", "netstats")
 # green, which would have hidden exactly the regression the 29 Aug 2026 production
 # sample caught. Changing this number is a deliberate act that belongs in the same
 # commit as the fixture change, with the reason in claude/DECISIONS.md.
-EXPECTED_ASSERTIONS = 88
+EXPECTED_ASSERTIONS = 91
 
 
 def load_registry():
@@ -79,6 +93,7 @@ def main():
     checked = failures = 0
     input_rejects = []
     writer_dlqs = []
+    writer_range_rejects = []
     for path in sorted(BASE_DIR.glob("fixtures/**/*.json")):
         path_str = str(path)
         if "/malformed/" in path_str:
@@ -90,14 +105,14 @@ def main():
         marker = doc.get("$expect") if isinstance(doc, dict) else None
         if marker is not None:
             checked += 1
-            if marker not in ("input-reject", "writer-dlq"):
+            if marker not in ("input-reject", "writer-dlq", "writer-range-reject"):
                 print(f"FAIL {path}: unknown $expect value {marker!r}")
                 failures += 1
             elif not doc.get("$expectCode"):
                 print(f"FAIL {path}: $expect declared without a $expectCode")
                 failures += 1
-            elif marker == "input-reject" and not expect_valid:
-                print(f"FAIL {path}: $expect input-reject belongs on a schema-VALID "
+            elif marker in ("input-reject", "writer-range-reject") and not expect_valid:
+                print(f"FAIL {path}: $expect {marker} belongs on a schema-VALID "
                       f"fixture; this one is expected to fail validation")
                 failures += 1
             elif marker == "writer-dlq" and expect_valid:
@@ -118,6 +133,8 @@ def main():
                     failures += 1
                 else:
                     writer_dlqs.append((path_str, doc["$expectCode"]))
+            elif marker == "writer-range-reject":
+                writer_range_rejects.append((path_str, doc["$expectCode"]))
             else:
                 input_rejects.append((path_str, doc["$expectCode"]))
         for label, record in records(path_str, doc):
@@ -155,6 +172,11 @@ def main():
         print(f"\n{len(writer_dlqs)} fixture(s) pass the envelope but must be dead-lettered "
               f"by stats-writer (Input returns 200 and publishes them):")
         for path, code in writer_dlqs:
+            print(f"       {path}  ->  DLQ {code}")
+    if writer_range_rejects:
+        print(f"\n{len(writer_range_rejects)} fixture(s) are schema-valid but must be "
+              f"dead-lettered by stats-writer's range check, before conversion:")
+        for path, code in writer_range_rejects:
             print(f"       {path}  ->  DLQ {code}")
     print(f"\n{checked} assertions checked, {failures} failed")
 

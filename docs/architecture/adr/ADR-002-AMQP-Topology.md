@@ -140,21 +140,25 @@ Bounding broker disk is therefore an **alerting and disposition** problem, not a
 problem. Depth above zero is already an actionable signal, so an unbounded DLQ that is
 actually watched cannot grow unnoticed.
 
-> **RESOLVED 4 September 2026 (DL-105, ADR-007 Amendment §A1).** Q15a was answered:
-> all three `lorastats` dialects are accepted and normalised to one row, so the ~15M
-> messages/day below **stops once T-063 ships**. The DLQ returns to receiving
-> exceptional traffic, "depth > 0 is actionable" holds again, and 14-day manual
-> disposition becomes achievable. **T-060's per-type thresholds are still required**
-> — the DLQ has no TTL, so depth remains the only bound — but they are sized for
-> ordinary volumes and must be sequenced *after* T-063. The pressure note is kept
-> below because it is why Q15a was escalated as urgent rather than routine, and
-> because it stays true of any future decision that dead-letters a type by design.
+> **RESOLVED 4 September 2026 (DL-105, ADR-007 Amendment §A1), BUILT 8 September
+> (T-063, DL-127).** Q15a was answered: all three `lorastats` dialects are accepted
+> and normalised to one row, and the code now does it — so the ~15M messages/day
+> below **has stopped**. The DLQ receives exceptional traffic again, "depth > 0 is
+> actionable" holds, and 14-day manual disposition is achievable. **T-060's per-type
+> thresholds are still required** — the DLQ has no TTL, so depth remains the only
+> bound — and they can now be sized against real volume rather than against a
+> dialect backlog about to vanish. The pressure note is kept below because it is why
+> Q15a was escalated as urgent rather than routine, and because it stays true of any
+> future decision that dead-letters a type by design.
 >
 > **The last paragraph still binds.** DL-105 widened the schema because ZC explained
 > the dialects, not because the DLQ was full. The enumeration is closed at three;
 > an unknown fourth dialect still dead-letters.
 
-> **Pressure on this decision — added 29 August 2026 (ADR-007 §4), resolved 4 Sep 2026.** The paragraph
+> **Pressure on this decision — added 29 August 2026 (ADR-007 §4), resolved 4 Sep 2026,
+> gone from the queue 8 Sep 2026 (T-063, DL-127). Everything in this note is written in
+> the present tense and describes a state that no longer exists; it is kept because it is
+> why Q15a was escalated as urgent, and because the shape recurs.** The paragraph
 > above assumes the DLQ receives *exceptional* traffic. It no longer does. ADR-007
 > encodes one `lorastats` payload dialect and dead-letters the other two, which at
 > 115.2M records/day is on the order of **15M messages/day accumulating with no

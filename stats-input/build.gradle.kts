@@ -19,6 +19,14 @@ plugins {
 dependencies {
     implementation(project(":stats-common"))
 
+    // Generates configuration metadata for this module's @ConfigurationProperties
+    // classes, so an IDE stops reporting every custom `stats.*` key as unknown. That
+    // matters beyond tidiness: a properties file where every warning is false is a
+    // file where a TRUE warning goes unread. Anything still flagged after this is a
+    // key nothing binds — see additional-spring-configuration-metadata.json for the
+    // ones read by name rather than bound (DL-130).
+    annotationProcessor(libs.spring.boot.configuration.processor)
+
     implementation(libs.spring.boot.starter.web)
     implementation(libs.spring.boot.starter.validation)
     implementation(libs.spring.boot.starter.amqp)

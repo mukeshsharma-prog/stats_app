@@ -8,12 +8,17 @@ in **PostgreSQL**, and exposes them through a read-only, tenant-scoped REST API.
 progress. Requirements and architecture are settled and ADRs 001–007 are approved
 or accepted. The Gradle multi-project builds: five modules (`stats-common`,
 `stats-testsupport` and the three applications), three deployable images, a Docker
-Compose stack with PostgreSQL 17, RabbitMQ and Keycloak, and 76 JSON schema fixture
-files gated by `docs/schemas/validate-fixtures.py` at 88 assertions.
+Compose stack with PostgreSQL 17, RabbitMQ and Keycloak, and 79 JSON schema fixture
+files gated by `docs/schemas/validate-fixtures.py` at 91 assertions.
 
-Since **5 September 2026 a `lorastats` record travels the whole path**: `stats-input`
-validates the envelope and publishes only after a broker confirm, `stats-writer`
-persists it idempotently, and a failed write goes through three retry tiers to a
+Since **8 September 2026 `lorastats` is complete end to end**, in all three of the
+payload dialects production actually sends: the Writer's per-type payload gate refuses
+a mismatch straight to the dead-letter queue (T-057), all three dialects normalise to
+one typed row (T-063), and a non-OK upstream `status` is metered without ever being
+dead-lettered (T-064). Since **5 September 2026 a `lorastats` record travels the whole
+path**: `stats-input` validates the envelope and publishes only after a broker confirm,
+`stats-writer` persists it idempotently, and a failed write goes through three retry
+tiers to a
 per-type dead-letter queue that expires nothing — with the onward copy confirmed
 before the original is acknowledged (T-014 … T-018, T-024, T-032). What is still
 missing before Phase 2 closes is the per-type **payload gate** (T-057), which is what

@@ -40,10 +40,13 @@ built, and `stats-api` is still a stub.
 | `stats-writer` — per-type consumer, manual ACK, batch-shaped idempotent insert, range check, `passthrough`, `data_extra` | **`BUILT`** (T-019 … T-023, T-058; DL-095) |
 | `stats-writer` — `clsbox` normalised to one canonical case, with the table's own `CHECK` | **`BUILT`** (T-011, T-022; DL-115, V5). The schema still accepts either case: a lowercase record is normalised, never rejected. **Every new stat-type table must carry the `CHECK`** |
 | `stats-writer` — `SafeFailure`: no throwable, and therefore no payload value, in a log line | **`BUILT`** (T-066; DL-124). Type chain plus a validated `SQLState`, never a message. `WriterLogsCarryNoThrowableTest` fails the build |
-| Architecture guards — nothing branches on `version`; no stat type named in main source | **`BUILT`** (DL-113, trap 15). Written *before* T-063 creates the dialect-selection code that will sit beside `version` |
+| Architecture guards — nothing branches on `version`; no stat type named in main source | **`BUILT`** (DL-113, trap 15). Written *before* T-063 created the dialect-selection code that now sits beside `version` — and T-063 landed with **no new whitelist entry**, which was the acceptance criterion |
 | API contract linted in CI (`redocly lint` 2.51.2) | **`BUILT`** (DL-117) |
 | `stats-writer` — three retry tiers, per-type DLQ, confirmed hand-off before ACK | **`BUILT`** (T-024; DL-122). Delays and the ceiling are properties; a permanent failure skips the tiers |
-| `stats-writer` — payload gate, retention, dialects | **`SPECIFIED`** (T-057, T-025, T-063) |
+| `stats-writer` — per-type payload gate, straight to the DLQ with no retry | **`BUILT`** (T-057; DL-126). Type-agnostic `PayloadGate`, one parse, `ValidatedRecord` into the writer, no property that can switch it off. Binding the row and writing it are separate stages with separate counters: a payload nobody can map never reaches PostgreSQL, so it is never counted as a write failure |
+| `stats-writer` — all three `lorastats` dialects normalised to one row | **`BUILT`** (T-063; DL-127). Structural detection, range-checked coercion before conversion, closed at three. The dialect is the metric label `records_lorastats_dialect{dialect}`, never a column |
+| `stats-writer` — a non-OK upstream `status` metered and stored | **`BUILT`** (T-064; DL-128). `records_upstream_status_not_ok{type}`, `WARN`, never a dead-letter. An *absent* status is not counted |
+| `stats-writer` — retention, late arrival | **`SPECIFIED`** (T-025, T-026) |
 | Cross-module topology declaration agreement | **`BUILT`** (T-032; DL-123). One set of definitions in `stats-common`, one assertion in `stats-testsupport` called by both modules, and `stats-api` asserts it has no AMQP client at all |
 | Liveness/readiness groups per module | **`BUILT`** (T-006, DL-103) |
 | `stats-api` | `@SpringBootApplication` **stub only** — Phase 4, gated on D-09 |
@@ -51,12 +54,13 @@ built, and `stats-api` is still a stub.
 So: the **shared vocabulary** is real, and so is one type's whole path. Since
 5 Sep 2026 a record travels from Heimdal to a queue, from the queue into a partition,
 and — when the write fails — through three retry tiers to a dead-letter queue that
-never expires anything. **What is still missing is the gate that produces most
-dead-letters:** the per-type payload validation of T-057, and the DLQ depth alerting of
-T-060, so the queue is real and nobody is watching it. Before either, **T-063** — three
-`lorastats` dialects were accepted as a decision on 4 Sep (DL-105) and the code still
-accepts one, so two thirds of that type would dead-letter into a queue that expires
-nothing. The ranked order is `Stats_App_Tracker.xlsx` → `Next Up`. Phase 2 finishes it
+never expires anything. Since **8 Sep 2026** the failure arm is no longer idle: the
+per-type payload gate (T-057) produces dead-letters, all three `lorastats` dialects are
+accepted and normalised to one row (T-063), and a non-OK upstream `status` is metered
+rather than passing unremarked (T-064). **What is still missing** is retention and late
+arrival (T-025, T-026) and the DLQ depth alerting of T-060 — the queue is real, it now
+receives only genuine failures, and nobody is watching it. The ranked order is
+`Stats_App_Tracker.xlsx` → `Next Up`. Phase 2 finishes it
 end to end for `lorastats` first (DL-030 rationale; see
 `CODE_START_CHECKLIST.md` §B).
 
@@ -336,11 +340,14 @@ unrepresentable, not merely documented (DL-034).
 > range check, `passthrough` round-tripping and partition pre-creation
 > (T-010 … T-012, T-019 … T-023, T-058), and — since 5 Sep 2026 — the three retry
 > tiers and per-type DLQ, with the onward copy confirmed before the original is
-> ACKed (T-024, DL-122). **`SPECIFIED`:** the payload gate (T-057), retention
-> (T-025), late arrival (T-026) and the three-dialect normalisation (T-063).
+> ACKed (T-024, DL-122); and — since 8 Sep 2026 — the per-type payload gate, the
+> three-dialect normalisation and the non-OK `status` counter (T-057, T-063, T-064;
+> DL-126…DL-128). **`SPECIFIED`:** retention (T-025) and late arrival (T-026).
 >
-> The arm is built and **idle**: nothing yet throws a permanent failure, because
-> the gate that would is T-057. And nothing watches the DLQ until T-060.
+> The arm is **no longer idle**: a payload that fails its per-type schema, a counter
+> that will not fit a `BIGINT`, and a fourth dialect nobody has explained all throw
+> `PermanentFailureException` and reach the DLQ on the first attempt, skipping the
+> tiers. What still does not exist is anyone watching that queue — T-060.
 
 ### 4.1 Per-message flow
 
@@ -363,8 +370,17 @@ consume from app_statsstore.<type>      one deployment per type,
   │                       The enumeration is CLOSED at three: an unknown
   │                       FOURTH dialect still dead-letters.
   │                       (ADR-007 §4 as amended, DL-088, DL-105; T-063)
-  │                       ✔ Q15a answered 4 Sep 2026. The ~15M msg/day
-  │                         into a no-TTL DLQ stops once T-063 ships.
+  │                       ✔ Q15a answered 4 Sep 2026, BUILT 8 Sep 2026
+  │                         (DL-127). The ~15M msg/day into a no-TTL DLQ
+  │                         has stopped.
+  │
+  ├─ 1b. UPSTREAM STATUS  status other than exactly ["conversion ok"]
+  │                       ⇒ meter records_upstream_status_not_ok{type}
+  │                       and WARN. STORE it anyway: the record is valid
+  │                       and a redrive would repeat the verdict forever.
+  │                       An ABSENT status is not counted — "did not say"
+  │                       and "said it failed" are different facts.
+  │                       (Q15d, DL-108, DL-128; T-064)
   │
   ├─ 2. RANGE-CHECK       netstats tx/rx: the schema permits 19 digits,
   │                       which is WIDER than signed BIGINT. Check
@@ -644,7 +660,7 @@ what happens if the control is removed.
 | 10 | Unsorted pagination | Fixed `(ts_device DESC, uid DESC)` | A row returned twice or skipped entirely, with no error |
 | 11 | Redrive after ~90 days | Runbook note | A no-op that increments a counter — and looks like a successful recovery |
 | 12 | **Payload validated at Input instead of the Writer** | Two gates: `validateEnvelope()` at Input, `validate()` at the Writer (ADR-007 §5) | A dialect mismatch becomes a 400. Heimdal retries only on a non-2xx, so the record is **destroyed** where a dead-letter would have been redrivable. The one loud window on this list — and loud does not mean recoverable |
-| 13 | **DLQ depth alert drowned by routine dialect volume** — *largely closed 4 Sep 2026 (DL-105)* | Per-type DLQ thresholds (ADR-002 §12). **Accepting all three `lorastats` dialects removes the routine volume**; T-060 is sequenced after T-063 | ~15M lorastats messages/day used to sit permanently above a uniform threshold, so a genuine dead-letter in another type was never noticed. **Still live until T-063 ships**, and any future decision that dead-letters a type by design reintroduces it whole |
+| 13 | **DLQ depth alert drowned by routine dialect volume** — *closed 8 Sep 2026 (DL-127)* | Per-type DLQ thresholds (ADR-002 §12). **All three `lorastats` dialects are now accepted**, so the routine volume is gone and T-060 can be sized against real failure | ~15M lorastats messages/day used to sit permanently above a uniform threshold, so a genuine dead-letter in another type was never noticed. **Closed by the build, not by the decision** — DL-105 decided it on 4 Sep and it stayed live for four more days. Any future decision that dead-letters a type by design reintroduces it whole |
 
 **Ten of the thirteen fail silently.** Window 12 is the exception worth
 studying: it is fully logged, fully visible, returns a correct-looking

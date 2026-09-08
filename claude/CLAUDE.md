@@ -6,6 +6,45 @@ It is still auto-loaded every session: the repository-root `CLAUDE.md` is a
 pointer file whose only content is an `@claude/CLAUDE.md` import. Edit this file,
 not the pointer.
 
+> **Version 1.10 — 8 September 2026.** No decision in 1.9 changes. What changes is
+> that **the Writer's failure arm is no longer idle** and **`lorastats` is finished
+> end to end**. Governing entries: **DL-126, DL-127, DL-128** (T-057, T-063, T-064).
+>
+> **Changed in 1.10 — re-read these:**
+>
+> * **The payload gate is built, and it cannot be switched off.** `PayloadGate` is
+>   type-agnostic, parses the body once, and hands the writer a `ValidatedRecord` —
+>   so validation is a *signature*, not a convention. A failure throws
+>   `PermanentFailureException` and reaches the DLQ on the **first** attempt, skipping
+>   all three tiers. `stats.writer.validation.intended-scope` is **deleted**, not
+>   promoted: ADR-007 §5 offers no second scope, and a key that can turn the gate off
+>   is a one-line change away from disabling a data-safety control. `schema_version`
+>   now comes from the validator's own result. DL-126.
+> * **All three `lorastats` dialects are built.** The schema is a **closed `oneOf` of
+>   three**; `LorastatsDialects` detects structurally and normalises before the column
+>   mapping — which is the ordering that matters, because taking `data_extra` from the
+>   wire shape instead would dump fifteen `lora_*` members into it on every dialect-C
+>   record and leave the typed columns NULL. **~15M msg/day have stopped
+>   dead-lettering.** DL-127.
+> * **Dialect C is NOT "everything prefixed".** The production record carries fifteen
+>   `lora_`-prefixed counters alongside a **bare** `fsk_received` and a **bare**
+>   `timespan`. Read `valid/lorastats-dialect-prefixed.json` before writing anything
+>   against it; a parser written from the prose rejects the traffic it was written to
+>   accept.
+> * **A non-OK upstream `status` is metered, stored, and never dead-lettered** —
+>   `records_upstream_status_not_ok{type}` plus a `WARN`. **An *absent* `status` is not
+>   counted**: "upstream did not say" and "upstream said it failed" are different
+>   facts, and DL-108 read literally would have lit the counter on ordinary traffic.
+>   DL-128.
+> * **The fixture gate learned a third marker.** `writer-range-reject` marks a record
+>   the catalogue **admits** and the Writer refuses on the `BIGINT` range check — the
+>   one boundary no regex can express. 88 → **91** assertions, 81 → **84** Java parity
+>   cases, 76 → **79** fixture files. The marker count stayed at seven while its
+>   composition changed completely.
+> * **What to do next:** **T-025/T-026/T-031** (retention, late arrival, boundary),
+>   then **T-029/T-030/T-033**, which is what lets the fan-out start at **`sysstats`**.
+>   **T-060 is unblocked** and can now be sized against real dead-letter volume.
+>
 > **Version 1.9 — 5 September 2026.** No decision in 1.8 changes. What changes is
 > that **most of the `lorastats` path is now code**, and four rules below are now
 > enforced by tests that fail the build rather than by this document asking nicely.
@@ -45,10 +84,12 @@ not the pointer.
 >   ADR-007 §4 — a live properties file, the schema catalogue, the fixture manifest and
 >   the API contract among them. DL-116. Note what that decision preserves: **DL-105
 >   changed the decision, T-063 changes the behaviour, and T-063 is not built.** Today
->   only the bare/integer dialect validates.
+>   only the bare/integer dialect validates. ~~Superseded by 1.10 — all three
+>   validate since 8 Sep 2026 (DL-127).~~
 > * **What to do next is now a sheet.** `Stats_App_Tracker.xlsx` → **Next Up**, ranked
->   across both owners with the gate on each. Short version: **T-063**, then T-057,
->   then T-064; T-060 waits for T-063; the fan-out starts at **`sysstats`**, not
+>   across both owners with the gate on each. ~~Short version: **T-063**, then T-057,
+>   then T-064~~ — **all three were done on 8 Sep 2026; see 1.10 above for the current
+>   order.** T-060 waits for T-063; the fan-out starts at **`sysstats`**, not
 >   `ltestats`, and starts when T-033 is green.
 >
 > **Version 1.8 — 4 September 2026.** Closes **nine** open questions against the
@@ -422,10 +463,25 @@ which.**
 Three consecutive production `lorastats` records used three incompatible payload
 shapes — bare names with integers, bare names with strings (`"176"`), and
 `lora_`-prefixed names. **All three carried `version: 1`.** Anything that branches
-on `version` to pick a parser is wrong — and this got *more* dangerous, not less,
-on 4 Sep 2026: since **DL-105** we accept all three and select between them
-**structurally**, so there is now real dialect-selection code with `version` sitting
-right next to it looking exactly like the discriminator it is not.
+on `version` to pick a parser is wrong — and this got *more* dangerous, not less:
+since **DL-105** we accept all three and select between them **structurally**, and
+since **T-063** (8 Sep 2026) `LorastatsDialects` is real code with `version` sitting
+right next to it looking exactly like the discriminator it is not. The build stops
+that specific mistake — `VersionIsNotADiscriminatorTest` forbids the file from naming
+the identifier at all — and it cannot stop the reasoning behind it.
+
+**Dialect C is not "everything prefixed", and the description is what misleads you.**
+The production record carries fifteen `lora_`-prefixed counters alongside a **bare**
+`fsk_received` and a **bare** `timespan`, and no `rx_type_arol` at all. A schema branch
+or a detector written from the prose rejects the only traffic it exists to accept.
+Read `docs/schemas/fixtures/valid/lorastats-dialect-prefixed.json` first.
+
+**Normalise before you map, not alongside.** `data_extra` is the residue of the
+*normalised* payload. Taken from the wire shape instead, every dialect-C record drops
+fifteen `lora_*` members into it, leaves the typed columns NULL, and increments
+`records_unmapped_data_field` — a counter whose whole job is to say "Heimdal added a
+field" — on ordinary traffic every ten minutes. The write succeeds and the JSON is
+valid, so the only symptom is a column that is always null.
 
 Two halves of the original decision still hold. The enumeration is **closed at
 three** — an unknown fourth dialect dead-letters, because a union allowed to grow
@@ -488,7 +544,7 @@ derived engineering decisions, is `docs/decisions/2B-ANSWERS-18AUG2026.md`. Read
 | Q8b | **Engineering proposal, live in the dev realm** | Realm `statsapp`, clients `stats-api`/`stats-input`/`stats-dev-cli`, roles `stats.readOnly` and `stats.ingest`, tenant claim **`tenant`, single-valued String**. Working realm at `docs/setup/keycloak-realm-statsapp.json`. Single-valued on purpose: a multi-valued claim turns isolation into `tenant IN (...)`, and one misconfigured user then reads several tenants with every test still green |
 | Q13a | ~~Assume synchronised 10-minute boundaries~~ — **amended 4 Sep 2026 (Q13b, DL-104): gateways JITTER** | Design target of **13,333/s** is now **configured headroom**, not the expected case; expected steady state is the average, ~1,333/s. Writer prefetch starts at 500; Writer is sized for drain (~2,000/s per type). **Alert on oldest message age, never on depth — unchanged.** But the reading inverts: a cyclic depth spike used to be the buffer working, and under jitter it is **evidence the answer is wrong**. Hardware is not sized down until the `ts.server mod 600` histogram over the first 24 h of ingest confirms it (T-050) |
 | Q13a (replay) | **Heimdal AGREES the 2× nominal cap (2,667/s)** — Q13c answered 4 Sep 2026, DL-109 | A 6-hour outage is 28.8M messages and about 3 hours of replay at that cap, holding total ingest at 4,000/s. **Not one defence changes: the agreement is a commitment, not a control.** 503 is the backpressure channel and is the mechanism working, not an incident. Replayed records are duplicates by definition and `ON CONFLICT DO NOTHING` absorbs them. T-049 unblocked |
-| Q11a | **Built**, then **rebuilt on production 29 Aug 2026 (ADR-007)**. 76 fixture files across `valid/`, `invalid/`, `edge/`, `malformed/` — 74 individual fixtures plus the two kept legacy bundles | `docs/schemas/fixtures/`, catalogued in `MANIFEST.md`. `docs/schemas/validate-fixtures.py` asserts **88** and exits non-zero for CI. The 18 Aug set found three real schema gaps; the 29 Aug production sample found that **four of the five payload schemas and every envelope field name were wrong**, and inverted four fixture assertions outright |
+| Q11a | **Built**, then **rebuilt on production 29 Aug 2026 (ADR-007)**, and reshaped again by T-063/T-064 on 8 Sep 2026. **79** fixture files across `valid/`, `invalid/`, `edge/`, `malformed/` — 77 individual fixtures plus the two kept legacy bundles | `docs/schemas/fixtures/`, catalogued in `MANIFEST.md`. `docs/schemas/validate-fixtures.py` asserts **91** and exits non-zero for CI, over three `$expect` markers: `input-reject`, `writer-dlq` and `writer-range-reject`. The 18 Aug set found three real schema gaps; the 29 Aug production sample found that **four of the five payload schemas and every envelope field name were wrong**, and inverted four fixture assertions outright |
 
 ### Still needs ZC / Hasan
 
@@ -541,21 +597,21 @@ two signatures that were owed. **Approver:** Naman Vashishtha. Full reasoning:
 
 | Ref | Decision | Lands in |
 |---|---|---|
-| **Q15a** | **All three known `lorastats` dialects are accepted and normalised to one typed row** — bare/integer, bare/string, `lora_`-prefixed/integer. Four rules: detection is **structural, never `version`**; one stored shape and one API shape, with the dialect as the metric label `records_lorastats_dialect{dialect}` rather than a column; string coercion is **range-checked against the signed `BIGINT` maximum before conversion** and dead-letters on overflow or a bad parse, never zeroing or truncating; and the enumeration is **closed at three** — an unknown fourth dialect still dead-letters. **Supersedes DL-089**, reverses ADR-007 §4, and stops ~15M msg/day accumulating in a DLQ that may never expire | DL-105; ADR-007 Amendment §A1; **T-063** |
+| **Q15a** | **All three known `lorastats` dialects are accepted and normalised to one typed row** — bare/integer, bare/string, `lora_`-prefixed/integer. Four rules: detection is **structural, never `version`**; one stored shape and one API shape, with the dialect as the metric label `records_lorastats_dialect{dialect}` rather than a column; string coercion is **range-checked against the signed `BIGINT` maximum before conversion** and dead-letters on overflow or a bad parse, never zeroing or truncating; and the enumeration is **closed at three** — an unknown fourth dialect still dead-letters. **Supersedes DL-089**, reverses ADR-007 §4, and stops ~15M msg/day accumulating in a DLQ that may never expire. **Built 8 Sep 2026 — DL-127** | DL-105; ADR-007 Amendment §A1; **T-063 (done)** |
 | Q15b | **`ts.device` is genuinely device-assigned** and sent as soon as the device records. Retention on `ts.device` is retention on measurement time | DL-106; STA-23B |
 | Q15c | **`_id` never appears on the wire** — a Mongo export artifact of Heimdal's own store. No `_id` handling is built; D14 stays the safety net. **Not permission to reintroduce Mongo here** | DL-107 |
-| Q15d | **`status` can report a failed conversion.** Store the record, meter `records_upstream_status_not_ok{type}` on anything but exactly `["conversion ok"]`, log at `WARN` — **never dead-letter**: the record is valid and a redrive would repeat forever. The comparison is value-agnostic on purpose | DL-108; **T-064** |
+| Q15d | **`status` can report a failed conversion.** Store the record, meter `records_upstream_status_not_ok{type}` on anything but exactly `["conversion ok"]`, log at `WARN` — **never dead-letter**: the record is valid and a redrive would repeat forever. The comparison is value-agnostic on purpose. **Built 8 Sep 2026 — DL-128, which also settles what DL-108 left open: an *absent* `status` is not counted** | DL-108; **T-064 (done)** |
 | Q13b | **Gateways jitter across the 10-minute cycle.** Expected steady state ~1,333/s; DL-082's 13,333/s becomes **configured headroom**. Hardware is not cut until the `ts.server mod 600` histogram over the first 24 h of ingest confirms it. **One reading inverts:** a cyclic queue-depth spike used to be the buffer working — under jitter it is evidence this answer is wrong | DL-104; amends DL-082; T-050 |
 | Q13c | **Heimdal agrees the 2× replay cap (2,667/s).** T-049 unblocked. **Not one defence changes** — an agreement is a commitment, not a control | DL-109; T-049, T-052 |
 | Q4b | **No IPv6 "for now."** `netstats` stays IPv4-only and strict, with a **distinct, metered per-field rejection code** whose non-zero count is the reopening trigger — not a calendar review | DL-110 |
 | **D5a** | **SIGNED.** RPO ≤ 5 min via continuous WAL archiving; RTO 1 h per partition, 24 h full cluster. Obliges archiver-lag alerting and a **timed** T-051 | DL-111 ratifies DL-084; **T-051 unblocked** |
 | **D5b** | **SIGNED.** Late arrival: skip, meter `records_expired_on_arrival`, ACK, **alert when non-zero**. Signed now rather than on 29 Aug because DL-106 makes the path real rather than hypothetical | DL-112 ratifies DL-083; **T-026 unblocked** |
 
-### Built and decided 5 September 2026 — the state the next task starts from
+### Built and decided 5–8 September 2026 — the state the next task starts from
 
 Nothing here reopens a question. It is what exists in the repository now, so that a
 plan is not written against a repository that no longer exists. Full reasoning:
-`claude/DECISIONS.md` DL-113…DL-124.
+`claude/DECISIONS.md` DL-113…DL-128.
 
 | Ref | What is now true | Where |
 |---|---|---|
@@ -563,18 +619,23 @@ plan is not written against a repository that no longer exists. Full reasoning:
 | DL-119 | **Byte-identity is proved by a fixture built to fail** — keys out of order, mixed indentation, a unicode escape, the `BIGINT` maximum, no trailing newline. `RabbitTemplate.send` with a hand-built message, never `convertAndSend` | T-016 |
 | DL-120 | **The auth seam is a servlet filter, not Spring Security — yet.** No default in code; `none` warns on every startup; `mtls`/`oauth2` fail while the context builds; `prod` refuses `none` | T-017 |
 | DL-121 | **Request limits are engineering defaults in properties.** 256 KB → 413 `payload_too_large`; 4,000 req/s **per instance** → 429 with `Retry-After`. D-03 can still return any number; an unbounded ingest endpoint is wrong at all of them | T-018 |
-| DL-122 | **The failure arm is built and idle.** Three tiers, a per-type DLQ that expires nothing, and the onward copy **confirmed before** the original is ACKed. Nothing produces a permanent failure until T-057 | T-024 |
+| DL-122 | **The failure arm is built.** Three tiers, a per-type DLQ that expires nothing, and the onward copy **confirmed before** the original is ACKed. It was idle until T-057; since 8 Sep 2026 it has producers | T-024 |
 | DL-123 | **One topology, by construction.** `AmqpTopology` owns durability and auto-delete as well as names and arguments; both broker-connected modules build from it; one assertion checks both | T-032 |
 | DL-115 | **`clsbox` is stored in one canonical case** — Writer uppercases, `CHECK (clsbox ~ '^[0-9A-F]{12}$')` backs it at the table, schema still accepts either case, API filters `clsbox = upper(:clsbox)`. **Every new stat-type table must carry the CHECK** | T-011, T-022, T-040 |
-| DL-113, DL-124 | **Two build-failing guards, both written before the code they constrain.** No main source may branch on `version`; no throwable may reach a `stats-writer` log line — `SafeFailure` gives type names and a validated `SQLState`, never a message | T-063, T-066 |
+| DL-113, DL-124 | **Two build-failing guards, both written before the code they constrain.** No main source may branch on `version`; no throwable may reach a `stats-writer` log line — `SafeFailure` gives type names and a validated `SQLState`, never a message. **T-063 landed with no new whitelist entry on either**, which was the acceptance criterion | T-063, T-066 |
 | DL-117 | **`redocly lint` 2.51.2 gates the API contract in CI**, before the Gradle build | T-038…T-046 |
-| DL-116 | **The non-Markdown artifacts caught up with DL-105** — properties, `.env.example`, schema catalogue, fixture manifest, `openapi.yaml`. They state **today's** behaviour: one dialect validates, two still dead-letter, until T-063 | T-063 |
+| DL-116 | **The non-Markdown artifacts caught up with DL-105** — properties, `.env.example`, schema catalogue, fixture manifest, `openapi.yaml`. They stated the build state of the day, which is why all of them changed again on 8 Sep when T-063 made all three dialects valid | T-063 |
+| DL-126 | **The payload gate is live and NOT configurable.** Type-agnostic `PayloadGate`, one parse, `ValidatedRecord` into the writer, `records_payload_rejected{type,reason}` with `reason` closed at `payload_schema`/`type_mismatch`/`unmappable`, and a **constant** failure message so nothing from the record can ever reach a log. **`records_write_failed` means the INSERT was attempted and PostgreSQL refused it** — a payload nobody can map is counted as `unmappable`, because it never reaches the database and sending an operator there is a wasted incident. `intended-scope` is deleted rather than promoted | T-057 |
+| DL-127 | **Three dialects, one row.** Closed `oneOf` of three, structural detection, range-checked coercion *before* conversion, `data_extra` taken from the **normalised** residue. The dialect is the label `records_lorastats_dialect{dialect}`, never a column. A fourth spelling still dead-letters | T-063, T-060, T-062 |
+| DL-128 | **A non-OK upstream `status` is metered at the gate and stored.** Never dead-lettered — a redrive repeats the verdict forever. **Absence is not counted**; the comparison is value-agnostic against the one known-good value | T-064, T-050 |
 
 > **What to do next lives in `Stats_App_Tracker.xlsx` → the `Next Up` sheet**, ranked
-> across both owners with the gate on each row. In one line: **T-063** (three dialects
-> — it is what stops ~15M msg/day dead-lettering), then **T-057** (payload gate), then
-> **T-064**; **T-060 waits for T-063**; the fan-out starts at **`sysstats`** — not
-> `ltestats`, which is blocked on D-12 P3 — and starts when **T-033** is green.
+> across both owners with the gate on each row. T-063, T-057 and T-064 were done on
+> 8 Sep 2026. In one line: **T-025/T-026/T-031** (retention, late arrival and the
+> boundary tests either side of the window), then **T-029/T-030/T-033**; **T-060 is
+> unblocked** and can now be sized against real dead-letter volume; the fan-out starts
+> at **`sysstats`** — not `ltestats`, which is blocked on D-12 P3 — and starts when
+> **T-033** is green.
 
 ### Ours to decide — decide deliberately, record as an ADR, do not escalate
 
@@ -674,7 +735,7 @@ wrong.** Reconciled 18 August 2026.
 | ADR-003 | PostgreSQL retention, partitioning, indexes | **APPROVED** (24 Aug 2026) | PG17, daily `RANGE (ts_device)` partitions, typed columns, Flyway; key order `(ts_device, uid)` per G2, with STA-21B/STA-25A amended to match and duplicate suppression metered. Secondary index `(tenant, uid)` carries the `uid`-only lookup, which cannot prune partitions. Restore is per-partition (D5). **Amended 29 Aug 2026:** D1 makes partition pre-creation a scheduled task in `stats-writer` behind the D3 advisory lock, with `pg_partman` never a dependency; **D9 closes Q14a** — a `ts.device` beyond the configured skew tolerance is rejected at Input. **Amended 4 Sep 2026:** both rows that were open inside this approved ADR are now **signed** — D5a at RPO ≤ 5 min / RTO 1 h per partition and 24 h full cluster (DL-111), and D5b's late-arrival policy (DL-112). T-051 and T-026 are unblocked, and Q15b (DL-106) confirms the `ts.device` basis those decisions rest on. |
 | ADR-004 | OMS timestamp normalisation | **ACCEPTED — amended 29 Aug 2026 by ADR-007 §2** | No normalisation; publication is byte-identical to the received record, which is what makes ADR-003's per-partition duplicate suppression work. **Clause 3 is withdrawn:** a record carrying `ts.converter` is **valid** — production sends it on 100% of records. Accepted, preserved, never read, metered. Cite the ARD's different ADR-004 as `ARD-ADR-04`. |
 | ADR-005 | Delivery semantics and idempotency | **ACCEPTED with implementation defaults** | Writer batching amended by G3. Retry/DLQ handoff must be publish-confirmed *before* ACKing the original — ACK-then-publish opens a silent loss window. Duplicate outcome is `ON CONFLICT (ts_device, uid) DO NOTHING`, metered. Replay spikes the duplicate counter by design; do not alert on it. Q13c (2× replay cap) is **agreed by Heimdal since 4 Sep 2026 (DL-109) and still not enforceable by us** — 503 backpressure, bounded prefetch and T-018's rate limit stay exactly as they are. |
-| ADR-007 | The production wire format is the contract | **ACCEPTED** (29 Aug 2026) — **§4 amended 4 Sep 2026** | `clsbox`/`ts.server` end to end with no rename layer; `ts.converter` accepted and metered (amends ADR-004); two validation gates with different consequences. **§4 is reversed by the *Amendment — 4 September 2026*: all three known `lorastats` dialects are accepted and normalised to one row (DL-105 supersedes DL-089), under a closed enumeration with structural detection and range-checked coercion.** All four of its open questions (Q15a–Q15d) were answered on 4 Sep 2026 — DL-105…DL-108 — leaving one residual: whether the other dialects are being retired. Also amends ADR-003 (column names); its DLQ-volume warning to ADR-002 §12 is resolved. |
+| ADR-007 | The production wire format is the contract | **ACCEPTED** (29 Aug 2026) — **§4 amended 4 Sep 2026, built 8 Sep 2026** | `clsbox`/`ts.server` end to end with no rename layer; `ts.converter` accepted and metered (amends ADR-004); two validation gates with different consequences — **and since T-057 both gates exist in code**, so "invalid" genuinely no longer implies "400" (DL-126). **§4 is reversed by the *Amendment — 4 September 2026*: all three known `lorastats` dialects are accepted and normalised to one row (DL-105 supersedes DL-089), under a closed enumeration with structural detection and range-checked coercion — implemented by T-063 (DL-127).** All four of its open questions (Q15a–Q15d) were answered on 4 Sep 2026 — DL-105…DL-108 — leaving one residual: whether the other dialects are being retired. Also amends ADR-003 (column names); its DLQ-volume warning to ADR-002 §12 is resolved. |
 | ADR-006 | Tenant isolation and API security | **ACCEPTED** | The isolation decisions are settled and buildable; only ZC's confirmation of the Keycloak values (Q8b-2) is outstanding, and it is a config change. Proposed realm is live in dev — read role is `stats.readOnly`, **not** the bare `readOnly` placeholder. Input auth is deferred by decision (Q8a): `stats.input.auth.mode` has no default in code and `prod` must refuse `none`. |
 
 ---

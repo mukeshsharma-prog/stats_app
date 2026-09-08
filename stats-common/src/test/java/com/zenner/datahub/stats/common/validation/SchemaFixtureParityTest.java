@@ -47,8 +47,8 @@ class SchemaFixtureParityTest {
     }
 
     @Test
-    void expandsToTheSameEightyOneOutcomesAsThePythonOracle() {
-        assertThat(fixtureCases()).hasSize(81);
+    void expandsToTheSameEightyFourOutcomesAsThePythonOracle() {
+        assertThat(fixtureCases()).hasSize(84);
         assertThat(fixtureCases())
                 .extracting(arguments -> (String) arguments.get()[0])
                 .noneMatch(description -> description.contains("malformed/"));
@@ -60,12 +60,18 @@ class SchemaFixtureParityTest {
      * invalid/ must fail, malformed/ is not schema-testable.
      *
      * <p>The Python gate additionally asserts the seven {@code $expect} markers —
-     * {@code "input-reject"} on the five clock-skew fixtures (ADR-003 D9), and
-     * {@code "writer-dlq"} on the two lorastats dialect fixtures, which hold that
-     * marker until T-063 teaches the Writer the other two dialects (DL-105) — none of
-     * which are schema cases. So it reports 88 assertions where this test expands to
-     * 81 outcomes. That gap is deliberate — do not "fix" either number to match the
-     * other.</p>
+     * {@code "input-reject"} on the five clock-skew fixtures (ADR-003 D9),
+     * {@code "writer-dlq"} on the unknown fourth dialect (DL-105 rule 4), and
+     * {@code "writer-range-reject"} on the dialect-B counter that overflows a
+     * {@code BIGINT} (DL-105 rule 3) — none of which are schema cases. So it reports 91
+     * assertions where this test expands to 84 outcomes. That gap is deliberate — do not
+     * "fix" either number to match the other.</p>
+     *
+     * <p>The marker count stayed at seven on 8 Sep 2026 while its composition changed
+     * completely: the two lorastats dialect fixtures lost their {@code writer-dlq}
+     * markers when T-063 made them valid, and two new fixtures took their place at the
+     * two boundaries the widened schema created — the dialect nobody has explained, and
+     * the value the schema admits and the column cannot hold.</p>
      */
     static List<Arguments> fixtureCases() {
         List<Path> files = new ArrayList<>();

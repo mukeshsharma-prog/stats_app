@@ -9,15 +9,21 @@ import com.zenner.datahub.stats.common.model.StatsEnvelope;
 import com.zenner.datahub.stats.writer.log.SafeFailure;
 import com.zenner.datahub.stats.common.model.Timestamps;
 import com.zenner.datahub.stats.writer.consumer.LorastatsConsumerDescriptor;
+import com.zenner.datahub.stats.writer.persistence.LorastatsDialects.Dialect;
+import com.zenner.datahub.stats.writer.persistence.LorastatsDialects.Normalised;
+import com.zenner.datahub.stats.writer.validation.ValidatedRecord;
+import com.zenner.datahub.stats.writer.validation.WriterGateMetrics;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.sql.Timestamp;
 import java.sql.Types;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import org.slf4j.Logger;
@@ -36,6 +42,21 @@ import org.springframework.transaction.support.TransactionTemplate;
  * as {@code bigint}, {@code schema_version}), ADR-004 and ADR-007 §2 (the record
  * survives the round trip intact), and D14/D14b (unknown {@code data} members are
  * preserved, never dropped).</p>
+ *
+ * <p>Since T-057 the input is a {@link ValidatedRecord}: the payload has already passed
+ * its per-type schema at {@link com.zenner.datahub.stats.writer.validation.PayloadGate},
+ * and the schema label that admitted it travels with it into {@code schema_version}.
+ * Since T-063 the payload is <strong>normalised before it is mapped</strong> — all three
+ * production dialects reach these columns in one canonical shape (DL-105 rule 2), and
+ * the {@code data_extra} residue is taken from that shape rather than from the wire.</p>
+ *
+ * <p><strong>One round trip is no longer byte-exact, and that is the decision.</strong> A
+ * dialect-B or dialect-C record rebuilds with bare names and integral values rather than
+ * the spelling it arrived in. ADR-004's byte-identical guarantee is about
+ * <em>publication</em> — what Input republishes, and what the retry arm hands on, which
+ * is what keeps {@code (ts_device, uid)} suppression correct. Storage was always
+ * value-preserving rather than encoding-preserving (ADR-003 D2), and DL-105 rule 2 is
+ * what makes one API shape possible for a type that arrives in three.</p>
  */
 @Component
 public final class LorastatsBatchWriter implements StatsBatchWriter {
@@ -44,37 +65,33 @@ public final class LorastatsBatchWriter implements StatsBatchWriter {
     public static final String UNMAPPED_DATA_METRIC = "records_unmapped_data_field";
     public static final String WRITE_FAILED_METRIC = "records_write_failed";
 
-    private static final Logger LOGGER = LoggerFactory.getLogger(LorastatsBatchWriter.class);
+    /**
+     * DL-105 rule 2: the dialect is a metric label, never a column. This answers the
+     * only question the distinction actually raises — "how much of the fleet is still on
+     * C?" — without pushing a three-way branch onto every consumer of the table.
+     *
+     * <p>The name is <em>composed</em> from the wire name rather than written as a
+     * literal. Spelling it out would hard-code one stat type into main source, which is
+     * the shape {@code StatTypeFanOutTest} forbids so that adding a type stays additive
+     * (STA-22, trap 15).</p>
+     */
+    public static final String DIALECT_METRIC =
+            "records_" + LorastatsConsumerDescriptor.TYPE.wireName() + "_dialect";
 
-    private static final short SCHEMA_VERSION = 1;
+    private static final Logger LOGGER = LoggerFactory.getLogger(LorastatsBatchWriter.class);
 
     private static final StatType TYPE = LorastatsConsumerDescriptor.TYPE;
 
     /**
-     * Every {@code data} member lorastats-v1.schema.json names. Anything outside this
-     * set has no typed column and is preserved in {@code data_extra} (D14b). Derived
-     * from the schema by {@code LorastatsColumnMappingTest}, so a schema change that
-     * adds a member cannot quietly start routing it to {@code data_extra}.
+     * Every {@code data} member lorastats-v1.schema.json names, in canonical (bare)
+     * spelling. Anything outside this set has no typed column and is preserved in
+     * {@code data_extra} (D14b) — which is why the residue is taken <em>after</em>
+     * dialect normalisation and not before. Declared once, by
+     * {@link LorastatsDialects}, and checked against the normative schema by
+     * {@code LorastatsColumnMappingTest}, so a member added to the schema and not here
+     * is a build failure rather than a column that is silently always null.
      */
-    static final Set<String> MAPPED_DATA_FIELDS =
-            Set.of(
-                    "rx_nr_pkts",
-                    "rx_crc_missing",
-                    "rx_crc_bad",
-                    "rx_short_pkt",
-                    "tx_success",
-                    "tx_failed",
-                    "tx_peek",
-                    "tx_peek_index_zero",
-                    "tx_override",
-                    "tx_busy",
-                    "tx_dequeue_error",
-                    "tx_type_beacon",
-                    "chip_comm_error",
-                    "util_fopen_failed",
-                    "fsk_received",
-                    "rx_type_arol",
-                    "timespan");
+    static final Set<String> MAPPED_DATA_FIELDS = LorastatsDialects.CANONICAL_FIELDS;
 
     private static final String INSERT_SQL =
             """
@@ -107,14 +124,18 @@ public final class LorastatsBatchWriter implements StatsBatchWriter {
     private final Counter duplicates;
     private final Counter unmappedDataFields;
     private final Counter writeFailures;
+    private final WriterGateMetrics gateMetrics;
+    private final Map<Dialect, Counter> dialects = new EnumMap<>(Dialect.class);
 
     public LorastatsBatchWriter(
             NamedParameterJdbcTemplate jdbc,
             TransactionTemplate transactions,
             WriterBatchProperties properties,
             ObjectMapper objectMapper,
-            MeterRegistry meterRegistry) {
+            MeterRegistry meterRegistry,
+            WriterGateMetrics gateMetrics) {
         this.jdbc = Objects.requireNonNull(jdbc, "jdbc");
+        this.gateMetrics = Objects.requireNonNull(gateMetrics, "gateMetrics");
         this.transactions = Objects.requireNonNull(transactions, "transactions");
         this.properties = Objects.requireNonNull(properties, "properties");
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
@@ -136,10 +157,24 @@ public final class LorastatsBatchWriter implements StatsBatchWriter {
                         .description("Records whose write failed and were not acknowledged")
                         .tag("type", TYPE.wireName())
                         .register(meterRegistry);
+        // All three are registered up front, so each exports at zero from startup. A
+        // counter that only appears after its first occurrence is absent exactly when it
+        // is being looked for -- and the question this metric answers is "is dialect C
+        // still in the field", which a missing series answers wrongly and silently.
+        for (Dialect dialect : Dialect.values()) {
+            dialects.put(
+                    dialect,
+                    Counter.builder(DIALECT_METRIC)
+                            .description(
+                                    "Records normalised from each known payload dialect "
+                                            + "(DL-105 rule 2)")
+                            .tag("dialect", dialect.label())
+                            .register(meterRegistry));
+        }
     }
 
     @Override
-    public List<RecordWriteResult> write(List<StatsEnvelope> records) {
+    public List<RecordWriteResult> write(List<ValidatedRecord> records) {
         Objects.requireNonNull(records, "records");
         if (records.isEmpty()) {
             throw new IllegalArgumentException("records must not be empty");
@@ -152,8 +187,29 @@ public final class LorastatsBatchWriter implements StatsBatchWriter {
 
         List<RecordWriteResult> results = new ArrayList<>(records.size());
         for (int index = 0; index < records.size(); index++) {
+            // TWO STAGES, TWO FAILURE MEANINGS. Binding the row is payload work and
+            // happens before any transaction opens; the INSERT is the database's turn.
+            // Collapsing them was a real defect: a record in an unknown dialect never
+            // reaches PostgreSQL, and counting it as a WRITE failure sends whoever reads
+            // records_write_failed to a database that is behaving perfectly.
+            final MapSqlParameterSource parameters;
             try {
-                int affectedRows = insertOne(records.get(index));
+                parameters = parameters(records.get(index));
+            } catch (RuntimeException notMappable) {
+                gateMetrics.payloadRejected(TYPE, WriterGateMetrics.REASON_UNMAPPABLE);
+                LOGGER.error(
+                        "lorastats payload could NOT BE MAPPED to a row; no transaction was "
+                                + "opened and the delivery is not acknowledged: uid={}, "
+                                + "index={}, cause={}",
+                        uidOf(records.get(index)),
+                        index,
+                        SafeFailure.describe(notMappable));
+                results.add(RecordWriteResult.failed(index, notMappable));
+                continue;
+            }
+
+            try {
+                int affectedRows = insertOne(parameters);
                 if (affectedRows == 1) {
                     results.add(RecordWriteResult.inserted(index));
                 } else if (affectedRows == 0) {
@@ -176,8 +232,9 @@ public final class LorastatsBatchWriter implements StatsBatchWriter {
                 // ID by decision (D1), and it is what makes a DLQ message findable.
                 writeFailures.increment();
                 LOGGER.error(
-                        "lorastats write FAILED; delivery is not acknowledged and goes to "
-                                + "the retry arm: uid={}, index={}, cause={}",
+                        "lorastats INSERT failed; delivery is not acknowledged and is handed "
+                                + "to the failure arm -- a retry tier, or straight to the DLQ "
+                                + "if the cause is permanent: uid={}, index={}, cause={}",
                         uidOf(records.get(index)),
                         index,
                         SafeFailure.describe(failure));
@@ -187,22 +244,39 @@ public final class LorastatsBatchWriter implements StatsBatchWriter {
         return List.copyOf(results);
     }
 
-    private int insertOne(StatsEnvelope record) {
-        Objects.requireNonNull(record, "record");
-        Integer affectedRows =
-                transactions.execute(status -> jdbc.update(INSERT_SQL, parameters(record)));
+    /**
+     * The database's turn, and nothing else. The row was bound by the caller, outside
+     * this transaction: everything {@code parameters()} does is payload work -- dialect
+     * detection, range-checked coercion, the {@code data_extra} residue -- and all of it
+     * can throw. Evaluated inside the lambda it would open a transaction, do CPU work and
+     * roll back, once per bad record; a systematic dialect fault at 115.2m records/day
+     * would spend a BEGIN/ROLLBACK on every one of them for nothing.
+     */
+    private int insertOne(MapSqlParameterSource parameters) {
+        Objects.requireNonNull(parameters, "parameters");
+        Integer affectedRows = transactions.execute(status -> jdbc.update(INSERT_SQL, parameters));
         if (affectedRows == null) {
             throw new IllegalStateException("Transaction completed without an insert result");
         }
         return affectedRows;
     }
 
-    private MapSqlParameterSource parameters(StatsEnvelope record) {
+    private MapSqlParameterSource parameters(ValidatedRecord validated) {
+        StatsEnvelope record = validated.envelope();
         if (record.type() != TYPE) {
             throw new IllegalArgumentException("record type must be " + TYPE.wireName());
         }
         Timestamps ts = Objects.requireNonNull(record.ts(), "record.ts");
-        JsonNode data = Objects.requireNonNull(record.data(), "record.data");
+
+        // T-063 / DL-105. Normalisation comes FIRST, and everything below reads its
+        // output rather than the raw payload. Taking the counters or the data_extra
+        // residue from the wire shape instead would mean that on dialect C every one of
+        // the fifteen lora_-prefixed counters is an "unmapped" member: the typed columns
+        // land NULL and records_unmapped_data_field -- whose whole job is to say
+        // "Heimdal added a field" -- fires on ordinary traffic every ten minutes.
+        Normalised normalised = LorastatsDialects.normalise(record.data());
+        dialects.get(normalised.dialect()).increment();
+        JsonNode data = normalised.data();
 
         String dataExtra = dataExtraJson(data);
         if (dataExtra != null) {
@@ -233,10 +307,12 @@ public final class LorastatsBatchWriter implements StatsBatchWriter {
                 // Heimdal's version, stored as received. ADR-007 §4: NEVER a payload
                 // discriminator -- all three incompatible lorastats dialects carry 1.
                 .addValue("record_version", shortOrNull(record.version()), Types.SMALLINT)
-                // ADR-003 D7: which of OUR schemas validated the row. T-057 will set this
-                // from the validator's own result; until that gate exists there is exactly
-                // one lorastats schema in the catalogue and this writer implements it.
-                .addValue("schema_version", SCHEMA_VERSION)
+                // ADR-003 D7: which of OUR schemas validated the row, taken from the
+                // validator's own result since T-057. A constant here would answer a
+                // different question -- which schema the author believed was current --
+                // and the two agree only until a v2 exists, at which point every row
+                // already stored claims the wrong one and nothing fails.
+                .addValue("schema_version", validated.schemaVersion())
                 .addValue("passthrough", passthroughJson(record), Types.VARCHAR)
                 .addValue("data_extra", dataExtra, Types.VARCHAR);
 
@@ -249,24 +325,16 @@ public final class LorastatsBatchWriter implements StatsBatchWriter {
         return parameters;
     }
 
-    private static final List<String> ORDERED_REQUIRED_FIELDS =
-            List.of(
-                    "rx_nr_pkts",
-                    "rx_crc_missing",
-                    "rx_crc_bad",
-                    "tx_success",
-                    "tx_failed",
-                    "tx_peek",
-                    "tx_peek_index_zero",
-                    "tx_override",
-                    "tx_busy",
-                    "tx_dequeue_error",
-                    "tx_type_beacon",
-                    "chip_comm_error",
-                    "util_fopen_failed");
+    /**
+     * Declared once, in {@link LorastatsDialects}, because the same two lists are the
+     * detection evidence there and the column binding here. Two copies of them would
+     * drift on the day a counter is added, and the drift is silent in one direction: a
+     * field the detector knows about and this class does not simply stops reaching its
+     * column.
+     */
+    private static final List<String> ORDERED_REQUIRED_FIELDS = LorastatsDialects.REQUIRED_FIELDS;
 
-    private static final List<String> ORDERED_OPTIONAL_FIELDS =
-            List.of("rx_short_pkt", "fsk_received", "rx_type_arol", "timespan");
+    private static final List<String> ORDERED_OPTIONAL_FIELDS = LorastatsDialects.OPTIONAL_FIELDS;
 
     /**
      * The envelope members production sends that this system preserves and never
@@ -358,8 +426,8 @@ public final class LorastatsBatchWriter implements StatsBatchWriter {
         return version.shortValue();
     }
 
-    private static String uidOf(StatsEnvelope record) {
-        return record == null ? null : record.uid();
+    private static String uidOf(ValidatedRecord validated) {
+        return validated == null ? null : validated.envelope().uid();
     }
 
     private static String requiredText(String value, String field) {

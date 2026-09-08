@@ -139,7 +139,7 @@ review cycle; contradicting them produces work that has to be thrown away.
 | Validation | **Two gates.** Envelope at Input — failure is 400 and nothing is published. Payload at the Writer — failure is a **dead-letter**, never a 400. *(ADR-007 §5)* |
 | `clsbox` case | Stored in **one canonical case**: the Writer uppercases, `CHECK (clsbox ~ '^[0-9A-F]{12}$')` backs it at the table, the schema still accepts either case, and the API filters `clsbox = upper(:clsbox)`. Every new type's table carries the CHECK. *(DL-115)* |
 | Unmapped `data` members | Preserved in a nullable `data_extra jsonb` on every typed table, metered as `records_unmapped_data_field{type}`. *(DL-095)* |
-| `lorastats` dialects | All three known dialects are accepted and normalised to one row; detection is **structural, never `version`**; the enumeration is closed at three. **Decided (DL-105), not yet built (T-063)** — today only bare/integer validates. |
+| `lorastats` dialects | All three known dialects are accepted and normalised to one row; detection is **structural, never `version`**; the enumeration is closed at three; string counters are range-checked against the signed `BIGINT` maximum **before** conversion and dead-letter on overflow. **Decided (DL-105), built 8 Sep 2026 (T-063, DL-127).** The dialect is the metric label `records_lorastats_dialect{dialect}` and never a column. |
 | Writer logging | No throwable ever reaches a `stats-writer` log line. `SafeFailure` gives exception **type names** plus a validated `SQLState` — no message, no stack. Enforced by `WriterLogsCarryNoThrowableTest`. *(DL-124)* |
 
 ### 5.2 Ours to decide — decide, record an ADR, do not escalate

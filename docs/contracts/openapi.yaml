@@ -702,9 +702,11 @@ components:
         than guessed at. String counters are range-checked against the signed 64-bit
         maximum before conversion and dead-letter on overflow.
 
-        Ingestion of the second and third dialects is **not built yet** (T-063); until
-        it lands they dead-letter. That affects what reaches this API today, not the
-        shape returned.
+        Ingestion of all three dialects is **built** (T-063, 8 Sep 2026, DL-127):
+        the Writer detects the dialect structurally and normalises it into these
+        columns, so the dialect a record arrived in is not queryable and not
+        returned. It is carried as the metric label
+        `records_lorastats_dialect{dialect}` instead.
       required:
         [rx_nr_pkts, rx_crc_missing, rx_crc_bad, tx_success, tx_failed, tx_peek,
          tx_peek_index_zero, tx_override, tx_busy, tx_dequeue_error, tx_type_beacon,
@@ -1062,15 +1064,32 @@ components:
   # === Examples ==============================================================
   # Drawn from docs/schemas/fixtures/valid/*.json so an example is never a
   # hand-written record that no validator has ever seen.
+  #
+  # ONE deviation from the source fixture is permitted, and only this one: tenant
+  # and maintenant are made to differ. Production sends both as "mzc" (see the
+  # $comment on every production fixture), and an example carrying that repeats the
+  # highest-risk trap in the project into every generated client.
+  #
+  # The lorastats data blocks are POST-NORMALISATION. The wire carries three
+  # dialects; the Writer collapses them into one shape before the INSERT (DL-127),
+  # so a prefixed name or a quoted counter in a response example would describe a
+  # response this API cannot produce.
 
   examples:
 
     LorastatsRecord:
       summary: One lorastats record, in the production wire shape
       description: |
+        `valid/lorastats-production-canonical.json` — a real record of 29 August
+        2026, unchanged except that `tenant` and `maintenant` are made to differ.
+        Production sends both as `mzc`, and an example that repeats that teaches the
+        trap instead of the contract.
+
         The full `ts` block as production sends it — five members, of which only
         `server` and `device` are ever read — plus `version` and `status`. Note that
-        `uid` is `CLSCON-`-prefixed, not a bare UUID.
+        `uid` is `CLSCON-`-prefixed, not a bare UUID, and that `data` carries
+        `fsk_received`, `rx_short_pkt` and `timespan` alongside the thirteen required
+        counters. A real record is not the required minimum.
       value:
         uid: CLSCON-11d3ec4c-f6e1-403a-a9ef-b6f5fe909eee
         tenant: tenant-alpha
@@ -1087,49 +1106,139 @@ components:
         status:
           - conversion ok
         data:
-          rx_nr_pkts: 1487
-          rx_crc_missing: 12
-          rx_crc_bad: 31
-          tx_success: 903
-          tx_failed: 4
-          tx_peek: 17
-          tx_peek_index_zero: 2
-          tx_override: 0
-          tx_busy: 6
-          tx_dequeue_error: 0
-          tx_type_beacon: 288
+          rx_nr_pkts: 219
+          fsk_received: 0
+          rx_crc_missing: 0
+          rx_crc_bad: 48
+          tx_peek_index_zero: 0
+          tx_success: 0
+          rx_short_pkt: 166
+          timespan: 1800
           chip_comm_error: 0
+          tx_failed: 0
+          tx_override: 0
           util_fopen_failed: 0
+          tx_peek: 0
+          tx_type_beacon: 0
+          tx_busy: 0
+          tx_dequeue_error: 0
 
     LorastatsPage:
-      summary: A page with a continuation cursor
+      summary: A page holding all three dialects, after normalisation
       description: |
         Note `tenant` and `maintenant` differ. That is the case the contract is
         designed around: filtering on `maintenant` would return other tenants' rows.
+        It is also the only edit made to these three records — production sends both
+        values as `mzc`.
+
+        **These are the three consecutive production `lorastats` records of 29 August
+        2026 — one per dialect — as this API returns them.** On the wire the first
+        had every counter quoted (`"rx_nr_pkts": "176"`) and the second was
+        `lora_`-prefixed (`lora_rx_nr_pkts: 220`). The Writer normalises both into
+        the bare integer members below before the `INSERT` (DL-127), so **no
+        prefixed name and no quoted counter can appear in a response**, and the
+        dialect a record arrived in is neither queryable nor returned. It is carried
+        as `records_lorastats_dialect{dialect}`.
+
+        The optional members differ per item because the devices sent different ones:
+        the first carries `rx_type_arol` and neither `timespan` nor `fsk_received`,
+        the other two the reverse. An unset counter is **omitted**, never returned as
+        `null`. Items are in `ts.device DESC, uid DESC` order, always — see
+        `StatsPage.items`.
       value:
         items:
-          - uid: b2b2b2b2-b2001-4b201-8b201-b2b2b2b2b2b2
+          - uid: CLSCON-a47b270f-b075-46e2-a2e2-f0dc662d094c
             tenant: tenant-alpha
             maintenant: management-parent
-            clsbox: A1B2C3D4E5F6
+            clsbox: 04B6481064F9
             type: lorastats
+            version: 1
             ts:
-              server: 1787054120
-              device: 1787054100
+              server: 1787833797
+              device: 1787833797
+              datastore: 1787833797
+              converter: 1787833797
+              expiresOn: '2026-08-27T12:29:57.182Z'
+            status:
+              - conversion ok
             data:
-              rx_nr_pkts: 1487
-              rx_crc_missing: 12
-              rx_crc_bad: 31
-              tx_success: 903
-              tx_failed: 4
-              tx_peek: 17
-              tx_peek_index_zero: 2
-              tx_override: 0
-              tx_busy: 6
-              tx_dequeue_error: 0
-              tx_type_beacon: 288
+              rx_nr_pkts: 176
+              rx_type_arol: 0
+              rx_crc_missing: 0
+              rx_crc_bad: 63
+              tx_peek_index_zero: 0
+              tx_success: 0
+              rx_short_pkt: 181
               chip_comm_error: 0
+              tx_failed: 0
+              tx_override: 0
               util_fopen_failed: 0
+              tx_peek: 0
+              tx_type_beacon: 0
+              tx_busy: 0
+              tx_dequeue_error: 0
+          - uid: CLSCON-1a449bcd-39f5-45a8-97cb-f4cab954b6ed
+            tenant: tenant-alpha
+            maintenant: management-parent
+            clsbox: 04B648102E76
+            type: lorastats
+            version: 1
+            ts:
+              server: 1787833749
+              device: 1787833749
+              datastore: 1787833749
+              converter: 1787833749
+              expiresOn: '2026-08-27T12:29:09.594Z'
+            status:
+              - conversion ok
+            data:
+              tx_dequeue_error: 0
+              tx_peek_index_zero: 0
+              chip_comm_error: 0
+              rx_crc_bad: 38
+              fsk_received: 0
+              tx_busy: 0
+              timespan: 1800
+              tx_type_beacon: 0
+              tx_failed: 0
+              rx_crc_missing: 0
+              rx_short_pkt: 172
+              rx_nr_pkts: 220
+              tx_override: 0
+              tx_success: 2
+              util_fopen_failed: 0
+              tx_peek: 0
+          - uid: CLSCON-11d3ec4c-f6e1-403a-a9ef-b6f5fe909eee
+            tenant: tenant-alpha
+            maintenant: management-parent
+            clsbox: 04B64810652B
+            type: lorastats
+            version: 1
+            ts:
+              server: 1787833739
+              device: 1787833739
+              datastore: 1787833739
+              converter: 1787833739
+              expiresOn: '2026-08-27T12:28:59.074Z'
+            status:
+              - conversion ok
+            data:
+              rx_nr_pkts: 219
+              fsk_received: 0
+              rx_crc_missing: 0
+              rx_crc_bad: 48
+              tx_peek_index_zero: 0
+              tx_success: 0
+              rx_short_pkt: 166
+              timespan: 1800
+              chip_comm_error: 0
+              tx_failed: 0
+              tx_override: 0
+              util_fopen_failed: 0
+              tx_peek: 0
+              tx_type_beacon: 0
+              tx_busy: 0
+              tx_dequeue_error: 0
         nextCursor: eyJ2IjoxLCJrIjoiLi4uIn0.c2lnbmF0dXJl
         limit: 100
 

@@ -88,10 +88,10 @@ DL-104…DL-112.
 
 | Ref | Decision | Lands in |
 |---|---|---|
-| **Q15a** | **All three known `lorastats` dialects are accepted and normalised to one typed row.** Detection is **structural, never `version`**; one stored shape and one API shape, with the dialect as a metric label rather than a column; string coercion is range-checked against the signed `BIGINT` maximum *before* conversion and dead-letters on overflow; the enumeration is **closed at three**, so an unknown fourth dialect still dead-letters. **Supersedes DL-089 and reverses ADR-007 §4** | DL-105; ADR-007 Amendment §A1; **T-063** |
+| **Q15a** | **All three known `lorastats` dialects are accepted and normalised to one typed row.** Detection is **structural, never `version`**; one stored shape and one API shape, with the dialect as a metric label rather than a column; string coercion is range-checked against the signed `BIGINT` maximum *before* conversion and dead-letters on overflow; the enumeration is **closed at three**, so an unknown fourth dialect still dead-letters. **Supersedes DL-089 and reverses ADR-007 §4. Built 8 Sep 2026 — DL-127** | DL-105; ADR-007 Amendment §A1; **T-063 (done)** |
 | Q15b | **`ts.device` is genuinely device-assigned.** Retention on `ts.device` is retention on measurement time, so the offline-backfill, late-arrival and redrive-age paths are all real | DL-106 |
 | Q15c | **`_id` never reaches the wire** — a Mongo export artifact. No handling built; D14 stays the safety net | DL-107 |
-| Q15d | **`status` can report a failed conversion.** Store, meter `records_upstream_status_not_ok{type}`, log at `WARN` — **never dead-letter** | DL-108; **T-064** |
+| Q15d | **`status` can report a failed conversion.** Store, meter `records_upstream_status_not_ok{type}`, log at `WARN` — **never dead-letter**. Built 8 Sep 2026 — DL-128, which adds that an *absent* `status` is not counted | DL-108; **T-064 (done)** |
 | Q13b | **Gateways jitter.** 13,333/s becomes configured headroom; verify with a `ts.server mod 600` histogram before sizing down | DL-104; amends DL-082 |
 | Q13c | **2× replay cap agreed** — and still unenforceable by us | DL-109; T-049 unblocked |
 | Q4b | **No IPv6, provisionally**, with a metered per-field rejection code as the reopening trigger | DL-110 |
@@ -128,17 +128,21 @@ Include validation, **no transformation** of the received record, publisher conf
 
 **Exit criteria:** a valid record lands in the table; an invalid **envelope** returns 400 and publishes nothing while an invalid **payload** is dead-lettered by the Writer (ADR-007 §5); broker down returns 503; database down grows the queue and eventually dead-letters; a duplicate `uid` is a harmless no-op **that increments `records_duplicate_suppressed`**; retention boundary tests pass on both sides.
 
-> **Where the sequence stands, 5 September 2026.** Phase 2's happy path is built: the
+> **Where the sequence stands, 8 September 2026.** Phase 2's happy path is built: the
 > envelope gate, publisher confirms with the unroutable case closed, byte-identical
 > publication, the auth seam, request limits, the partitioned table with pre-creation,
 > the metered idempotent insert, manual ACK after commit, three retry tiers with a
 > per-type DLQ whose hand-off is confirmed before the ACK, and one topology by
-> construction (DL-118…DL-123). **Phase 2 does not exit until** T-063 (three
-> `lorastats` dialects), T-057 (payload gate), T-064 (non-OK status), T-025/T-026/T-031
+> construction (DL-118…DL-123). **Both halves of the exit criterion above are now
+> real:** T-057 put the per-type payload gate in front of the write, so an invalid
+> payload is genuinely dead-lettered rather than reaching the INSERT unvalidated
+> (DL-126); T-063 accepted all three `lorastats` dialects into one closed enumeration
+> normalised to one row (DL-127); and T-064 meters a non-OK upstream `status` without
+> dead-lettering it (DL-128). **Phase 2 does not exit until** T-025/T-026/T-031
 > (retention, late arrival, boundary), T-029/T-030/T-033 (poison, crash window, outage
-> drill) and T-060 (DLQ alerting, sized after T-063) are done. **T-033 is Phase 3's
-> entry criterion**, so it is the row that releases the fan-out. The ranked order,
-> per owner, is `Stats_App_Tracker.xlsx` → `Next Up`.
+> drill) and T-060 (DLQ alerting, now unblocked and sizeable against real volume) are
+> done. **T-033 is Phase 3's entry criterion**, so it is the row that releases the
+> fan-out. The ranked order, per owner, is `Stats_App_Tracker.xlsx` → `Next Up`.
 
 ### Phase 3 — Type fan-out
 

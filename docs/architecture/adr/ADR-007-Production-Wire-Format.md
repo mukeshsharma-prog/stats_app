@@ -240,12 +240,23 @@ grown. Q15a explains them: three shapes are in the field simultaneously and none
 being retired on any timeline we have been given. Rules 1 and 4 keep the unbounded
 half of the original objection impossible.
 
-**What it costs, and what it stops costing.** T-063 widens the schema, moves
-`invalid/lorastats-dialect-prefixed.json` and
-`invalid/lorastats-dialect-string-values.json` into `valid/`, and adds an
-unknown-fourth-dialect fixture that must still dead-letter — that fixture is the
-test that proves the enumeration is closed. What stops is ~15M messages/day
+**What it cost, and what it stopped costing. BUILT 8 September 2026 — T-063,
+DL-127.** `data` became a closed `oneOf` of three branches;
+`lorastats-dialect-prefixed.json` and `lorastats-dialect-string-values.json` moved
+into `valid/`; `invalid/lorastats-dialect-unknown.json` was added and must still
+dead-letter — that fixture is the test that proves the enumeration is closed; and
+`valid/lorastats-dialect-string-overflow.json` was added for rule 3, carrying the
+new `writer-range-reject` marker because the record is schema-**valid** and it is
+the Writer's `BIGINT` check that refuses it. What stopped is ~15M messages/day
 accumulating in a DLQ that ADR-002 §12 forbids ever expiring.
+
+**Two implementation facts worth carrying out of it.** Dialect C is **not**
+"everything prefixed" — the production record mixes fifteen `lora_`-prefixed
+counters with a bare `fsk_received` and a bare `timespan`, so a branch written from
+the description above rejects the record it describes. And normalisation runs
+**before** the column mapping, so `data_extra` is the residue of the canonical
+payload; taken from the wire shape it would swallow every prefixed counter and leave
+the typed columns null (DL-127).
 
 ### A2. Consequences of the other three answers
 
@@ -262,23 +273,40 @@ accumulating in a DLQ that ADR-002 §12 forbids ever expiring.
   `WARN`** — never dead-lettered, because the record is valid and correctly
   delivered and a redrive would repeat forever. The comparison is value-agnostic:
   we do not have the vocabulary of failure strings, and a check that recognises
-  only known values goes quiet on the ones it does not. T-064.
+  only known values goes quiet on the ones it does not. T-064. **Built 8 September
+  2026 — DL-128**, which also settles what this rule left open: an **absent**
+  `status` is *not* counted, because "upstream did not say" and "upstream said it
+  failed" are different facts and `status` is optional on every fixture written
+  before 29 August.
 
 ### A3. What this amendment does not change
 
 `clsbox`/`ts.server` end to end with no rename layer (§1); `ts.converter` accepted,
 preserved and metered (§2, amending ADR-004); `ts.server` as the arrival clock
 (§3); **the two validation gates and their asymmetric consequences (§5)**; and the
-required-field corrections of §6. The Verification figures below are as at
-29 August and are re-established by T-063.
+required-field corrections of §6.
 
 ## Verification
+
+As at 29 August 2026, when this ADR was accepted:
 
 ```
 docs/schemas/validate-fixtures.py    88 assertions checked, 0 failed
 ./gradlew build                      195 tests, 0 failures
 ```
 
-All 15 production records pass the Input gate. 13 of 15 pass the Writer gate; the
-2 that do not are the lorastats dialects of §4, and both are checked in as
-fixtures carrying `$expect: "writer-dlq"`.
+All 15 production records passed the Input gate. 13 of 15 passed the Writer gate;
+the 2 that did not were the lorastats dialects of §4, checked in as fixtures
+carrying `$expect: "writer-dlq"`.
+
+Re-established after Amendment §A1 was built, 8 September 2026 (T-057, T-063, T-064):
+
+```
+docs/schemas/validate-fixtures.py    91 assertions checked, 0 failed
+./gradlew build                      480 tests, 0 failures
+```
+
+**All 15 production records now pass both gates.** The two that used to fail are the
+dialect fixtures, now in `valid/`, and their counters reach the same typed columns as
+the canonical dialect — which is the assertion `allThreeDialectsLandAsOneIdenticalRow`
+makes against a real PostgreSQL partition rather than against the schema.

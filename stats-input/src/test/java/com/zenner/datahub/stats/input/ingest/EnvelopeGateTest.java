@@ -53,8 +53,7 @@ class EnvelopeGateTest {
     @ParameterizedTest(name = "{0} is ACCEPTED by Input and left for the Writer to dead-letter")
     @ValueSource(
             strings = {
-                "invalid/lorastats-dialect-prefixed.json",
-                "invalid/lorastats-dialect-string-values.json",
+                "invalid/lorastats-dialect-unknown.json",
                 "invalid/lorastats-missing-required.json",
                 "invalid/lorastats-wrong-type.json"
             })
@@ -62,8 +61,11 @@ class EnvelopeGateTest {
     void acceptsPayloadFailures(String fixture) {
         // Every one of these fails its per-type payload schema and passes the
         // envelope. Heimdal retries only on a non-2xx, so a 400 here is unrecoverable
-        // data loss, while a dead-letter at the Writer is redrivable. Two of these are
-        // real production records that arrived on 29 Aug 2026.
+        // data loss, while a dead-letter at the Writer is redrivable. The dialect case
+        // is the FOURTH, unexplained spelling: DL-105 accepted the three known dialects
+        // on 4 Sep 2026 and T-063 built them, so the two production records that used to
+        // sit here are now valid/ fixtures and Input's behaviour toward them is covered
+        // by acceptsTheProductionRecord and its siblings.
         GateResult result = gate.evaluate(fixture(fixture), INSTANCE);
 
         assertThat(result)

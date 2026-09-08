@@ -85,11 +85,11 @@ class StatsIngestControllerTest {
     }
 
     @Test
-    @DisplayName("a payload-dialect record is ACCEPTED and published — ADR-007 §5")
+    @DisplayName("an unknown-dialect record is ACCEPTED and published — ADR-007 §5")
     void publishesAPayloadDialectMismatch() throws Exception {
         when(publisher.publish(eq(StatType.LORASTATS), any())).thenReturn(PublishOutcome.CONFIRMED);
 
-        mockMvc.perform(postRecord("invalid/lorastats-dialect-prefixed.json"))
+        mockMvc.perform(postRecord("invalid/lorastats-dialect-unknown.json"))
                 .andExpect(status().isOk());
 
         verify(publisher).publish(eq(StatType.LORASTATS), any());

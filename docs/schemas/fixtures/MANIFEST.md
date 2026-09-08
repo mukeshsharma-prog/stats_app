@@ -1,19 +1,29 @@
 # Fixture catalogue
 
 Built 18 August 2026 in answer to Q11a. **Rebuilt on the production wire format 29 August 2026
-(ADR-007).** 76 fixture files — 74 individual fixtures plus the two combined bundles
+(ADR-007).** 79 fixture files — 77 individual fixtures plus the two combined bundles
 (`valid/approved-types.json` and `invalid/validation-failures.json`), which are kept so nothing that
 already references them breaks.
 
-Run `python3 ../validate-fixtures.py` from `docs/schemas/` to assert the whole set. It checks 88
+Run `python3 ../validate-fixtures.py` from `docs/schemas/` to assert the whole set. It checks 91
 assertions and exits non-zero on any mismatch, so CI can gate on it.
 
-Those 88 are **81 schema cases plus 7 `$expect` markers** — 5 `input-reject` and 2 `writer-dlq`.
-The Java parity test (`SchemaFixtureParityTest`) mirrors the 81 schema cases only, so the two
-numbers differing is correct and deliberate — do not "fix" one to match the other.
+Those 91 are **84 schema cases plus 7 `$expect` markers** — 5 `input-reject`, 1 `writer-dlq` and
+1 `writer-range-reject`. The Java parity test (`SchemaFixtureParityTest`) mirrors the 84 schema
+cases only, so the two numbers differing is correct and deliberate — do not "fix" one to match the
+other.
 
 **+1 on 5 September 2026:** `valid/lorastats-clsbox-lowercase.json` (DL-115). Every `clsbox` in
 this set was uppercase, so nothing here could catch a device splitting across two index keys.
+
+**Reshaped on 8 September 2026 by T-063 and T-064 (DL-127, DL-128).** The two production dialect
+fixtures **moved `invalid/` → `valid/`** and lost their `writer-dlq` markers when all three
+dialects became valid, and three fixtures were added:
+`invalid/lorastats-dialect-unknown.json` (the fourth spelling, which must still dead-letter),
+`valid/lorastats-dialect-string-overflow.json` (schema-valid, refused by the Writer's `BIGINT`
+range check) and `valid/lorastats-status-not-ok.json` (a failed upstream conversion, stored and
+metered). The marker **count** stayed at seven while its composition changed completely — worth
+knowing, because a stable total is exactly what makes this kind of change look like no change.
 
 ## What changed on 29 August 2026
 
@@ -28,15 +38,27 @@ knowing about, because each was previously asserting the opposite of the truth:
 | `netstats-missing-required.json` | removed `wwan` entirely, duplicating `netstats-missing-wwan.json` | asserts the surviving interface requirement — a fully addressed `wwan` with no `tx`/`rx` |
 | `envelope-clsbox-not-hex.json`, `envelope-clsbox-too-short.json` | named `envelope-gateway-*` | renamed with the field |
 
+## `$expect: "writer-range-reject"` — valid to the catalogue, refused by the Writer
+
+New with T-063 (DL-105 rule 3). A dialect-B string counter is capped at **nineteen digits** by
+pattern, and the signed `BIGINT` maximum `9223372036854775807` is also nineteen digits — the gap
+between the two is not expressible as a regex. So the record is genuinely schema-**valid** and the
+only place the line can be held is the Writer, before conversion. Neither existing marker fits:
+`writer-dlq` means "fails its per-type schema", and this one does not. It is to the Writer what
+`input-reject` is to Input — both mark a rule that is arithmetic or cross-field rather than
+structural. `valid/lorastats-dialect-string-overflow.json` is the case it exists for, and the
+failure it guards against is the silent kind: a coercion that catches the overflow and stores `0`
+produces a row that is **wrong** rather than missing.
+
 ## `$expect: "writer-dlq"` — a fixture that is invalid but must NOT be 400'd
 
 New with ADR-007 §5. The two gates have different consequences: Input validates the envelope
 (failure → 400), the Writer validates the payload (failure → dead-letter). So a fixture in
 `invalid/` no longer implies "expect a 400". A `writer-dlq` marker asserts both halves — the
 record **passes** the envelope, and **fails** its per-type schema — and the validator checks the
-envelope half explicitly. Without it, the lorastats dialect fixtures would sit in `invalid/`
-asserting a 400 that must never happen: Heimdal retries only on a non-2xx, so a 400 there is
-unrecoverable data loss where a dead-letter is a redrive.
+envelope half explicitly. Without it, `invalid/lorastats-dialect-unknown.json` would sit in
+`invalid/` asserting a 400 that must never happen: Heimdal retries only on a non-2xx, so a 400
+there is unrecoverable data loss where a dead-letter is a redrive.
 
 ## Conventions
 
@@ -66,7 +88,11 @@ unrecoverable data loss where a dead-letter is a redrive.
 | `netstats-no-apipa.json` | `apipa` is optional — ZC's own sample omits it on `wwan` |
 | `netstats-extra-interface.json` | A third interface (`eth1`) is accepted without a schema change (STA-14A) |
 | `omsstats-ts-converter-present.json` | The full production `ts` block — `server`, `device`, `datastore`, `converter`, `expiresOn` — plus `version` and `status`, all accepted. **Moved from `invalid/` on 29 Aug 2026** |
-| `lorastats-production-canonical.json` | Real production record. The first dialect encoded: bare names, integer values, with `fsk_received`, `rx_short_pkt`, `timespan` |
+| `lorastats-production-canonical.json` | Real production record. **Dialect A** — bare names, integer values, with `fsk_received`, `rx_short_pkt`, `timespan` |
+| `lorastats-dialect-string-values.json` | Real production record. **Dialect B** — bare names, every counter a **string** (`"176"`), `rx_type_arol` present and no `timespan` at all. **Moved from `invalid/` on 8 Sep 2026** when T-063 built DL-105. The Writer coerces each counter with a `BIGINT` range check *before* conversion |
+| `lorastats-dialect-prefixed.json` | Real production record. **Dialect C** — and **not** "everything prefixed": fifteen counters are `lora_`-prefixed while `fsk_received` and `timespan` arrive **bare**, and `rx_type_arol` is absent. **Moved from `invalid/` on 8 Sep 2026.** Read this file before writing anything against dialect C; a parser written from the prose rejects it |
+| `lorastats-dialect-string-overflow.json` | **`$expect: writer-range-reject`.** Dialect B with `rx_nr_pkts` at `9223372036854775808` — one above the signed `BIGINT` maximum, and still nineteen digits, so the schema **admits** it. The Writer refuses it before conversion (DL-105 rule 3). Lives in `valid/` because that is what it is |
+| `lorastats-status-not-ok.json` | `status` reports a **failed** upstream conversion (Q15d, DL-108). Valid everywhere: the Writer **stores** it, meters `records_upstream_status_not_ok{type}` and logs at `WARN`, and never dead-letters it — a redrive would repeat the same verdict forever. The literal value is an example; the comparison behind the counter is value-agnostic |
 | `lorastats-clsbox-lowercase.json` | The same device as the record above (`04B64810652B`) written lowercase. **Schema-valid on purpose** — the envelope is `^[0-9A-Fa-f]{12}$` and stays that way, so a real measurement is never rejected over hex case. The Writer uppercases and a `CHECK` enforces it, so both spellings share one key in `(tenant, clsbox, …)` (DL-115) |
 | `ltestats-production.json` | Real production record. Every numeric a **string**, and `access_Technology` with a capital T |
 | `sysstats-production-minimal.json` | Real production record from a gateway with no temperature sensor — `temp`, `rtt`, `wan_if`, `rebootcause`, `timespan` all absent |
@@ -85,8 +111,7 @@ envelope and must **not** be 400'd.
 
 | File | Proves |
 |---|---|
-| `lorastats-dialect-prefixed.json` | **`$expect: writer-dlq`, pending T-063.** Real production record using `lora_`-prefixed counters. Passes the envelope → Input returns 200 and publishes; fails the payload schema → the Writer dead-letters it **today**. DL-105 accepts this dialect; when T-063 lands it moves to `valid/` and the marker goes. Carries `version: 1`, same as the canonical dialect — nothing on the record discriminates them |
-| `lorastats-dialect-string-values.json` | **`$expect: writer-dlq`, pending T-063.** Real production record with string-valued counters (`"176"`) and `rx_type_arol`. Same two-gate behaviour, and the same DL-105 destination. Coercion is range-checked against the signed `BIGINT` maximum **before** conversion |
+| `lorastats-dialect-unknown.json` | **`$expect: writer-dlq`.** A synthetic FOURTH spelling (`lorawan_`-prefixed), carrying `version: 1` like every other dialect so nothing announces that it is new. Passes the envelope → Input returns 200 and publishes; matches none of the three `oneOf` branches → the Writer dead-letters it. **This is the fixture that proves the enumeration is closed** (DL-105 rule 4). If it ever starts validating, the union has been reopened |
 | `<type>-missing-required.json` | A mandatory payload field is absent → `missing` |
 | `<type>-wrong-type.json` | Right field, wrong JSON type → `invalid_type`. The response must not echo the offending value |
 | `envelope-missing-tenant.json` | `tenant` is never defaulted; its absence is a hard 400 |

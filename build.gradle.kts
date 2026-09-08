@@ -42,6 +42,12 @@ subprojects {
         // they need; this line decides WHICH VERSION. (G6)
         "implementation"(platform(catalog.spring.boot.bom))
         "testImplementation"(platform(catalog.spring.boot.bom))
+        // annotationProcessor needs the platform too, and it is easy to miss: it is a
+        // SEPARATE configuration, so a version-less catalog entry used there resolves
+        // against nothing. The failure is quiet in the worst way — the processor simply
+        // does not run, no metadata is generated, and the only symptom is an IDE that
+        // still calls every custom property unknown.
+        "annotationProcessor"(platform(catalog.spring.boot.bom))
 
         "testImplementation"(catalog.spring.boot.starter.test)
     }

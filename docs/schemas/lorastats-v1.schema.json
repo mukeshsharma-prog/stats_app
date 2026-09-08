@@ -10,34 +10,119 @@
         "type": { "const": "lorastats" },
         "data": {
           "type": "object",
-          "required": [
-            "rx_nr_pkts", "rx_crc_missing", "rx_crc_bad", "tx_success", "tx_failed",
-            "tx_peek", "tx_peek_index_zero", "tx_override", "tx_busy", "tx_dequeue_error",
-            "tx_type_beacon", "chip_comm_error", "util_fopen_failed"
+          "oneOf": [
+            { "$ref": "#/$defs/dialectBareInteger" },
+            { "$ref": "#/$defs/dialectBareString" },
+            { "$ref": "#/$defs/dialectPrefixedInteger" }
           ],
-          "properties": {
-            "rx_nr_pkts": { "type": "integer" },
-            "rx_crc_missing": { "type": "integer" },
-            "rx_crc_bad": { "type": "integer" },
-            "rx_short_pkt": { "type": "integer" },
-            "tx_success": { "type": "integer" },
-            "tx_failed": { "type": "integer" },
-            "tx_peek": { "type": "integer" },
-            "tx_peek_index_zero": { "type": "integer" },
-            "tx_override": { "type": "integer" },
-            "tx_busy": { "type": "integer" },
-            "tx_dequeue_error": { "type": "integer" },
-            "tx_type_beacon": { "type": "integer" },
-            "chip_comm_error": { "type": "integer" },
-            "util_fopen_failed": { "type": "integer" },
-            "fsk_received": { "type": "integer" },
-            "rx_type_arol": { "type": "integer" },
-            "timespan": { "type": "integer", "minimum": 0 }
-          },
-          "additionalProperties": true
+          "$comment": "A CLOSED enumeration of the three dialects production sends (DL-105, Q15a answered 4 Sep 2026). oneOf rather than anyOf on purpose: the three branches are disjoint by field name and value type, so a record matching two of them is a modelling error and oneOf surfaces it as a validation failure instead of silently picking the first match. A FOURTH spelling matches no branch and dead-letters at the Writer, which is the half of DL-089 that still stands - a union allowed to grow silently is a contract nobody understands. Detection in Java is STRUCTURAL and mirrors these branches; `version` is 1 on all three and discriminates nothing (DL-105 rule 1, trap 20)."
         }
       }
     }
   ],
-  "$comment": "CANONICAL DIALECT: bare field names, integer values. Re-derived from the 29 Aug 2026 production sample, in which lorastats arrived in THREE mutually incompatible dialects in three consecutive records - bare/integer, bare/string ('176'), and lora_-prefixed/integer (lora_rx_nr_pkts) - all three carrying version:1, so nothing on the record discriminates them. Q15a was answered on 4 Sep 2026 (DL-105): ALL THREE known dialects are accepted and normalised to one typed row, which reverses ADR-007 §4 and supersedes DL-089. The enumeration is CLOSED AT THREE -- an unknown fourth still dead-letters. NOT YET BUILT: T-063 is what widens this schema and adds structural dialect detection, so today only the bare/integer dialect validates and the other two still dead-letter. That is a build state, not the decision. Bare/integer was chosen as the FIRST dialect encoded because it matches omsstats, which shares the same converter family; under DL-105 it stops being the only one. String counters are range-checked against the signed BIGINT maximum BEFORE conversion and dead-letter on overflow or a bad parse -- never zeroed, never truncated. rx_short_pkt, fsk_received and rx_type_arol are observed in production, are OPTIONAL because no record carries all three, and are typed so a dialect that sends them as strings still dead-letters. timespan is optional: the bare/string record omits it entirely."
+  "$defs": {
+    "counterInteger": {
+      "type": "integer",
+      "$comment": "Unbounded here on purpose. The signed BIGINT ceiling is enforced by the Writer before conversion (STA-04C), because JSON Schema's `maximum` on an integer this wide is evaluated as a double by some validators and would silently admit a value it cannot represent."
+    },
+    "counterString": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "$comment": "Dialect B sends every counter as a string. Constrained to digits only and capped at 19 digits, exactly as the netstats counters are (Q4a): a non-numeric value dead-letters at the Writer rather than failing a cast at query time. The gap between this 19-digit ceiling and the signed BIGINT maximum 9223372036854775807 is not expressible as a regex, so the Writer MUST range-check before conversion - an unchecked overflow corrupts the value with no error (DL-105 rule 3)."
+    },
+    "dialectBareInteger": {
+      "title": "dialect A - bare names, integer values",
+      "type": "object",
+      "required": [
+        "rx_nr_pkts", "rx_crc_missing", "rx_crc_bad", "tx_success", "tx_failed",
+        "tx_peek", "tx_peek_index_zero", "tx_override", "tx_busy", "tx_dequeue_error",
+        "tx_type_beacon", "chip_comm_error", "util_fopen_failed"
+      ],
+      "properties": {
+        "rx_nr_pkts": { "$ref": "#/$defs/counterInteger" },
+        "rx_crc_missing": { "$ref": "#/$defs/counterInteger" },
+        "rx_crc_bad": { "$ref": "#/$defs/counterInteger" },
+        "rx_short_pkt": { "$ref": "#/$defs/counterInteger" },
+        "tx_success": { "$ref": "#/$defs/counterInteger" },
+        "tx_failed": { "$ref": "#/$defs/counterInteger" },
+        "tx_peek": { "$ref": "#/$defs/counterInteger" },
+        "tx_peek_index_zero": { "$ref": "#/$defs/counterInteger" },
+        "tx_override": { "$ref": "#/$defs/counterInteger" },
+        "tx_busy": { "$ref": "#/$defs/counterInteger" },
+        "tx_dequeue_error": { "$ref": "#/$defs/counterInteger" },
+        "tx_type_beacon": { "$ref": "#/$defs/counterInteger" },
+        "chip_comm_error": { "$ref": "#/$defs/counterInteger" },
+        "util_fopen_failed": { "$ref": "#/$defs/counterInteger" },
+        "fsk_received": { "$ref": "#/$defs/counterInteger" },
+        "rx_type_arol": { "$ref": "#/$defs/counterInteger" },
+        "timespan": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": true,
+      "$comment": "The dialect encoded first, because it matches omsstats, which shares the same converter family. additionalProperties stays true: a member Heimdal adds between releases is VALID and is preserved in data_extra (D14, D14b, DL-095), never dropped."
+    },
+    "dialectBareString": {
+      "title": "dialect B - bare names, STRING values",
+      "type": "object",
+      "required": [
+        "rx_nr_pkts", "rx_crc_missing", "rx_crc_bad", "tx_success", "tx_failed",
+        "tx_peek", "tx_peek_index_zero", "tx_override", "tx_busy", "tx_dequeue_error",
+        "tx_type_beacon", "chip_comm_error", "util_fopen_failed"
+      ],
+      "properties": {
+        "rx_nr_pkts": { "$ref": "#/$defs/counterString" },
+        "rx_crc_missing": { "$ref": "#/$defs/counterString" },
+        "rx_crc_bad": { "$ref": "#/$defs/counterString" },
+        "rx_short_pkt": { "$ref": "#/$defs/counterString" },
+        "tx_success": { "$ref": "#/$defs/counterString" },
+        "tx_failed": { "$ref": "#/$defs/counterString" },
+        "tx_peek": { "$ref": "#/$defs/counterString" },
+        "tx_peek_index_zero": { "$ref": "#/$defs/counterString" },
+        "tx_override": { "$ref": "#/$defs/counterString" },
+        "tx_busy": { "$ref": "#/$defs/counterString" },
+        "tx_dequeue_error": { "$ref": "#/$defs/counterString" },
+        "tx_type_beacon": { "$ref": "#/$defs/counterString" },
+        "chip_comm_error": { "$ref": "#/$defs/counterString" },
+        "util_fopen_failed": { "$ref": "#/$defs/counterString" },
+        "fsk_received": { "$ref": "#/$defs/counterString" },
+        "rx_type_arol": { "$ref": "#/$defs/counterString" },
+        "timespan": { "$ref": "#/$defs/counterString" }
+      },
+      "additionalProperties": true,
+      "$comment": "timespan is typed as a STRING here even though no production dialect-B record carries it - the observed record omits it entirely. A dialect is internally consistent by definition, so a record mixing string counters with an integer timespan is not dialect B with one odd field; it is a shape nobody has explained, and DL-105 rule 4 sends those to the DLQ where a human sees them rather than absorbing them. If such a record ever appears, that DLQ entry is the trigger to widen this branch deliberately."
+    },
+    "dialectPrefixedInteger": {
+      "title": "dialect C - lora_-prefixed counters, integer values",
+      "type": "object",
+      "required": [
+        "lora_rx_nr_pkts", "lora_rx_crc_missing", "lora_rx_crc_bad", "lora_tx_success",
+        "lora_tx_failed", "lora_tx_peek", "lora_tx_peek_index_zero", "lora_tx_override",
+        "lora_tx_busy", "lora_tx_dequeue_error", "lora_tx_type_beacon",
+        "lora_chip_comm_error", "lora_util_fopen_failed"
+      ],
+      "properties": {
+        "lora_rx_nr_pkts": { "$ref": "#/$defs/counterInteger" },
+        "lora_rx_crc_missing": { "$ref": "#/$defs/counterInteger" },
+        "lora_rx_crc_bad": { "$ref": "#/$defs/counterInteger" },
+        "lora_rx_short_pkt": { "$ref": "#/$defs/counterInteger" },
+        "lora_tx_success": { "$ref": "#/$defs/counterInteger" },
+        "lora_tx_failed": { "$ref": "#/$defs/counterInteger" },
+        "lora_tx_peek": { "$ref": "#/$defs/counterInteger" },
+        "lora_tx_peek_index_zero": { "$ref": "#/$defs/counterInteger" },
+        "lora_tx_override": { "$ref": "#/$defs/counterInteger" },
+        "lora_tx_busy": { "$ref": "#/$defs/counterInteger" },
+        "lora_tx_dequeue_error": { "$ref": "#/$defs/counterInteger" },
+        "lora_tx_type_beacon": { "$ref": "#/$defs/counterInteger" },
+        "lora_chip_comm_error": { "$ref": "#/$defs/counterInteger" },
+        "lora_util_fopen_failed": { "$ref": "#/$defs/counterInteger" },
+        "lora_fsk_received": { "$ref": "#/$defs/counterInteger" },
+        "lora_rx_type_arol": { "$ref": "#/$defs/counterInteger" },
+        "fsk_received": { "$ref": "#/$defs/counterInteger" },
+        "rx_type_arol": { "$ref": "#/$defs/counterInteger" },
+        "timespan": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": true,
+      "$comment": "THIS DIALECT IS NOT 'everything prefixed', and writing the branch from that description rejects the real traffic it was written to accept. The production record of 29 Aug 2026 (valid/lorastats-dialect-prefixed.json) carries fifteen lora_-prefixed counters alongside a BARE fsk_received and a BARE timespan. Both spellings of the two optional counters are typed here so the observed record and its plausible variants both validate; the REQUIRED set stays prefixed-only, which is what keeps the branch disjoint from dialects A and B and the enumeration closed."
+    }
+  },
+  "$comment": "THREE DIALECTS, ONE STORED SHAPE. Production lorastats arrives in three mutually incompatible payload dialects - bare/integer, bare/string ('176'), and lora_-prefixed/integer - and all three carry version:1, so nothing on the record discriminates them (trap 20). Q15a was answered on 4 Sep 2026: 'make it work for all the known dialects'. DL-105 accepts all three, reverses ADR-007 §4 and supersedes DL-089; T-063 built it on 8 Sep 2026. Four rules bound the widening and each is load-bearing: detection is STRUCTURAL and never on `version`; all three normalise to the SAME typed columns, with the dialect carried as the metric label records_lorastats_dialect{dialect} rather than as a column; string counters are range-checked against the signed BIGINT maximum BEFORE conversion and dead-letter on overflow or a bad parse, never zeroed and never truncated; and the enumeration is CLOSED AT THREE - an unknown fourth dialect still dead-letters. rx_short_pkt, fsk_received and rx_type_arol are observed in production and are OPTIONAL because no single record carries all three. timespan is optional: the bare/string record omits it entirely."
 }

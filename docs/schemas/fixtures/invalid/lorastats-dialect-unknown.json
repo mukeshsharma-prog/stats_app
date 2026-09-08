@@ -1,0 +1,39 @@
+{
+  "uid": "CLSCON-6b3f8a91-2c47-4f0d-b8e5-91a7d4c2e6f3",
+  "tenant": "mzc",
+  "maintenant": "zenner-managed",
+  "clsbox": "04B64810713C",
+  "type": "lorastats",
+  "version": 1,
+  "ts": {
+    "server": 1787833811,
+    "datastore": 1787833811,
+    "converter": 1787833811,
+    "device": 1787833811,
+    "expiresOn": "2026-08-27T12:30:11.402Z"
+  },
+  "data": {
+    "lorawan_rx_nr_pkts": 204,
+    "lorawan_rx_crc_missing": 0,
+    "lorawan_rx_crc_bad": 41,
+    "lorawan_rx_short_pkt": 168,
+    "lorawan_tx_success": 3,
+    "lorawan_tx_failed": 0,
+    "lorawan_tx_peek": 0,
+    "lorawan_tx_peek_index_zero": 0,
+    "lorawan_tx_override": 0,
+    "lorawan_tx_busy": 0,
+    "lorawan_tx_dequeue_error": 0,
+    "lorawan_tx_type_beacon": 0,
+    "lorawan_chip_comm_error": 0,
+    "lorawan_util_fopen_failed": 0,
+    "fsk_received": 0,
+    "timespan": 1800
+  },
+  "status": [
+    "conversion ok"
+  ],
+  "$comment": "SYNTHETIC, and the fixture that proves the enumeration is CLOSED. DL-105 accepts three known lorastats dialects and rule 4 says an unknown FOURTH still dead-letters: 'all the known dialects' is exactly three, and a union allowed to grow silently is a contract nobody understands - the half of DL-089 that still stands after Q15a. This record is a plausible fourth spelling (lorawan_ rather than lora_) carrying version:1 like every other dialect, so nothing on it announces that it is new. It matches none of the three oneOf branches: dialects A and B require BARE required names, dialect C requires lora_-prefixed ones. It passes the ENVELOPE, so Input returns 200 and publishes - the disagreement is the Writer's to surface, not a 400 Heimdal would never retry (ADR-007 \u00a75). If this fixture ever starts validating, the enumeration has been reopened; a DLQ spike is never resolved by widening the schema to make it stop. DL-105 widened it because ZC explained the dialects, not because the queue was full. NOTE: tenant and maintenant deliberately DIFFER here, unlike the byte-faithful production fixtures.",
+  "$expect": "writer-dlq",
+  "$expectCode": "missing"
+}

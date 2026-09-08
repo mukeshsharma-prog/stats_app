@@ -13,7 +13,7 @@ docs/schemas/
 ├── sysstats-v1.schema.json
 ├── omsstats-v1.schema.json
 ├── netstats-v1.schema.json              # strict since Q4a; interface required-set cut to tx/rx by ADR-007
-├── validate-fixtures.py                 # CI gate: 88 assertions, exits non-zero on any mismatch
+├── validate-fixtures.py                 # CI gate: 91 assertions, exits non-zero on any mismatch
 └── fixtures/
     ├── MANIFEST.md                      # what each fixture proves
     ├── valid/                           # must validate
@@ -25,7 +25,7 @@ docs/schemas/
 Run the gate from `docs/schemas/`:
 
 ```bash
-python3 validate-fixtures.py     # 88 assertions checked, 0 failed
+python3 validate-fixtures.py     # 91 assertions checked, 0 failed
 ```
 
 A schema document is an executable contract, not sample documentation.
@@ -60,7 +60,7 @@ The unexpected-field policy is **D14**: accept and preserve unknown `data` field
 >
 > | Type | Corrected against production |
 > |---|---|
-> | `lorastats` | Three incompatible dialects observed, and **all three are accepted** — DL-105 reversed ADR-007 §4 on 4 Sep 2026; detection is structural, never `version`, and the enumeration is closed at three. **Encoded so far: bare names, integer values**; the other two land with T-063 and dead-letter until it does. Optional `rx_short_pkt`, `fsk_received`, `rx_type_arol`, `timespan` added |
+> | `lorastats` | Three incompatible dialects observed, and **all three are accepted and encoded** — DL-105 reversed ADR-007 §4 on 4 Sep 2026 and T-063 built it on 8 Sep (DL-127). `data` is a **closed `oneOf` of three branches**: bare/integer, bare/string, and `lora_`-prefixed/integer. Detection is structural, never `version`; an unknown fourth dialect dead-letters. **Read `valid/lorastats-dialect-prefixed.json` before touching the third branch** — it is not "everything prefixed": fifteen counters carry the prefix while `fsk_received` and `timespan` arrive bare. Optional `rx_short_pkt`, `fsk_received`, `rx_type_arol`, `timespan` added |
 > | `ltestats` | **Every numeric is a string** on the wire, and the field is **`access_Technology`** with a capital T. Either error alone dead-lettered 100% of ltestats |
 > | `sysstats` | Correct as written. Optional `temp`, `rtt`, `wan_if`, `rebootcause`, `timespan` (a **string** here) added |
 > | `omsstats` | **Correct as written** — the only type the SRS got right |

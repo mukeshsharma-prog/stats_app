@@ -297,8 +297,9 @@ minutes is a starting value to be tuned against measurement, never hard-coded.
 is no `$data` in the draft. So it is a code-level check in Input, and the five
 `edge/<type>-clock-skew-future.json` fixtures stay **schema-valid**. They now carry an
 explicit `$expect: "input-reject"` marker with an `$expectCode`, asserted by
-`docs/schemas/validate-fixtures.py` — which is why the CI gate reports **88 assertions**
-where the Java parity test expands to **80 schema cases**. That gap is deliberate: the
+`docs/schemas/validate-fixtures.py` — which is why the CI gate reports **91 assertions**
+where the Java parity test expands to **84 schema cases** (both figures as at 8 September
+2026; the gap, not the numbers, is the point). That gap is deliberate: the
 Java test mirrors the schema oracle only, and the marker is not a schema case. The
 Input-side 400 is asserted by T-013. The point is that the expectation is now **stated**
 rather than inherited from a directory convention.

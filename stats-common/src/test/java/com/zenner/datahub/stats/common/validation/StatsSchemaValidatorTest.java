@@ -98,24 +98,58 @@ class StatsSchemaValidatorTest {
     }
 
     @Test
-    void envelopeGateAcceptsPayloadDialectsThatTheWriterGateDeadLetters() throws IOException {
-        // The two gates have different consequences (ADR-007 §5). These are unmodified
-        // production lorastats records in a dialect the payload schema does not encode.
-        // Input MUST accept them - a 400 here is unrecoverable, because Heimdal only
-        // retries on a non-2xx and would never resend. The Writer MUST reject them, so
-        // the disagreement lands in the DLQ where it is visible and redrivable.
+    void bothGatesAcceptEveryKnownProductionDialect() throws IOException {
+        // Q15a was answered "make it work for all the known dialects" (DL-105), which
+        // reverses ADR-007 §4. These three are unmodified production records in three
+        // mutually incompatible payload dialects, all carrying the same record marker, so
+        // nothing on any of them could have discriminated it. Both gates admit all three;
+        // the Writer normalises them into ONE typed row (T-063).
         for (String fixture : List.of(
-                "invalid/lorastats-dialect-prefixed.json",
-                "invalid/lorastats-dialect-string-values.json")) {
+                "valid/lorastats-production-canonical.json",
+                "valid/lorastats-dialect-prefixed.json",
+                "valid/lorastats-dialect-string-values.json")) {
             JsonNode record = readFixture(fixture);
 
             assertThat(validator.validateEnvelope(record).valid())
                     .as("%s must pass the Input gate", fixture)
                     .isTrue();
             assertThat(validator.validate(record).valid())
-                    .as("%s must fail the Writer gate", fixture)
-                    .isFalse();
+                    .as("%s must pass the Writer gate since DL-105", fixture)
+                    .isTrue();
         }
+    }
+
+    @Test
+    void envelopeGateAcceptsAnUnknownDialectThatTheWriterGateDeadLetters() throws IOException {
+        // The two gates have different consequences (ADR-007 §5), and this is the record
+        // that still exercises the difference. DL-105 rule 4 keeps the enumeration CLOSED
+        // AT THREE: a fourth spelling is refused by the payload schema. Input MUST still
+        // accept it - a 400 here is unrecoverable, because Heimdal only retries on a
+        // non-2xx and would never resend - so the disagreement lands in the DLQ where it
+        // is visible and redrivable rather than being absorbed or lost.
+        JsonNode record = readFixture("invalid/lorastats-dialect-unknown.json");
+
+        assertThat(validator.validateEnvelope(record).valid())
+                .as("an unknown dialect must still pass the Input gate")
+                .isTrue();
+        assertThat(validator.validate(record).valid())
+                .as("an unknown dialect must fail the Writer gate")
+                .isFalse();
+    }
+
+    @Test
+    void theWriterGateAdmitsAValueTheBigintColumnCannotHold() throws IOException {
+        // DL-105 rule 3, stated as an assertion rather than as a comment. A string
+        // counter is capped at NINETEEN digits by pattern and the signed BIGINT maximum
+        // is also nineteen digits, so no regex expresses the gap: the schema admits this
+        // record and the Writer must be the thing that refuses it, before conversion.
+        // If this ever starts failing validation, the range check has silently moved into
+        // the schema and stopped being tested where it actually runs.
+        JsonNode record = readFixture("valid/lorastats-dialect-string-overflow.json");
+
+        assertThat(validator.validate(record).valid())
+                .as("the catalogue cannot express the BIGINT ceiling; the Writer holds it")
+                .isTrue();
     }
 
     @Test

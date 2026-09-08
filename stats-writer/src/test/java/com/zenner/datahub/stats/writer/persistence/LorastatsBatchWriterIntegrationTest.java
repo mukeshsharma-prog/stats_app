@@ -11,6 +11,9 @@ import com.zenner.datahub.stats.common.model.StatsEnvelope;
 import com.zenner.datahub.stats.common.model.Timestamps;
 import com.zenner.datahub.stats.testsupport.PostgresSupport;
 import com.zenner.datahub.stats.writer.StatsWriterApplication;
+import com.zenner.datahub.stats.writer.retry.FailureClassifier;
+import com.zenner.datahub.stats.writer.retry.PermanentFailureException;
+import com.zenner.datahub.stats.writer.validation.ValidatedRecord;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -55,6 +58,12 @@ class LorastatsBatchWriterIntegrationTest {
     @Autowired
     private MeterRegistry meterRegistry;
 
+    @Autowired
+    private FailureClassifier classifier;
+
+    @Autowired
+    private com.zenner.datahub.stats.writer.validation.WriterGateMetrics gateMetrics;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @BeforeAll
@@ -71,15 +80,27 @@ class LorastatsBatchWriterIntegrationTest {
         jdbc.execute("DROP TABLE IF EXISTS " + TEST_PARTITION);
     }
 
+    /**
+     * D11's per-record precision: one poison record inside a list is attributed to its
+     * own index and the other ninety-nine still commit.
+     *
+     * <p>Since T-063 a payload missing a required counter is refused by the dialect
+     * detector rather than by the column binding, because "which dialect is this" is
+     * answered by which required key-set is present and an incomplete one answers
+     * nothing. The field-level diagnosis is not lost, it has MOVED: in production the
+     * record never reaches this class, because {@code PayloadGate} refuses it first with
+     * {@code /data/tx_success: missing}. This test reaches the writer directly, which is
+     * why it sees the detector's answer instead.</p>
+     */
     @Test
     void attributesOneBadRecordWithinOneHundredAndCommitsTheOtherNinetyNine() {
-        List<StatsEnvelope> records = new ArrayList<>();
+        List<ValidatedRecord> records = new ArrayList<>();
         for (int index = 0; index < 100; index++) {
             ObjectNode data = completeData(index);
             if (index == 37) {
                 data.remove("tx_success");
             }
-            records.add(envelope("batch-" + index, "tenant-a", data));
+            records.add(admitted(envelope("batch-" + index, "tenant-a", data)));
         }
 
         List<RecordWriteResult> results = writer.write(records);
@@ -92,7 +113,8 @@ class LorastatsBatchWriterIntegrationTest {
                         result -> {
                             assertThat(result.index()).isEqualTo(37);
                             assertThat(result.failureOptional().orElseThrow())
-                                    .hasMessageContaining("data.tx_success");
+                                    .isInstanceOf(PermanentFailureException.class)
+                                    .hasMessageContaining("no known payload dialect");
                         });
         assertThat(results)
                 .filteredOn(result -> result.status() == RecordWriteStatus.INSERTED)
@@ -110,10 +132,10 @@ class LorastatsBatchWriterIntegrationTest {
         StatsEnvelope collision = envelope("duplicate-key", "tenant-other", completeData(2));
         double before = duplicateCount();
 
-        assertThat(writer.write(List.of(original)))
+        assertThat(writer.write(List.of(admitted(original))))
                 .extracting(RecordWriteResult::status)
                 .containsExactly(RecordWriteStatus.INSERTED);
-        assertThat(writer.write(List.of(collision)))
+        assertThat(writer.write(List.of(admitted(collision))))
                 .extracting(RecordWriteResult::status)
                 .containsExactly(RecordWriteStatus.DUPLICATE_SUPPRESSED);
 
@@ -138,7 +160,7 @@ class LorastatsBatchWriterIntegrationTest {
     void mapsEveryV1PayloadColumn() {
         StatsEnvelope record = envelope("all-columns", "tenant-a", completeData(10));
 
-        assertThat(writer.write(List.of(record)))
+        assertThat(writer.write(List.of(admitted(record))))
                 .extracting(RecordWriteResult::status)
                 .containsExactly(RecordWriteStatus.INSERTED);
 
@@ -188,7 +210,7 @@ class LorastatsBatchWriterIntegrationTest {
                         completeData(0),
                         List.of("conversion ok"));
 
-        assertThat(writer.write(List.of(record)))
+        assertThat(writer.write(List.of(admitted(record))))
                 .extracting(RecordWriteResult::status)
                 .containsExactly(RecordWriteStatus.INSERTED);
 
@@ -234,7 +256,7 @@ class LorastatsBatchWriterIntegrationTest {
                         completeData(0),
                         null);
 
-        assertThat(writer.write(List.of(record)))
+        assertThat(writer.write(List.of(admitted(record))))
                 .extracting(RecordWriteResult::status)
                 .containsExactly(RecordWriteStatus.INSERTED);
 
@@ -266,7 +288,7 @@ class LorastatsBatchWriterIntegrationTest {
         data.put("lora_experimental_flag", "on");
         StatsEnvelope record = envelope("unknown-members", "tenant-a", data);
 
-        assertThat(writer.write(List.of(record)))
+        assertThat(writer.write(List.of(admitted(record))))
                 .extracting(RecordWriteResult::status)
                 .containsExactly(RecordWriteStatus.INSERTED);
 
@@ -285,18 +307,51 @@ class LorastatsBatchWriterIntegrationTest {
         assertThat(counter(LorastatsBatchWriter.UNMAPPED_DATA_METRIC)).isEqualTo(before + 1.0d);
     }
 
-    /** A failed write is metered, so a wedged consumer is visible before it runs out of slots. */
+    /**
+     * A failed write is metered, so a wedged consumer is visible before it runs out of
+     * slots.
+     *
+     * <p>The failure used here is a <strong>real database rejection</strong> — a
+     * {@code ts_device} with no partition to hold it — and that is the point of the test
+     * rather than an incidental choice. It previously used a record missing a required
+     * counter, which never reaches PostgreSQL at all: it fails while the row is being
+     * bound. That made this counter agree with itself while meaning two different
+     * things, and {@code records_write_failed} only earns its name if the write was
+     * genuinely attempted.</p>
+     */
     @Test
     void metersAFailedWrite() {
         double before = counter(LorastatsBatchWriter.WRITE_FAILED_METRIC);
-        ObjectNode missingRequired = completeData(0);
-        missingRequired.remove("tx_success");
+        double unmappableBefore = rejected("unmappable");
 
-        assertThat(writer.write(List.of(envelope("failed-write", "tenant-a", missingRequired))))
+        StatsEnvelope noPartition =
+                new StatsEnvelope(
+                        "failed-write",
+                        "tenant-a",
+                        "management-parent",
+                        "A1B2C3D4E5F6",
+                        StatType.LORASTATS,
+                        1,
+                        // A day far outside every partition this class creates.
+                        new Timestamps(
+                                Instant.parse("2098-01-01T12:00:00Z"),
+                                Instant.parse("2098-01-01T12:00:00Z"),
+                                null,
+                                null,
+                                null),
+                        completeData(0),
+                        null);
+
+        assertThat(writer.write(List.of(admitted(noPartition))))
                 .extracting(RecordWriteResult::status)
                 .containsExactly(RecordWriteStatus.FAILED);
 
-        assertThat(counter(LorastatsBatchWriter.WRITE_FAILED_METRIC)).isEqualTo(before + 1.0d);
+        assertThat(counter(LorastatsBatchWriter.WRITE_FAILED_METRIC))
+                .as("the INSERT was attempted and PostgreSQL refused it")
+                .isEqualTo(before + 1.0d);
+        assertThat(rejected("unmappable"))
+                .as("...and that is not a payload the mapper could not handle")
+                .isEqualTo(unmappableBefore);
     }
 
     /**
@@ -331,7 +386,7 @@ class LorastatsBatchWriterIntegrationTest {
         received.putArray("status").add("conversion ok");
 
         StatsEnvelope record = objectMapper.treeToValue(received, StatsEnvelope.class);
-        assertThat(writer.write(List.of(record)))
+        assertThat(writer.write(List.of(admitted(record))))
                 .extracting(RecordWriteResult::status)
                 .containsExactly(RecordWriteStatus.INSERTED);
 
@@ -401,7 +456,7 @@ class LorastatsBatchWriterIntegrationTest {
         ObjectNode atLimit = completeData(0);
         atLimit.put("rx_nr_pkts", Long.MAX_VALUE);
 
-        assertThat(writer.write(List.of(envelope("bigint-max", "tenant-a", atLimit))))
+        assertThat(writer.write(List.of(admitted(envelope("bigint-max", "tenant-a", atLimit)))))
                 .extracting(RecordWriteResult::status)
                 .containsExactly(RecordWriteStatus.INSERTED);
         assertThat(
@@ -417,7 +472,7 @@ class LorastatsBatchWriterIntegrationTest {
         overflowing.put("rx_nr_pkts", new java.math.BigInteger("9223372036854775808"));
 
         List<RecordWriteResult> results =
-                writer.write(List.of(envelope("bigint-overflow", "tenant-a", overflowing)));
+                writer.write(List.of(admitted(envelope("bigint-overflow", "tenant-a", overflowing))));
         assertThat(results).extracting(RecordWriteResult::status)
                 .containsExactly(RecordWriteStatus.FAILED);
         assertThat(results.getFirst().failureOptional().orElseThrow())
@@ -440,8 +495,8 @@ class LorastatsBatchWriterIntegrationTest {
     void storesOneCanonicalClsboxCaseSoTheDeviceCannotSplitAcrossTwoKeys() {
         writer.write(
                 List.of(
-                        envelope("clsbox-upper", "tenant-a", "04B64810652B", completeData(20)),
-                        envelope("clsbox-lower", "tenant-a", "04b64810652b", completeData(21))));
+                        admitted(envelope("clsbox-upper", "tenant-a", "04B64810652B", completeData(20))),
+                        admitted(envelope("clsbox-lower", "tenant-a", "04b64810652b", completeData(21)))));
 
         assertThat(
                         jdbc.queryForList(
@@ -497,6 +552,17 @@ class LorastatsBatchWriterIntegrationTest {
         }
     }
 
+    /**
+     * The writer takes validated input by signature since T-057, so every test record
+     * carries the schema label its catalogue entry would have supplied. Building it here
+     * rather than mocking a gate keeps these tests about persistence: what the gate does
+     * with a record it refuses is PayloadGateTest's subject, and what the two do together
+     * is LorastatsPayloadGateIntegrationTest's.
+     */
+    private static ValidatedRecord admitted(StatsEnvelope envelope) {
+        return ValidatedRecord.of(envelope, "v1");
+    }
+
     private StatsEnvelope envelope(String uid, String tenant, ObjectNode data) {
         return envelope(uid, tenant, "A1B2C3D4E5F6", data);
     }
@@ -512,6 +578,230 @@ class LorastatsBatchWriterIntegrationTest {
                 new Timestamps(DEVICE_TIME, DEVICE_TIME, null, null, null),
                 data,
                 null);
+    }
+
+    // ---- T-063 / DL-105: three dialects, one stored shape --------------------
+
+    /**
+     * Rule 2, proved where it actually has to hold: in the table. Three records carrying
+     * the same counters in three mutually incompatible dialects must produce three
+     * identical rows, or "one stored shape, one API shape" is a claim in a decision log
+     * rather than a property of the database. The API reads columns; it has no way to
+     * discover that {@code rx_nr_pkts} was spelled {@code lora_rx_nr_pkts} on the wire,
+     * and it must not need one.
+     */
+    @Test
+    void allThreeDialectsLandAsOneIdenticalRow() {
+        writer.write(
+                List.of(
+                        admitted(envelope("dialect-a", "tenant-a", bareInteger())),
+                        admitted(envelope("dialect-b", "tenant-a", bareString())),
+                        admitted(envelope("dialect-c", "tenant-a", prefixedInteger()))));
+
+        List<Map<String, Object>> rows =
+                jdbc.queryForList(
+                        """
+                        SELECT rx_nr_pkts, rx_crc_missing, rx_crc_bad, rx_short_pkt,
+                               tx_success, tx_failed, tx_peek, tx_peek_index_zero,
+                               tx_override, tx_busy, tx_dequeue_error, tx_type_beacon,
+                               chip_comm_error, util_fopen_failed, fsk_received,
+                               rx_type_arol, timespan, data_extra
+                        FROM lorastats WHERE uid IN ('dialect-a', 'dialect-b', 'dialect-c')
+                        ORDER BY uid
+                        """);
+
+        assertThat(rows).hasSize(3);
+        assertThat(rows.get(1)).as("dialect B matches dialect A").isEqualTo(rows.get(0));
+        assertThat(rows.get(2)).as("dialect C matches dialect A").isEqualTo(rows.get(0));
+        assertThat(rows.get(0)).containsEntry("rx_nr_pkts", 11L).containsEntry("timespan", 27L);
+    }
+
+    /**
+     * The regression that would otherwise be invisible. If the {@code data_extra} residue
+     * were taken from the wire shape instead of the normalised one, every dialect-C
+     * record would drop fifteen {@code lora_}-prefixed members into that column, leave
+     * the typed columns NULL, and increment {@code records_unmapped_data_field} — a
+     * counter whose entire job is to say "Heimdal added a field" — on ordinary traffic
+     * every ten minutes.
+     */
+    @Test
+    void aPrefixedDialectRecordFillsColumnsAndLeavesDataExtraNull() {
+        double unmappedBefore = counter(LorastatsBatchWriter.UNMAPPED_DATA_METRIC);
+
+        assertThat(writer.write(List.of(admitted(envelope("prefixed-columns", "tenant-a", prefixedInteger())))))
+                .extracting(RecordWriteResult::status)
+                .containsExactly(RecordWriteStatus.INSERTED);
+
+        Map<String, Object> stored =
+                jdbc.queryForMap(
+                        "SELECT rx_nr_pkts, timespan, data_extra FROM lorastats "
+                                + "WHERE ts_device = ? AND uid = ?",
+                        Timestamp.from(DEVICE_TIME),
+                        "prefixed-columns");
+
+        assertThat(stored).containsEntry("rx_nr_pkts", 11L).containsEntry("data_extra", null);
+        assertThat(counter(LorastatsBatchWriter.UNMAPPED_DATA_METRIC)).isEqualTo(unmappedBefore);
+    }
+
+    /** Each dialect is counted under its own label, and nothing is stored to say so. */
+    @Test
+    void metersTheDialectEachRecordArrivedIn() {
+        double before = dialectCount("c_prefixed_integer");
+
+        writer.write(List.of(admitted(envelope("dialect-metered", "tenant-a", prefixedInteger()))));
+
+        assertThat(dialectCount("c_prefixed_integer")).isEqualTo(before + 1.0d);
+        assertThat(jdbc.queryForList("SELECT column_name FROM information_schema.columns "
+                        + "WHERE table_name = 'lorastats'", String.class))
+                .as("DL-105 rule 2: the dialect is a metric label, never a column")
+                .noneMatch(column -> column.contains("dialect"));
+    }
+
+    /**
+     * DL-105 rule 3, at the boundary the schema cannot express. The record is
+     * SCHEMA-VALID — nineteen digits, matching the counterString pattern — and the Writer
+     * refuses it before conversion. A coercion that caught the overflow and stored 0
+     * would produce a row that is wrong rather than missing, with nothing reporting it.
+     */
+    @Test
+    void refusesAStringCounterThatOverflowsBigintAndWritesNothing() {
+        ObjectNode overflowing = bareString();
+        overflowing.put("rx_nr_pkts", "9223372036854775808");
+
+        List<RecordWriteResult> results =
+                writer.write(List.of(admitted(envelope("string-overflow", "tenant-a", overflowing))));
+
+        assertThat(results).extracting(RecordWriteResult::status)
+                .containsExactly(RecordWriteStatus.FAILED);
+        assertThat(results.getFirst().failureOptional().orElseThrow())
+                .isInstanceOf(PermanentFailureException.class)
+                .hasMessageContaining("rx_nr_pkts");
+        assertThat(classifier.isPermanent(results.getFirst().failureOptional().orElseThrow()))
+                .as("an overflow skips the retry tiers; waiting cannot make it fit")
+                .isTrue();
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT count(*) FROM lorastats WHERE uid = ?",
+                                Integer.class,
+                                "string-overflow"))
+                .isZero();
+    }
+
+    /** Rule 4 reaching the database layer: an unknown spelling writes nothing. */
+    @Test
+    void refusesAnUnknownDialectAndWritesNothing() {
+        ObjectNode fourth = objectMapper.createObjectNode();
+        LorastatsDialects.REQUIRED_FIELDS.forEach(field -> fourth.put("lorawan_" + field, 1L));
+
+        List<RecordWriteResult> results =
+                writer.write(List.of(admitted(envelope("fourth-dialect", "tenant-a", fourth))));
+
+        assertThat(results).extracting(RecordWriteResult::status)
+                .containsExactly(RecordWriteStatus.FAILED);
+        assertThat(classifier.isPermanent(results.getFirst().failureOptional().orElseThrow()))
+                .isTrue();
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT count(*) FROM lorastats WHERE uid = ?",
+                                Integer.class,
+                                "fourth-dialect"))
+                .isZero();
+    }
+
+    /**
+     * T-057 / ADR-003 D7. The column names the schema that ADMITTED the row, so it comes
+     * from the validator's result and not from a constant compiled into this class. A
+     * constant answers a different question — which schema the author had in mind — and
+     * the two agree only until a v2 exists, at which point every row already stored
+     * claims the wrong one and nothing fails.
+     */
+    @Test
+    void storesTheSchemaVersionTheGateReturnedRatherThanAConstant() {
+        StatsEnvelope record = envelope("schema-label", "tenant-a", completeData(0));
+
+        assertThat(writer.write(List.of(ValidatedRecord.of(record, "v7"))))
+                .extracting(RecordWriteResult::status)
+                .containsExactly(RecordWriteStatus.INSERTED);
+
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT schema_version FROM lorastats WHERE ts_device = ? AND uid = ?",
+                                Integer.class,
+                                Timestamp.from(DEVICE_TIME),
+                                "schema-label"))
+                .isEqualTo(7);
+    }
+
+    /**
+     * A payload nobody can map and a database that rejects a row are different events,
+     * and the metrics have to say so. {@code records_write_failed} is a signal about
+     * <em>PostgreSQL</em>: whoever watches it climb reaches for the database first. An
+     * unknown dialect never reaches PostgreSQL at all — it fails while the row is being
+     * bound, before a transaction is opened — so counting it there sends that person to
+     * a database that is behaving perfectly while upstream quietly ships a shape nobody
+     * recognises.
+     */
+    @Test
+    void countsAnUnmappablePayloadApartFromAFailedWrite() {
+        double writesBefore = counter(LorastatsBatchWriter.WRITE_FAILED_METRIC);
+        double unmappableBefore = rejected("unmappable");
+
+        ObjectNode fourthDialect = objectMapper.createObjectNode();
+        LorastatsDialects.REQUIRED_FIELDS.forEach(field -> fourthDialect.put("lorawan_" + field, 1L));
+
+        assertThat(writer.write(List.of(admitted(envelope("unmappable-counted", "tenant-a", fourthDialect)))))
+                .extracting(RecordWriteResult::status)
+                .containsExactly(RecordWriteStatus.FAILED);
+
+        assertThat(rejected("unmappable"))
+                .as("an unmappable payload is counted as a refusal")
+                .isEqualTo(unmappableBefore + 1.0d);
+        assertThat(counter(LorastatsBatchWriter.WRITE_FAILED_METRIC))
+                .as("...and NOT as a write failure — no write was ever attempted")
+                .isEqualTo(writesBefore);
+    }
+
+    private double rejected(String reason) {
+        io.micrometer.core.instrument.Counter counter =
+                meterRegistry
+                        .find(com.zenner.datahub.stats.writer.validation.WriterGateMetrics
+                                .PAYLOAD_REJECTED)
+                        .tag("type", StatType.LORASTATS.wireName())
+                        .tag("reason", reason)
+                        .counter();
+        return counter == null ? 0.0d : counter.count();
+    }
+
+    private ObjectNode bareInteger() {
+        return completeData(10);
+    }
+
+    private ObjectNode bareString() {
+        ObjectNode data = objectMapper.createObjectNode();
+        completeData(10).properties()
+                .forEach(member -> data.put(member.getKey(), member.getValue().asText()));
+        return data;
+    }
+
+    private ObjectNode prefixedInteger() {
+        ObjectNode data = objectMapper.createObjectNode();
+        // Faithful to the production record: the counters are prefixed, fsk_received and
+        // timespan are NOT. A helper that prefixed everything would test a dialect that
+        // does not exist.
+        completeData(10).properties()
+                .forEach(
+                        member -> {
+                            String name = member.getKey();
+                            boolean bare = name.equals("fsk_received") || name.equals("timespan");
+                            data.set(bare ? name : "lora_" + name, member.getValue());
+                        });
+        return data;
+    }
+
+    private double dialectCount(String label) {
+        io.micrometer.core.instrument.Counter counter =
+                meterRegistry.find(LorastatsBatchWriter.DIALECT_METRIC).tag("dialect", label).counter();
+        return counter == null ? 0.0d : counter.count();
     }
 
     private ObjectNode completeData(long base) {

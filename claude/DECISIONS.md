@@ -1095,6 +1095,11 @@ come from the schema that actually validated the record, and until T-057 puts th
 payload gate in the Writer nothing has validated it. That is a known, commented gap
 that T-057 closes — not a decision to leave it.
 
+> **CLOSED 8 September 2026 — DL-126.** T-057 landed and the literal is gone:
+> `ValidatedRecord` carries the label from `ValidationResult.schemaVersion()` through to
+> the column, so it now names the contract that admitted the row rather than the one its
+> author had in mind. The two answers agree only while there is one schema.
+
 ---
 
 ### DL-095 — D14b: unknown `data` members are preserved in `data_extra`, and metered
@@ -2343,6 +2348,13 @@ still unanswered. It blocks nothing. It only determines whether we can ever dele
 a parser, and rule 2's metric label is what will eventually show a dialect going to
 zero in the field.
 
+> **BUILT 8 September 2026 — see DL-127.** Everything above is the decision; DL-127 is
+> what the code does and what it cost. Two implementation facts belong with this entry:
+> **dialect C is not "everything prefixed"** — the production record mixes fifteen
+> `lora_` counters with a bare `fsk_received` and a bare `timespan` — and normalisation
+> has to run **before** the column mapping, or `data_extra` swallows the prefixed
+> counters and leaves every typed column null.
+
 ---
 
 ### DL-106 — `ts.device` is genuine device time, so every consequence of retention-on-device is real
@@ -2762,7 +2774,11 @@ merely undocumented: the config reads as current and gets believed.
 
 **The distinction every edit preserves.** DL-105 changed the **decision**; T-063 changes
 the **behaviour**, and it is not built. Today only the bare/integer dialect validates and
-the other two still dead-letter. Every corrected passage says so explicitly rather than
+the other two still dead-letter. **[Superseded 8 September 2026 by DL-127: T-063 landed
+and all three now validate. Every passage this entry corrected was corrected again that
+day — which is the cost of stating a build state in a document, and still cheaper than
+stating a decision the code does not implement.]** Every corrected passage says so
+explicitly rather than
 describing the end state as though it had arrived — the failure mode in the other
 direction, and the one DL-100 was written about. The two `invalid/lorastats-dialect-*.json`
 fixtures already had this exactly right; the wording follows them.
@@ -3194,7 +3210,8 @@ the working documents.
    DL-114, DL-115, DL-116, DL-117 and DL-124 on the Decisions sheet, DN-41…DN-44 on the
    Done sheet. The tracker had recorded the ingest work of 5 September and none of the six
    decisions taken the same day.
-5. **The fixture figures are corrected to 76 JSON fixtures and 88 assertions.** The sheet
+5. **The fixture figures are corrected to 76 JSON fixtures and 88 assertions.** *(79 and
+   91 since T-063 and T-064 on 8 September — DL-127, DL-128.)* The sheet
    said 77 and 87; `validate-fixtures.py` says 88 over 76, and `valid/` gained
    `lorastats-clsbox-lowercase.json` with DL-115. The stale `A1:H22` range on the Open
    Questions table — spanning fifteen deleted rows — was shrunk to the six that remain.
@@ -3219,3 +3236,385 @@ marked DONE that was not already DONE in the repository, and nothing was reprior
 except by naming the gate that was already true. The one behavioural claim it makes —
 that the fan-out may start at `sysstats` — follows from D-12 P3 blocking `ltestats` alone,
 which DL-114 established on 4 September.
+
+---
+
+### DL-126 — The payload gate is built, and it is not configurable
+
+**8 Sep 2026** · `ENGINEERING` · STA-03A, STA-12A, ADR-007 §5, DL-100, DL-122, DL-124 · T-057, T-064, T-063
+
+**Decision.** `stats-writer` validates the per-type payload before the INSERT, through a
+type-agnostic `PayloadGate` that parses the body once, calls
+`StatsSchemaValidator.validate()`, binds the envelope and returns a `ValidatedRecord`. A
+failure throws `PermanentFailureException`, so the delivery skips all three retry tiers
+and reaches `app_statsstore.<type>.dlq` on its first attempt. Four things go with it:
+
+1. **There is no property that turns the gate off.** `stats.writer.validation
+   .intended-scope` is **deleted**, not promoted. It existed to record the decided design
+   while the gate was unbuilt and was named "intended" precisely so it could not be
+   mistaken for a live control (DL-100). ADR-007 §5 offers no second scope for a switch to
+   select, and a key that can make "every payload reaches the INSERT unvalidated" true is
+   a one-line change away from silently disabling a data-safety control.
+2. **`StatsBatchWriter` takes `ValidatedRecord`, not `StatsEnvelope`.** The gate becomes a
+   signature rather than a convention: a writer that accepted a bare envelope could be
+   called with an unvalidated one. The schema label rides along into `schema_version`,
+   which ADR-003 D7 wants to mean *the contract that admitted this row* — a compiled-in
+   constant answers *the contract its author had in mind*, and the two agree only until a
+   v2 exists, at which point every stored row claims the wrong one and nothing fails.
+3. **The exception message is a constant.** `SafeFailure`'s own javadoc named
+   `new PermanentFailureException("uid=… failed the schema")` as the thing T-057 was
+   expected to write, and DL-124 makes it impossible for a throwable to reach a
+   `stats-writer` log line. The diagnosis is published separately: a `WARN` carrying the
+   `FieldError` list, which is value-free by construction — JSON Pointers, machine codes
+   and reviewed `SafeMessage` constants — plus the record itself, intact, on the DLQ.
+4. **`records_payload_rejected{type,reason}` is a new counter**, separate from
+   `records_dead_lettered{type,reason}`. That one is tagged with the root exception class,
+   which cannot separate "the payload does not match its schema" from "a table invariant
+   was violated" — and those call for different responses: the first is an upstream
+   conversation, the second is ours. **The `reason` tag was added on review, because the
+   first cut made the same mistake one level down**: it counted a routing fault — a record
+   whose own `type` is not the type of the queue it arrived on — under a name that says
+   "payload". Both throw `PermanentFailureException`, so `records_dead_lettered` sees one
+   class name for both and this counter is the only place the two stay distinguishable.
+   The tag set is closed at three constants — `payload_schema`, `type_mismatch` and
+   `unmappable` — so it cannot grow into a cardinality problem the way a free-text reason
+   would.
+
+   **`unmappable` was the third correction, and it came from the same mistake a third
+   time.** `records_write_failed` is described as *"records whose write failed"* and its
+   log line said `write FAILED` — but once `parameters()` was hoisted out of the
+   transaction (see DL-127), a record in an unknown dialect never reaches PostgreSQL at
+   all. Counting it as a write failure sends whoever watches that counter to a database
+   that is behaving perfectly, while upstream quietly ships a shape nobody recognises.
+   `LorastatsBatchWriter.write` now has **two stages with two failure meanings**: binding
+   the row, which is payload work and is counted here, and the `INSERT`, which is the
+   database's turn and keeps `records_write_failed` to itself. The regression test that
+   pins it, `countsAnUnmappablePayloadApartFromAFailedWrite`, asserts both counters at
+   once — asserting either alone passes for the wrong reason. `metersAFailedWrite` was
+   rewritten at the same time: it used to prove this counter with a record missing a
+   required member, which never reaches the database, so it agreed with itself while
+   meaning two different things. It now uses a `ts_device` with no partition, which is a
+   real rejection by PostgreSQL.
+
+**Why.** The failure arm built on 5 September (DL-122) was real and idle: nothing produced
+a permanent failure, so three retry tiers, a per-type DLQ and a confirmed hand-off existed
+with no producer. The gate is the producer. It is also the second half of the split ADR-007
+§5 decided in August, and the half that was missing was the one with teeth — until now
+every payload reached the INSERT unvalidated and a mismatch surfaced as a *write* failure,
+classified transient, which spent 35½ minutes in the tiers before reaching the DLQ anyway.
+
+**Why the gate is type-agnostic.** Nothing in `PayloadGate` names a stat type. Rule 6
+requires that adding a type be additive, and a gate written inside `LorastatsMessageProcessor`
+becomes five copies of itself during the Phase 3 fan-out — at which point the fifth copy is
+the one that quietly omits the check. The sysstats processor of T-035 is a sibling of the
+lorastats one, not a copy of its validation.
+
+**Why the body is parsed once.** The same tree is validated and then bound. Parsing twice
+costs a second parse on each of 115.2m records a day, and — the part that matters — lets
+the tree that passed and the object that was written drift apart, so the row stored would
+not be the row that was validated.
+
+**Rejected.** *Promoting `intended-scope` to a live key* — see rule 1; a scope switch on a
+gate whose only correct value is "on" is a foot-gun with a config file for a trigger.
+*Keeping `write(List<StatsEnvelope>)` and validating by convention* — the convention is
+exactly what was missing for three weeks. *Putting the field pointers in the exception
+message* — they are safe today, and the rule that stops a message reaching a log has to be
+absolute or it is a judgement call made again at every new throw site. *Validating at
+Input instead* — window 12 of `FLOW.md` §8: the record is already accepted, confirmed and
+published, and Heimdal retries only on a non-2xx, so a 400 there is unrecoverable loss.
+
+**Consequence.** T-064 hangs on this code path and lands with it. T-063's rules 3 and 4
+both need `PermanentFailureException` to be a live route to the DLQ, which is why the
+Tasks sheet recorded T-063 as depending on T-057 while `Next Up` ranked T-063 first: both
+were right about different halves, and the two shipped together. **T-060 can now be sized**
+— what reaches the lorastats DLQ from today is real failure, not routine dialect
+disagreement. The Writer's ERROR line no longer claims a failed write "goes to the retry
+arm": a permanent one does not.
+
+---
+
+### DL-127 — All three lorastats dialects are built, and the fourth still dead-letters
+
+**8 Sep 2026** · `ENGINEERING` implementing `ANSWERED` (Q15a) · DL-105, DL-089 (superseded), ADR-007 §4 (amended), DL-113, DL-095 · T-063, T-060, T-062
+
+**Decision.** DL-105 is implemented. `docs/schemas/lorastats-v1.schema.json` becomes a
+`oneOf` of exactly three dialect branches, and `LorastatsDialects` normalises all three
+into one canonical payload before `LorastatsBatchWriter` maps a single column. Each of
+DL-105's four rules is now a mechanism rather than a sentence:
+
+1. **Structural detection.** Which required key-set is present — bare or `lora_`-prefixed —
+   and what type its values hold. `VersionIsNotADiscriminatorTest` (DL-113) was written
+   before this code and forbids the new file from naming the bare identifier at all; it
+   passes with **no new whitelist entry**, which was the acceptance criterion.
+2. **One stored shape.** Proved in the table, not asserted in prose:
+   `allThreeDialectsLandAsOneIdenticalRow` writes the same counters in three dialects
+   against real PostgreSQL and compares the rows. The dialect is the metric label
+   `records_lorastats_dialect{dialect}` — whose name is **composed** from
+   `StatType.wireName()`, because a `"lorastats"` literal in main source fails
+   `StatTypeFanOutTest` — and all three series are registered at startup so a dialect
+   going to zero in the field is visible rather than absent.
+3. **Range-checked coercion, in that order.** A dialect-B string is parsed to
+   `BigInteger`, compared against `Long.MAX_VALUE`, and only then narrowed. Overflow or a
+   bad parse dead-letters. Never zeroed, never truncated, never defaulted.
+4. **Closed at three.** A fourth spelling matches no branch and dead-letters, in the
+   schema and independently in the detector.
+
+**The detail the prose loses, and the reason to read the fixture first.** Dialect C is
+**not** "everything prefixed". The production record of 29 August carries fifteen
+`lora_`-prefixed counters alongside a **bare** `fsk_received` and a **bare** `timespan`. A
+branch or a detector written from DL-105's description rather than from the record rejects
+the traffic it was written to accept. Both now encode the record.
+
+**Normalisation happens before the column mapping, and that ordering is load-bearing.**
+`data_extra` is computed from the *normalised* residue. Taken from the wire shape instead,
+every dialect-C record would drop fifteen `lora_*` members into `data_extra`, leave the
+typed columns NULL, and increment `records_unmapped_data_field` — a counter whose entire
+job is to say "Heimdal added a field" — on ordinary traffic every ten minutes. The row
+would be valid JSON, the write would succeed, and the defect would surface as a column
+that is always null. `aPrefixedDialectRecordFillsColumnsAndLeavesDataExtraNull` is the
+guard.
+
+**One round trip is deliberately no longer byte-exact.** A dialect-B or dialect-C record
+rebuilds from storage with bare names and integral values. ADR-004's byte-identical
+guarantee is about **publication** — what Input republishes and what the retry arm hands
+on, which is what keeps `(ts_device, uid)` suppression correct — and storage was always
+value-preserving rather than encoding-preserving (ADR-003 D2). Rule 2 is what makes one
+API shape possible for a type that arrives in three.
+
+**The fixture gate learned a third marker.** `writer-range-reject` marks a record the
+catalogue **admits** and the Writer refuses on the `BIGINT` range check. Neither existing
+marker fits: `writer-dlq` means "fails its per-type schema" and this record does not.
+It is to the Writer what `input-reject` is to Input — both mark a rule that is arithmetic
+or cross-field rather than structural, and DL-105 rule 3 had no assertion vocabulary
+until now. `EXPECTED_ASSERTIONS` moves 88 → **91** and the Java parity expansion 81 → **84**;
+the marker count stayed at seven while its composition changed completely.
+
+**Rejected.** *`anyOf` instead of `oneOf`* — the three branches are disjoint by name and
+value type, so an overlap is a modelling error, and `oneOf` surfaces it as a validation
+failure instead of silently picking the first match. *Typing dialect B's `timespan` as
+either a string or an integer* — no production record exercises it, a dialect is
+internally consistent by definition, and a mixed record is a shape nobody has explained;
+rule 4 sends those to the DLQ where a person sees them. *Letting the detector fall back to
+a "best guess" dialect* — a record neither the schema nor the detector can place belongs
+on the DLQ, not in a column chosen by a fallback. *Stripping `lora_` from unrecognised
+members* — renaming an unknown field on the way to a column that does not exist is
+inventing a mapping; it keeps its spelling and goes to `data_extra` verbatim (D14b).
+
+**Consequence.** Roughly **15m messages/day stop accumulating** in a queue ADR-002 §12
+forbids ever expiring. The two production dialect fixtures move `invalid/` → `valid/` and
+lose their `writer-dlq` markers; `invalid/lorastats-dialect-unknown.json` and
+`valid/lorastats-dialect-string-overflow.json` take their place at the two boundaries the
+widened schema creates. **T-060 is unblocked and can now be sized against real volume.**
+T-062 inherits the coercion helper rather than writing a second one — `sysstats`'
+`timespan: "300"` and `netstats`' 19-digit counter strings are the same rule applied to
+other types, and two helpers written a month apart is how the range check goes missing
+from one of them.
+
+**Residual, unchanged.** Q15a's second half — *are the other dialects being retired?* —
+is still unanswered and still blocks nothing. `records_lorastats_dialect{dialect}` is what
+will show one going to zero, and it is now emitting.
+
+---
+
+### DL-128 — A non-OK upstream status is metered at the gate, and absence is not a failure
+
+**8 Sep 2026** · `ENGINEERING` implementing `ANSWERED` (Q15d) · DL-108, DL-102, ADR-007 §1, D14 · T-064, T-050
+
+**Decision.** DL-108 is implemented in `PayloadGate`, immediately after validation and
+before the write: when `status` is present and is anything other than exactly
+`["conversion ok"]`, increment `records_upstream_status_not_ok{type}` and log at `WARN`
+with `uid`, `type`, `clsbox` and the status array. The record is **stored regardless** and
+is never dead-lettered. `status` stays a passthrough member — this reads it to count it,
+and nothing branches on it.
+
+**An absent `status` is not counted, and that is the decision DL-108 left open.** Read
+literally, "anything other than exactly `["conversion ok"]`" includes absence. But
+`status` is optional, and every fixture written before 29 August 2026 omits it — so
+counting absence would light the counter on ordinary traffic and drown the signal it
+exists to carry. *"Upstream did not say"* and *"upstream said it failed"* are different
+facts, and only the second is what Q15d asked for. Recording it here rather than leaving
+it to the code is the point: it is exactly the kind of unstated default that DL-108's own
+value-agnostic argument warns about.
+
+**Why the comparison is against the one known-good value.** We do not have the vocabulary
+of failure strings. A check that recognises only the values we happen to know about goes
+**quiet** on the ones we do not, which is the failure mode the whole "nothing is silently
+dropped" rule exists to prevent. Comparing against the single good value inverts it:
+anything unrecognised is counted, by definition. `metersAStatusValueNobodyHasSeenBefore`
+is the test that holds that property, using a value no production record has sent.
+
+**Why it is at the gate rather than in the writer.** One place, once per delivery, with
+the whole envelope in hand and before any transaction opens. Putting it in
+`LorastatsBatchWriter` would repeat it five times across the Phase 3 fan-out, and putting
+it after the INSERT would miss the records suppressed as duplicates.
+
+**Rejected.** *Dead-lettering a non-OK status* — the record is valid and was correctly
+delivered, and a redrive produces the identical verdict forever, in a DLQ with no TTL.
+*A metric label carrying the status value* — an unbounded label set sourced from an
+upstream vocabulary we do not control is a Prometheus cardinality bomb. *Waiting for the
+vocabulary before metering* — the counter does not need it, and the counter is what will
+name the actual values. *Logging the payload alongside it* — `status` is an **envelope**
+member, which DL-108 names explicitly; the DL-102 level gate that keeps payloads at
+`DEBUG` does not extend to it, and does not become weaker because of this line.
+
+**Consequence.** T-050's alert set gains the counter — a Mukesh-owned hand-off, not a
+change here. `valid/lorastats-status-not-ok.json` is a new fixture and carries no `$expect`
+marker, because nothing anywhere rejects it. Without this we would store records upstream
+already knew were bad with nothing on our side saying so, which is the whole of Q15d.
+
+**Residual, unchanged.** The vocabulary of non-OK `status` values is still unknown. It
+blocks nothing, the counter is value-agnostic, and by the next round with Hasan the
+counter will have enumerated the real values in any case.
+
+---
+
+### DL-129 — Configuration is audited by the build, because a duplicate key is silent
+
+**8 Sep 2026** · `ENGINEERING` · DL-100, DL-116, ADR-002 §12, ADR-003 D6, ADR-007 §1 · T-060, T-025
+
+**Decision.** Six defects in `stats-writer`'s configuration and in two Gradle files are
+fixed, and the one that could recur is now enforced by
+`PropertiesDeclareEachKeyOnceTest`, which fails the build if any module's
+`application.properties` declares a key twice.
+
+| Defect | Why it mattered |
+|---|---|
+| **Four retry keys declared twice** — `tier1/2/3-delay` and `max-retries`, in two separate comment blocks | A `.properties` file silently keeps the **last** definition. The values happened to agree, so nothing misbehaved; tune the first occurrence and nothing changes, with no warning from the parser, Spring or the IDE |
+| **`stats.writer.dlq.alert-depth.default=0` read by nothing** | A key that looks live is one someone edits expecting an effect. Exactly the hazard DL-100 named when it insisted the validation-scope key be called `intended-scope` — and the payload-gate key was deleted for that reason hours earlier, so leaving this one preserved the inconsistency the deletion was meant to remove |
+| **Two wrong `DL-` citations** — T-057 cited DL-125, T-063 cited DL-126, both off by one | Introduced by the 8 Sep edit itself. A decision log is only navigable if its citations resolve |
+| **The `MAX_PRE_CREATE_DAYS` comment sat above the cron** | It documents `pre-create-days`; as placed it read as a bound on `schedule` |
+| **`stats-common/build.gradle.kts` called the device field `gateway`** | The SRS name that no production record has ever used. ADR-007 §1 makes the wire name the name everywhere, and `CLAUDE.md` §6 lists this as a trap — the build file was still teaching the wrong one |
+| **`stats-writer/build.gradle.kts` called Flyway "PROVISIONAL pending Q1a"** | Q1a closed 18 Aug 2026. The same module's `application.properties` already said "final since Q1a closed", so one module contradicted itself in two files |
+
+**Why a guard for the duplicate and not for the rest.** The other five are one-off
+staleness, caught by reading. The duplicate is a different species: it is **invisible
+by construction**. Nothing in the toolchain reports it, both halves were individually
+correct, and it survived every review of a file whose own comments insist these values
+are *"externalised here and NEVER hard-coded"*. That is the profile of a defect that
+comes back, so it gets a test rather than a note.
+
+**The guard needed a second fix to be real.** `stats-common`'s test task declared only
+`src/main/java` as an input, so editing a properties file left `:stats-common:test`
+`UP-TO-DATE` and the new guard would not have run — the identical trap the existing
+`inputs.files` block was written for, one directory across. `src/main/resources` is now
+declared too. The guard was then verified the way DL-124's was: the duplicate was
+reintroduced, the build went red, and it was removed again.
+
+**Rejected.** *Leaving the duplicate because the values agree* — that is the argument
+for every latent defect, and it is only true until someone edits one of them.
+*Renaming `alert-depth.default` to `intended-` something* — T-060 will introduce the keys
+it actually reads; a placeholder that has to be renamed to stay honest is worth less than
+the comment that replaced it. *A `.editorconfig` or lint rule* — this repository's
+convention is a JUnit guard that fails the build (DL-113, DL-124), because that is what
+runs in CI without anyone opting in.
+
+**Consequence.** 483 tests. T-060 inherits a file with no misleading threshold in it, and
+a guard that will fail if its new keys are ever added twice.
+
+---
+
+### DL-130 — Configuration metadata is generated, and eleven keys that bound to nothing are parked
+
+**8 Sep 2026** · `ENGINEERING` · DL-100, DL-129, STA-23A, ADR-003, ADR-006 · T-025, T-060, Phase 4
+
+**Decision.** `spring-boot-configuration-processor` is added to the three application
+modules as an `annotationProcessor`, so each one generates
+`META-INF/spring-configuration-metadata.json` from its `@ConfigurationProperties`
+classes. Two live keys that are read *by name* rather than bound —
+`stats.writer.stat-type` (`@Value` and `Environment`) and
+`stats.retention.pre-create-on-startup` (`@ConditionalOnProperty`) — are described in a
+hand-written `additional-spring-configuration-metadata.json`, because the processor
+cannot see either.
+
+**Why this is not cosmetic.** The symptom was an IDE marking every custom `stats.*` key
+as an unknown property. The cost is not the squiggle: it is that a file in which **every
+warning is false** is a file where a **true** warning is never read. And there were true
+ones — eleven keys that bound to nothing at all:
+
+| Module | Keys | Disposition |
+|---|---|---|
+| `stats-writer` | `stats.retention.default-days` | **Parked.** STA-23A requires it and 90 days is decided, but `RetentionProperties` binds only three components and T-025 has not been built |
+| `stats-writer` | `delete-batch-size`, `fallback-schedule`, `max-batches-per-run`, `max-run-duration` | **Removed.** They configured the batched-`DELETE` path to take *"if partitioning is not approved"* — and it **was** approved. ADR-003 makes detach-and-drop the mechanism and `CLAUDE.md` §6 lists row-by-row deletion at this volume as a trap. They tuned a design the project decided against |
+| `stats-input` | `stats.input.metrics.converter-ts-present` | **Removed.** A metric name is not configuration: it already exists as `IngestMetrics.CONVERTER_TS_PRESENT`, so this was a second copy of one truth, free to drift |
+| `stats-api` | `stats.security.audience`, `read-role`, `tenant-claim`, `stats.api.default-page-size`, `max-page-size` | **Parked.** No `@ConfigurationProperties` class exists in that module, so all five resolved to nothing while reading as live security and paging controls. `read-role` is the worst of them to leave live-looking — it is the control that keeps tenant isolation working |
+
+Parking follows this repository's own rule, stated at the top of
+`stats-input/application.properties`: *a value that is decided but unread must fail
+closed (absent) rather than fail open (a plausible-looking guess)*, and
+`stats.retention.lorastats-days` was already commented out that way. The decided values
+stay recorded; they simply stop pretending to be wired.
+
+**The fix had a trap of its own, and it failed silently.** `annotationProcessor` is a
+separate configuration and does **not** inherit the Boot BOM that the root build imports
+into `implementation` and `testImplementation`. So the version-less catalog entry
+resolved against nothing: `./gradlew dependencies --configuration annotationProcessor`
+reported `FAILED`, the processor never ran, no metadata was generated — and the compile
+still succeeded. The only symptom would have been an IDE that still called every property
+unknown, i.e. no visible change at all, which is exactly how a fix gets declared done. The
+root build now adds the platform to `annotationProcessor` too, and the outcome was
+verified by reading the generated file rather than by the build going green: 15 described
+properties in `stats-writer`, 10 in `stats-input`, and zero live `stats.*` keys left
+undescribed in any module.
+
+**Rejected.** *Suppressing the warnings in IDE settings* — that hides the false ones and
+the true ones together, which is the whole problem. *Deleting the parked keys outright* —
+`default-days` and the Keycloak values are decided answers, and re-deriving them costs
+more than a commented line. *Keeping the fallback-`DELETE` keys "just in case"* — a
+fallback to a rejected design is a new decision when it is needed, not four keys nobody
+got round to removing. *A build guard asserting every key has metadata* — the prefixes are
+not all string literals (`LorastatsConsumerProperties` uses a constant), so the check
+would be brittle; with the noise gone the IDE is now itself the feedback loop, which is
+what DL-129's duplicate-key guard could not rely on.
+
+**Consequence.** 483 tests, configuration cache still reused. T-025 un-parks
+`default-days`; Phase 4 un-parks the five `stats-api` keys and adds the
+`@ConfigurationProperties` classes that make them real.
+
+---
+
+### DL-130 — The API's lorastats examples are real production records, shown post-normalisation
+
+**8 Sep 2026** · `ENGINEERING` · DL-105, DL-127, D14b, ADR-007 §1, STA-35A · `openapi.yaml`, T-063
+
+**Decision.** Both `lorastats` examples in `docs/contracts/openapi.yaml` are now drawn
+from the three production records of 29 August 2026 — one per dialect — rather than from
+`valid/lorastats-valid.json`, the synthetic fixture that predates them. `LorastatsRecord`
+mirrors `valid/lorastats-production-canonical.json`; `LorastatsPage` carries all three, in
+`ts.device DESC, uid DESC` order, **as the API returns them**: dialect B's quoted counters
+as integers and dialect C's `lora_`-prefixed names stripped, because that is what DL-127
+does to them before the `INSERT`. Exactly one deviation from the source fixtures is
+permitted, and it is now stated in the file: `tenant` and `maintenant` are made to differ.
+
+**Why the old example was wrong without being invalid.** It carried the thirteen
+**required** counters and nothing else — no `rx_short_pkt`, no `fsk_received`, no
+`timespan`, no `version`, no `status`, and two of the five `ts` members. Every one of
+those omissions is legal, and the composite is a record production has never sent. A
+reader comparing the contract against a real payload concludes the contract is wrong about
+the payload, which is the more expensive mistake here: the last time a document set
+disagreed with production, production won and four of five payload schemas were rebuilt
+(ADR-007). An example is the only part of a contract most people read.
+
+**Why the page shows three dialects and not three copies of one.** The question this
+answers is *"why does the response not look like what Heimdal sends?"*, and the answer is
+only convincing side by side. A prefixed name or a quoted counter in a **response** example
+would be worse than the thin example it replaced: it would describe a response this API
+cannot produce, and invite a client that parses for `lora_rx_nr_pkts`. The dialect is a
+metric label — `records_lorastats_dialect{dialect}` — and the examples are where that stops
+being an abstract claim.
+
+**Rejected.** *Adding the optional members to `valid/lorastats-valid.json`* — the
+originally chosen option, withdrawn on inspection. That fixture is load-bearing **because**
+it is bare: `StatsEnvelopeTest.omitsAbsentOptionalMembersRatherThanSerialisingThemAsNull`
+proves `JsonInclude.NON_NULL` keeps a pre-29-Aug record from round-tripping with four null
+members, which byte-identical publication depends on (DL-119), and
+`PayloadGateTest.doesNotMeterAnAbsentStatus` needs a record with no `status` at all
+(DL-128). Enriching it would have left both green while testing nothing — the silent
+failure both guards exist to prevent. *A new production-shaped fixture* — unnecessary;
+`valid/lorastats-production-canonical.json` already was one. *Editing only the YAML* —
+breaks the rule stated above the examples block.
+
+**Consequence.** `redocly lint` 2.51.2 clean; 91 fixture assertions, 0 failed; no fixture
+added, moved or re-marked. The stale `$comment` on the canonical fixture — which still said
+the other two dialects "dead-letter until then" — is corrected, and `RequestLimitTest`'s
+two byte counts are re-measured (1,462 → 1,758; 425 → 429) since the fixture that comment
+describes grew. `lorastats-valid.json` is untouched.

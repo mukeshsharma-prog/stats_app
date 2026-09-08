@@ -29,6 +29,14 @@ joni = "2.2.6"
 # lets the version-less entries below resolve.
 spring-boot-bom = { module = "org.springframework.boot:spring-boot-dependencies", version.ref = "springBoot" }
 
+# Generates META-INF/spring-configuration-metadata.json from the @ConfigurationProperties
+# classes at compile time. Without it an IDE has no way to know that `stats.retention
+# .pre-create-days` is a real property, so every custom key in every application.properties
+# is flagged "unknown" — and once a file is full of warnings that are all false, the one
+# that is NOT false stops being visible. Applied as an annotationProcessor, so it ships no
+# runtime dependency.
+spring-boot-configuration-processor = { module = "org.springframework.boot:spring-boot-configuration-processor" }
+
 # --- starters ---------------------------------------------------------------
 spring-boot-starter = { module = "org.springframework.boot:spring-boot-starter" }
 spring-boot-starter-web = { module = "org.springframework.boot:spring-boot-starter-web" }

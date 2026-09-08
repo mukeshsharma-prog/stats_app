@@ -1,7 +1,10 @@
 // stats-common — shared library. NOT a deployable; no Spring Boot plugin, no image.
 //
 // Holds exactly five things (Senior task SA):
-//   1. the envelope model — uid, tenant, maintenant, gateway, type, ts
+//   1. the envelope model — uid, tenant, maintenant, clsbox, type, ts, data, status
+//      (clsbox, NOT gateway: `gateway` is the SRS name no production record has ever
+//      used, and ADR-007 §1 makes the wire name the name everywhere — wire, schema,
+//      Java, column, API. `gateway` stays a word for the physical device, in prose.)
 //   2. the AMQP topology constants — exchange, per-type queue, retry tiers, DLQ
 //   3. the stat-type enum — lorastats, ltestats, sysstats, netstats, omsstats
 //   4. RFC 9457 Problem Details, the error catalogue, and safe field errors
@@ -76,6 +79,20 @@ tasks.test {
             .filter { it.isDirectory }
     )
         .withPropertyName("scannedModuleMainSources")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+        .ignoreEmptyDirectories()
+
+    // ...and the same for main RESOURCES, because PropertiesDeclareEachKeyOnceTest scans
+    // every module's application.properties. Without this an edit to a properties file
+    // leaves :stats-common:test UP-TO-DATE and that guard silently does not run — the
+    // identical trap the block above was written for, one directory across. The duplicate
+    // retry keys it now catches were added by editing exactly such a file.
+    inputs.files(
+        listOf("stats-common", "stats-testsupport", "stats-input", "stats-writer", "stats-api")
+            .map { rootProject.file("$it/src/main/resources") }
+            .filter { it.isDirectory }
+    )
+        .withPropertyName("scannedModuleMainResources")
         .withPathSensitivity(PathSensitivity.RELATIVE)
         .ignoreEmptyDirectories()
 }

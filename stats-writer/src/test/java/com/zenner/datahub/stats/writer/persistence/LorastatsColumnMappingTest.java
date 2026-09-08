@@ -62,6 +62,17 @@ class LorastatsColumnMappingTest {
                 .contains("ON CONFLICT (ts_device, uid) DO NOTHING");
     }
 
+    /**
+     * The union of the three dialect branches, folded back to canonical (bare) spelling.
+     *
+     * <p>Since T-063 the schema's {@code data} is a {@code oneOf} of three branches
+     * rather than one property map, and the union is the right question to ask of it: a
+     * member that has a typed column must be named by whichever branch can carry it, and
+     * the Writer normalises {@code lora_}-prefixed names to bare ones before the INSERT,
+     * so {@code lora_rx_nr_pkts} and {@code rx_nr_pkts} are one column and not two.
+     * Reading a single branch would silently under-count and turn this guard into a test
+     * of dialect A alone.</p>
+     */
     private static Set<String> schemaDataFields() {
         ObjectMapper objectMapper = new ObjectMapper();
         try (InputStream input =
@@ -71,20 +82,39 @@ class LorastatsColumnMappingTest {
             assertThat(input).as("bundled schema %s", SCHEMA_RESOURCE).isNotNull();
             JsonNode schema = objectMapper.readTree(input);
 
-            JsonNode dataProperties = null;
+            JsonNode dialects = null;
             for (JsonNode branch : schema.path("allOf")) {
-                JsonNode candidate = branch.path("properties").path("data").path("properties");
-                if (candidate.isObject()) {
-                    dataProperties = candidate;
+                JsonNode candidate = branch.path("properties").path("data").path("oneOf");
+                if (candidate.isArray()) {
+                    dialects = candidate;
                 }
             }
-            assertThat(dataProperties).as("data.properties in the lorastats schema").isNotNull();
+            assertThat(dialects)
+                    .as("data.oneOf — the closed three-dialect enumeration (DL-105)")
+                    .isNotNull();
+            assertThat(dialects)
+                    .as("the enumeration is CLOSED AT THREE; a fourth branch is a decision")
+                    .hasSize(3);
 
             List<String> names = new ArrayList<>();
-            dataProperties.fieldNames().forEachRemaining(names::add);
+            for (JsonNode reference : dialects) {
+                String pointer = reference.path("$ref").asText().replace("#/", "/");
+                JsonNode properties = schema.at(pointer).path("properties");
+                assertThat(properties.isObject())
+                        .as("dialect branch %s declares its properties", pointer)
+                        .isTrue();
+                properties
+                        .fieldNames()
+                        .forEachRemaining(
+                                name ->
+                                        names.add(
+                                                name.startsWith("lora_")
+                                                        ? name.substring("lora_".length())
+                                                        : name));
+            }
             return Set.copyOf(names);
-        } catch (Exception failure) {
-            throw new AssertionError("Unable to read " + SCHEMA_RESOURCE, failure);
+        } catch (Exception unreadable) {
+            throw new AssertionError("Unable to read " + SCHEMA_RESOURCE, unreadable);
         }
     }
 }

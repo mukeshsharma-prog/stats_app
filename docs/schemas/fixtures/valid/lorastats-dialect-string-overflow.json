@@ -1,0 +1,38 @@
+{
+  "uid": "CLSCON-c19d4e77-05ba-4a3e-9d81-7f2c6b0e4a55",
+  "tenant": "mzc",
+  "maintenant": "zenner-managed",
+  "clsbox": "04B6481064F9",
+  "type": "lorastats",
+  "version": 1,
+  "ts": {
+    "server": 1787833797,
+    "datastore": 1787833797,
+    "converter": 1787833797,
+    "device": 1787833797,
+    "expiresOn": "2026-08-27T12:29:57.182Z"
+  },
+  "data": {
+    "rx_nr_pkts": "9223372036854775808",
+    "rx_type_arol": "0",
+    "rx_crc_missing": "0",
+    "rx_crc_bad": "63",
+    "tx_peek_index_zero": "0",
+    "tx_success": "0",
+    "rx_short_pkt": "181",
+    "chip_comm_error": "0",
+    "tx_failed": "0",
+    "tx_override": "0",
+    "util_fopen_failed": "0",
+    "tx_peek": "0",
+    "tx_type_beacon": "0",
+    "tx_busy": "0",
+    "tx_dequeue_error": "0"
+  },
+  "status": [
+    "conversion ok"
+  ],
+  "$comment": "SYNTHETIC. Dialect B with rx_nr_pkts one above the signed BIGINT maximum: 9223372036854775808 is 9223372036854775807 + 1, and it is NINETEEN digits, so it passes the counterString pattern ^(0|[1-9][0-9]{0,18})$ and the record is SCHEMA-VALID - which is why it lives in valid/ rather than invalid/. The gap between a 19-digit ceiling and the BIGINT maximum is not expressible as a regex, so the range check has to be the Writer's, applied BEFORE the conversion (DL-105 rule 3, STA-04C, the netstats rule from Q4a). This is the fixture that holds the line against the failure that leaves no trace: a coercion that catches the overflow and stores 0, or that truncates, produces a row that is WRONG rather than absent and no test fails. The record dead-letters; nothing is written. $expect is writer-range-reject rather than writer-dlq because writer-dlq means 'fails its per-type schema' and this record does not - the same distinction input-reject already draws for the clock-skew rule JSON Schema cannot express.",
+  "$expect": "writer-range-reject",
+  "$expectCode": "bigint_overflow"
+}

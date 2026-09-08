@@ -208,7 +208,7 @@ decision are in `docs/decisions/2B-ANSWERS-18AUG2026.md`. **Do not reopen these.
 | Keycloak realm and claims | **Proposed by engineering and live in the dev realm.** Realm `statsapp`; clients `stats-api` / `stats-input` / `stats-dev-cli`; audience `stats-api`; read role `stats.readOnly`; ingest role `stats.ingest`; tenant claim `tenant`, **single-valued String** — because a multi-valued claim turns isolation into `tenant IN (...)` and one misconfigured user then reads several tenants with every test still green. |
 | Burst profile | **Assume the worst until measured** — and **amended 4 Sep 2026 (Q13b, DL-104): gateways JITTER across the cycle.** 13,333/s survives as *configured headroom*, not the expected case; expected steady state is the ~1,333/s average. Input sized for peak, Writer for drain (~2,000/s per type), prefetch 500, `max_wal_size` for the burst. **Alert on oldest message age, never on queue depth** — but the *reading* inverts: a cyclic depth spike used to be the buffer working, and under jitter it is evidence this answer is wrong. Hardware is not sized down until the `ts.server mod 600` histogram over the first 24 h of ingest confirms it (T-050). |
 | Replay burst | **Heimdal AGREED the 2× nominal cap (2,667/s) on 4 Sep 2026 (Q13c, DL-109) — and it stays unenforceable by us, so not one defence changes.** A 6-hour outage is 28.8M messages and ~3 hours of replay at that cap, holding total ingest at 4,000/s. A 503 during replay is the backpressure channel working, not an incident. |
-| Realistic samples | **Built, then rebuilt on production 29 Aug 2026 (ADR-007).** 76 fixture files across `valid/`, `invalid/`, `edge/`, `malformed/`, including 9 byte-faithful production records; `validate-fixtures.py` asserts 88 and exits non-zero for CI (the 76th is `lorastats-clsbox-lowercase.json`, added 5 Sep 2026 by DL-115). The production sample invalidated every envelope field name and four of the five payload schemas. |
+| Realistic samples | **Built, then rebuilt on production 29 Aug 2026 (ADR-007).** **79** fixture files across `valid/`, `invalid/`, `edge/`, `malformed/`, including 9 byte-faithful production records; `validate-fixtures.py` asserts **91** and exits non-zero for CI. The last four: `lorastats-clsbox-lowercase.json` (5 Sep, DL-115), then `lorastats-dialect-unknown.json`, `lorastats-dialect-string-overflow.json` and `lorastats-status-not-ok.json` (8 Sep, DL-127/DL-128) — the first two mark the boundaries the widened dialect schema created. The production sample invalidated every envelope field name and four of the five payload schemas. |
 
 ### 2b-2. What is genuinely still open with ZC
 
@@ -292,23 +292,28 @@ is a harmless no-op; retention boundary test passes on both sides.
 > nothing may branch on `version` (DL-113), no throwable may reach a `stats-writer` log
 > line (DL-124) — and a `redocly lint` gate on the contract (DL-117).
 >
-> **Outstanding for exit, in the order to build them:** **T-063** (the three `lorastats`
-> dialects — highest priority on the sheet, and what stops ~15M msg/day dead-lettering),
-> **T-057** (payload gate — the producer of most dead-letters, and the thing that finally
-> makes the built failure arm do something), **T-064** (non-OK upstream status),
-> **T-025/T-026/T-031** (retention, late arrival, boundary), **T-029/T-030/T-033**
-> (poison isolation, crash window, outage drill — T-033 is Phase 3's entry criterion)
-> and **T-060** (DLQ depth and age alerting, sized *after* T-063).
+> **8 September 2026 closed the first three.** **T-057** put the per-type payload gate
+> in front of the write, so the failure arm has producers and a schema mismatch reaches
+> the DLQ on its first attempt instead of after 35½ minutes of tiers (DL-126).
+> **T-063** built all three `lorastats` dialects into one closed enumeration normalised
+> to one typed row — **~15M msg/day have stopped dead-lettering** (DL-127). **T-064**
+> meters a non-OK upstream `status` without ever dead-lettering it, and settled what
+> DL-108 left open: an *absent* status is not counted (DL-128).
+>
+> **Outstanding for exit, in the order to build them:** **T-025/T-026/T-031**
+> (retention, late arrival, boundary), **T-029/T-030/T-033** (poison isolation, crash
+> window, outage drill — T-033 is Phase 3's entry criterion) and **T-060** (DLQ depth
+> and age alerting, now **unblocked** and sizeable against real dead-letter volume).
 
-### What to pick up next — 5 September 2026
+### What to pick up next — 8 September 2026
 
 The ranked list lives in `Stats_App_Tracker.xlsx` → **`Next Up`**, one row per action
 with the gate that must close first. The summary, by owner:
 
 | | Naman | Mukesh |
 |---|---|---|
-| **Now** | T-063, then T-057, then T-064 | T-009 (prove `stats_ro` cannot write), T-027 (finish the metrics, assert the *scrape*), T-005 (logging discipline), T-047 (the OpenAPI **drift** check — DL-117 landed only the lint half) |
-| **Then** | T-025/T-026/T-031, then T-029/T-030/T-033 | T-060 — **after** T-063, or the thresholds are sized against a dead-letter volume that is about to change by two orders of magnitude |
+| **Now** | T-025/T-026/T-031 (retention, late arrival, boundary — both signatures landed on 4 Sep, so nothing gates them) | T-009 (prove `stats_ro` cannot write), T-027 (finish the metrics, assert the *scrape* — it now has three new counters to cover, and two of them are multi-series: `records_payload_rejected{type,reason}` (three reasons), `records_lorastats_dialect{dialect}` (three, all registered at startup) and `records_upstream_status_not_ok{type}`), T-005 (logging discipline), T-047 (the OpenAPI **drift** check — DL-117 landed only the lint half) |
+| **Then** | T-029/T-030/T-033 | T-060 — **unblocked since T-063**, and now sizeable: what reaches the lorastats DLQ from 8 Sep is real failure, not routine dialect disagreement |
 | **When T-033 is green** | reviews the first fan-out end to end | T-035 `sysstats` **first** — not `ltestats`, which is blocked on D-12 P3 — then T-036 `omsstats`, then T-034 `ltestats`, then T-037 `netstats` |
 | **Held** | T-039, T-042, T-045, T-046 | T-038, T-040, T-041, T-043, T-044 — all gated on ZC confirming `openapi.yaml` (D-09) |
 
@@ -316,6 +321,18 @@ Two sequencing corrections made on 5 September, both recorded in DL-125: the fan
 starts at `sysstats` rather than `ltestats`, and T-037 `netstats` no longer depends on
 T-034 — that dependency made `netstats` inherit a block about `imsi`, a field it does
 not have.
+
+**One contradiction the sheet carried, resolved on 8 September.** `Next Up` ranked
+T-063 first while the `Tasks` sheet recorded T-063 as depending on T-057. Both were
+right about different halves: T-057 is the prerequisite of the *code path* — DL-105's
+rules 3 and 4 both need `PermanentFailureException` to be a live route to the DLQ —
+and T-063 was the priority of the *outcome*. They shipped together, in that order,
+and the sheet no longer disagrees with itself.
+
+**What the fan-out inherits from this.** `PayloadGate` is type-agnostic, so T-035's
+`sysstats` processor calls it rather than copying it; and T-062's per-type coercion is
+the same range-checked helper T-063 built, not a second one — `sysstats`' `timespan:
+"300"` and `netstats`' 19-digit counter strings are the same rule applied elsewhere.
 
 ### Phase 3 — Type fan-out (juniors, parallel)
 

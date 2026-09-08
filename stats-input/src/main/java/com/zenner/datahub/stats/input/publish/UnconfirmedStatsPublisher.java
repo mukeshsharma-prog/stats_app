@@ -25,11 +25,12 @@ public final class UnconfirmedStatsPublisher implements StatsPublisher {
     @PostConstruct
     void warnOnStartup() {
         log.warn(
-                "stats-input has NO publisher implementation: the envelope gate (T-013) is active "
-                        + "but publishing with confirms (T-014) is not built. Every record that "
-                        + "passes validation is answered 503 and nothing is published. This is "
-                        + "deliberate — a 2xx follows a publisher confirm and nothing else "
-                        + "(STA-04A, rule 8).");
+                "stats-input has NO confirming publisher in this context: the envelope gate "
+                        + "(T-013) is active but nothing can publish. Every record that passes "
+                        + "validation is answered 503 and nothing is published. This is deliberate "
+                        + "— a 2xx follows a publisher confirm and nothing else (STA-04A, rule 8). "
+                        + "The confirming publisher exists (T-014); if you are seeing this outside "
+                        + "a test, the broker configuration did not produce one.");
     }
 
     @Override

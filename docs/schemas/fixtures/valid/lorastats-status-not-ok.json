@@ -1,0 +1,36 @@
+{
+  "uid": "CLSCON-4d8e1f02-9a6b-4c3d-8e71-2b5f9c0a7e14",
+  "tenant": "mzc",
+  "maintenant": "zenner-managed",
+  "clsbox": "04B648106A2D",
+  "type": "lorastats",
+  "version": 1,
+  "ts": {
+    "server": 1787833823,
+    "datastore": 1787833823,
+    "converter": 1787833823,
+    "device": 1787833823,
+    "expiresOn": "2026-08-27T12:30:23.117Z"
+  },
+  "data": {
+    "rx_nr_pkts": 91,
+    "rx_crc_missing": 2,
+    "rx_crc_bad": 14,
+    "rx_short_pkt": 33,
+    "tx_success": 7,
+    "tx_failed": 1,
+    "tx_peek": 0,
+    "tx_peek_index_zero": 0,
+    "tx_override": 0,
+    "tx_busy": 0,
+    "tx_dequeue_error": 0,
+    "tx_type_beacon": 12,
+    "chip_comm_error": 0,
+    "util_fopen_failed": 0,
+    "timespan": 1800
+  },
+  "status": [
+    "conversion failed"
+  ],
+  "$comment": "SYNTHETIC, for T-064 / DL-108. Q15d confirmed that status can report a FAILED conversion, not only [\"conversion ok\"]. This record is VALID and stays valid: the Writer STORES it, meters records_upstream_status_not_ok{type} and logs at WARN, and never dead-letters it - the record was correctly delivered and a redrive would produce the identical verdict forever, in a DLQ that ADR-002 \u00a712 forbids ever expiring. There is no $expect marker for the same reason: nothing rejects this record anywhere. The comparison behind the counter is VALUE-AGNOSTIC - it tests against the one known-good value rather than against a list of failure strings, because a check that recognises only the failures we happen to know about goes quiet on the ones we do not. The literal \"conversion failed\" here is therefore an EXAMPLE, not part of any contract: the real vocabulary of non-OK values is still unknown (DL-108 residual) and the counter is what will enumerate it. No metric label ever carries the value - an unbounded label set sourced from an upstream vocabulary we do not control is a cardinality bomb. NOTE: tenant and maintenant deliberately DIFFER here."
+}

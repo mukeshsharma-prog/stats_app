@@ -37,9 +37,15 @@ class StatsEnvelopeFixtureTest {
         assertThat(roundTrip).isEqualTo(record);
     }
 
+    /**
+     * Four fixtures joined valid/ with T-063 and T-064 on 8 Sep 2026: the two production
+     * dialect records that moved out of invalid/ when DL-105 was built, the BIGINT
+     * overflow record the Writer refuses after the schema admits it, and the non-OK
+     * upstream status of DL-108.
+     */
     @Test
-    void expandsTheValidDirectoryToThirtySixRecords() {
-        assertThat(validRecords()).hasSize(36);
+    void expandsTheValidDirectoryToFortyRecords() {
+        assertThat(validRecords()).hasSize(40);
     }
 
     static List<Arguments> validRecords() {

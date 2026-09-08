@@ -56,8 +56,8 @@ class RequestLimitTest {
     @MockitoBean private StatsPublisher publisher;
 
     /**
-     * 1 KB is chosen so the canonical production record (1,462 bytes) is over the line
-     * and the smaller adversarial fixture (425 bytes) is under it. Both bounds are then
+     * 1 KB is chosen so the canonical production record (1,758 bytes) is over the line
+     * and the smaller adversarial fixture (429 bytes) is under it. Both bounds are then
      * exercised in one context without the size filter masking the rate limit — it runs
      * first, by order, and a 413 never reaches the bucket.
      */

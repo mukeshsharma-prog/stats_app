@@ -153,6 +153,27 @@ class RetryAndDeadLetterIntegrationTest {
     }
 
     @Test
+    @DisplayName("a payload rejection reaches the DLQ on its first attempt, body intact")
+    void aPayloadRejectionIsDeadLetteredImmediately() {
+        // T-057's end state. PermanentFailureException is the channel the payload gate
+        // and the dialect range-check throw on, and this asserts what the broker actually
+        // does with it: straight to the DLQ, marked permanent, with the record byte-for
+        // -byte as Heimdal sent it so a redrive after the schema is fixed still collides
+        // on (ts_device, uid).
+        router.route(TYPE, delivery(0), new PermanentFailureException("Payload failed its per-type schema"));
+
+        Message dead = awaitMessageOn(DLQ);
+        assertThat(dead.getMessageProperties().getHeaders())
+                .containsEntry(FailedDeliveryRouter.ATTEMPT_HEADER, 1)
+                .containsEntry(FailedDeliveryRouter.PERMANENT_HEADER, true)
+                .containsEntry(FailedDeliveryRouter.FAILURE_HEADER, "PermanentFailureException");
+        assertThat(dead.getBody()).isEqualTo(BODY);
+        for (int tier = 1; tier <= AmqpTopology.RETRY_TIERS; tier++) {
+            assertThat(rabbitTemplate.receive(AmqpTopology.retryQueue(TYPE, tier), 200)).isNull();
+        }
+    }
+
+    @Test
     @DisplayName("the dead-letter exchange has a live route for the retry bounce-back key")
     void theBounceBackKeyIsRoutable() {
         // A tier queue dead-letters its expired message to app_stats_dlx under the type's
