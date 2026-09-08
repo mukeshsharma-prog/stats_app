@@ -328,6 +328,23 @@ Give the API a **read-only database user**. The "only Module 2 writes" rule shou
 be enforced by database grants, not just by convention — that way a mistake in
 code fails loudly instead of silently writing.
 
+The shipped role boundary lives in `docker/postgres-init/10-read-only-user.sql`
+and runs once against an empty PostgreSQL volume. `stats` is the image-created
+database owner used by Writer and Flyway; its `CONNECT`, schema `USAGE/CREATE`,
+and table `SELECT/INSERT` capabilities are stated explicitly, including default
+privileges for future tables and partitions. `stats_ro` receives only `CONNECT`,
+schema `USAGE`, and table `SELECT`; it receives no sequence or temporary-table
+capability. Compose also blanks every PostgreSQL variable in Input and blanks the
+Writer credential in API, so an application cannot recover a stronger identity
+from its process environment.
+
+T-009 is proved against PostgreSQL 17 by `DatabaseRolesIntegrationTest`. The test
+executes that production init script, creates a table afterward, proves the
+default `SELECT` grant, and requires SQLSTATE `42501` for `INSERT`, `UPDATE`,
+`DELETE`, `TRUNCATE`, and `CREATE` as `stats_ro`. A source-level architecture test
+keeps Input free of database dependencies/configuration and guards the Compose
+credential boundary.
+
 ### Rules
 - Secrets come from the environment, never from a committed file
 - Every property gets a comment naming its `STA-nn` requirement where one applies
