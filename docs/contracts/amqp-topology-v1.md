@@ -123,6 +123,8 @@ The operations runbook must additionally define access, payload masking, audit e
 
 **Two things the runbook must state outright.** A 503 during redrive or replay is the backpressure channel working, not an incident. And a message that has sat in the DLQ long enough becomes `expired_on_arrival` the moment it is redriven, because its `ts.device` has aged past the 90-day retention window — **a redrive after roughly 90 days is not a recovery, it is a no-op that increments a counter.**
 
+**That counter is real since 10 September 2026 (T-026, DL-133), so the runbook can be checked against it rather than merely warned about.** A redriven message reaches `RetentionGuard`, which increments `records_expired_on_arrival{type}`, logs a `WARN` naming the `uid`, `clsbox` and the record's age in days, and ACKs — storing nothing. Watch that counter *while* redriving: if it moves in step with the redrive, nothing is being recovered. Nothing is dead-lettered a second time either, which is the point — the record is valid, and returning it to a queue with no TTL would only guarantee the same verdict on the next attempt.
+
 ## 7. Contract tests
 
 The automated integration suite must prove all of the following for each type:

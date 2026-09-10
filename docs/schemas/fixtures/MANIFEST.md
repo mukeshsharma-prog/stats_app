@@ -5,16 +5,27 @@ Built 18 August 2026 in answer to Q11a. **Rebuilt on the production wire format 
 (`valid/approved-types.json` and `invalid/validation-failures.json`), which are kept so nothing that
 already references them breaks.
 
-Run `python3 ../validate-fixtures.py` from `docs/schemas/` to assert the whole set. It checks 91
+Run `python3 ../validate-fixtures.py` from `docs/schemas/` to assert the whole set. It checks 96
 assertions and exits non-zero on any mismatch, so CI can gate on it.
 
-Those 91 are **84 schema cases plus 7 `$expect` markers** — 5 `input-reject`, 1 `writer-dlq` and
-1 `writer-range-reject`. The Java parity test (`SchemaFixtureParityTest`) mirrors the 84 schema
-cases only, so the two numbers differing is correct and deliberate — do not "fix" one to match the
-other.
+Those 96 are **84 schema cases plus 12 `$expect` markers** — 5 `input-reject`, 1 `writer-dlq`,
+1 `writer-range-reject` and 5 `writer-skip`. The Java parity test (`SchemaFixtureParityTest`)
+mirrors the 84 schema cases only, so the two numbers differing is correct and deliberate — do not
+"fix" one to match the other.
 
 **+1 on 5 September 2026:** `valid/lorastats-clsbox-lowercase.json` (DL-115). Every `clsbox` in
 this set was uppercase, so nothing here could catch a device splitting across two index keys.
+
+**+5 markers on 10 September 2026 by T-026 (DL-133).** The five `<type>-late-arrival.json`
+fixtures gained `$expect: "writer-skip"` with `$expectCode: "expired_on_arrival"`, and their
+`$comment`s were corrected. They were wrong in two ways at once: they said the record is
+`DLQ`'d without retry — the opposite of the signed policy, which never dead-letters it — and they
+said the policy was "still pending product sign-off", which stopped being true on 4 Sep 2026
+(D5b → DL-112). Carrying **no marker** was the third and quietest problem: an unmarked `edge/`
+fixture asserts only "the schema accepts this", so a signed, deliberate data-loss path had no
+assertion anywhere in this set. That is exactly the gap `input-reject` was invented to close for
+the clock-skew fixtures. The marker count moves **7 → 12** and the assertion count **91 → 96**;
+no fixture was added, removed or moved.
 
 **Reshaped on 8 September 2026 by T-063 and T-064 (DL-127, DL-128).** The two production dialect
 fixtures **moved `invalid/` → `valid/`** and lost their `writer-dlq` markers when all three
@@ -128,7 +139,7 @@ envelope and must **not** be 400'd.
 
 | File | Proves |
 |---|---|
-| `<type>-late-arrival.json` | `ts.device` 95 days old, `ts.server` current — a gateway back from a long outage. No live partition exists. `expired_on_arrival`: meter, DLQ without retry, ACK. **Engineering agreed 29 Aug 2026; still pending product sign-off (D5b)** |
+| `<type>-late-arrival.json` | `ts.device` 95 days old, `ts.server` current — a gateway back from a long outage. No live partition exists, and none ever will: the record only gets older. `$expect: "writer-skip"`, `$expectCode: "expired_on_arrival"` — the Writer **skips** the write, meters `records_expired_on_arrival{type}`, logs at `WARN` and **ACKs**. **Never dead-lettered:** the record is valid, the DLQ never expires anything (ADR-002 §12), and a redrive would re-derive the same verdict forever. **SIGNED 4 Sep 2026 (D5b → DL-112), BUILT 10 Sep 2026 (T-026, DL-133)** |
 | `<type>-retention-boundary-inside.json` | 89 days old — one day inside the window. **Must be stored.** Pairs with the above to test both sides |
 | `<type>-replay-duplicate.json` | Byte-identical `uid` and `ts.device` to the valid fixture. Models a Heimdal replay or a crash between commit and ACK. `ON CONFLICT DO NOTHING` makes it a no-op that increments `duplicates_total` |
 | `<type>-clock-skew-future.json` | `ts.device` an hour ahead of `ts.server`. **Decided 29 Aug 2026 (Q14a, ADR-003 D9): rejected at Input with 400 `clock_skew_exceeded`**, metered as `records_clock_skew_rejected`. Tolerance is `stats.input.validation.max-clock-skew`, default `PT5M`. The files stay here and stay **schema-valid** — the check compares two fields, which JSON Schema cannot do — and carry `$expect: "input-reject"` + `$expectCode`, which `validate-fixtures.py` asserts |

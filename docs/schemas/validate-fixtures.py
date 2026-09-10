@@ -35,6 +35,26 @@ A fixture may additionally declare "$expect" with a "$expectCode":
                     is what says so out loud instead of leaving the fixture looking
                     like an ordinary accepted record.
 
+    "writer-skip"   schema-VALID, accepted by Input, published, consumed -- and then
+                    deliberately NOT STORED, with the delivery ACKNOWLEDGED. Added
+                    10 Sep 2026 with T-026, and the only marker whose record never
+                    reaches a queue anyone will look at. ts.device is past the
+                    retention window, so no partition exists to hold it (STA-23B,
+                    ADR-003 option B, signed as D5b -> DL-112): the Writer skips the
+                    write, increments records_expired_on_arrival{type}, logs at WARN
+                    and ACKs.
+
+                    It is NOT "writer-dlq", and the distinction is the whole reason
+                    this marker exists. The record is valid, the DLQ carries no TTL
+                    (ADR-002 Section 12), and a redrive re-derives the identical
+                    verdict forever because the record can only have got OLDER --
+                    so a dead-letter here would be a message that is rejected on
+                    every attempt until a human deletes it. Before this marker these
+                    five fixtures carried no marker at all, which meant they
+                    silently asserted "the schema accepts this" and said nothing
+                    about the decided behaviour -- the same gap D9's clock-skew
+                    fixtures had before "input-reject" existed.
+
 Without a marker an edge/ fixture silently asserts "accepted", which is how an
 undecided question ended up with a default answer baked into ten green assertions.
 
@@ -59,7 +79,7 @@ TYPES = ("sysstats", "lorastats", "ltestats", "omsstats", "netstats")
 # green, which would have hidden exactly the regression the 29 Aug 2026 production
 # sample caught. Changing this number is a deliberate act that belongs in the same
 # commit as the fixture change, with the reason in claude/DECISIONS.md.
-EXPECTED_ASSERTIONS = 91
+EXPECTED_ASSERTIONS = 96
 
 
 def load_registry():
@@ -94,6 +114,7 @@ def main():
     input_rejects = []
     writer_dlqs = []
     writer_range_rejects = []
+    writer_skips = []
     for path in sorted(BASE_DIR.glob("fixtures/**/*.json")):
         path_str = str(path)
         if "/malformed/" in path_str:
@@ -105,13 +126,15 @@ def main():
         marker = doc.get("$expect") if isinstance(doc, dict) else None
         if marker is not None:
             checked += 1
-            if marker not in ("input-reject", "writer-dlq", "writer-range-reject"):
+            if marker not in ("input-reject", "writer-dlq", "writer-range-reject",
+                              "writer-skip"):
                 print(f"FAIL {path}: unknown $expect value {marker!r}")
                 failures += 1
             elif not doc.get("$expectCode"):
                 print(f"FAIL {path}: $expect declared without a $expectCode")
                 failures += 1
-            elif marker in ("input-reject", "writer-range-reject") and not expect_valid:
+            elif (marker in ("input-reject", "writer-range-reject", "writer-skip")
+                  and not expect_valid):
                 print(f"FAIL {path}: $expect {marker} belongs on a schema-VALID "
                       f"fixture; this one is expected to fail validation")
                 failures += 1
@@ -135,6 +158,22 @@ def main():
                     writer_dlqs.append((path_str, doc["$expectCode"]))
             elif marker == "writer-range-reject":
                 writer_range_rejects.append((path_str, doc["$expectCode"]))
+            elif marker == "writer-skip":
+                # Input must ACCEPT it, exactly as for writer-dlq: the record is
+                # published and consumed, and only then skipped. If the envelope
+                # rejected it the record would 400 and never reach the Writer at
+                # all, and calling it a skip would be a lie.
+                envelope_errors = list(envelope.iter_errors(
+                    {k: v for k, v in doc.items() if not k.startswith("$")}))
+                if envelope_errors:
+                    print(f"FAIL {path}: $expect writer-skip requires the ENVELOPE to "
+                          f"accept the record (Input returns 200 and publishes), but it "
+                          f"does not:")
+                    for e in envelope_errors[:3]:
+                        print(f"       {'.'.join(map(str, e.path)) or '<root>'}: {e.message}")
+                    failures += 1
+                else:
+                    writer_skips.append((path_str, doc["$expectCode"]))
             else:
                 input_rejects.append((path_str, doc["$expectCode"]))
         for label, record in records(path_str, doc):
@@ -178,6 +217,12 @@ def main():
               f"dead-lettered by stats-writer's range check, before conversion:")
         for path, code in writer_range_rejects:
             print(f"       {path}  ->  DLQ {code}")
+    if writer_skips:
+        print(f"\n{len(writer_skips)} fixture(s) are schema-valid and accepted by Input, "
+              f"and must then be SKIPPED by stats-writer -- not stored, not "
+              f"dead-lettered, and ACKED:")
+        for path, code in writer_skips:
+            print(f"       {path}  ->  skip {code}")
     print(f"\n{checked} assertions checked, {failures} failed")
 
     if checked != EXPECTED_ASSERTIONS:

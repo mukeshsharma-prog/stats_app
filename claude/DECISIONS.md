@@ -1937,7 +1937,8 @@ question.
 
 ### DL-083 — Skipping a late-arriving record is deliberate data loss, and is alerted
 
-> **RATIFIED 4 Sep 2026 — see [DL-112](#dl-112--late-arrival-skip-meter-ack-alert--signed).**
+> **RATIFIED 4 Sep 2026 — see [DL-112](#dl-112--late-arrival-skip-meter-ack-alert--signed);
+> BUILT 10 Sep 2026 — see DL-133.**
 > Signed by Naman Vashishtha. **T-026 is unblocked.** DL-106 (Q15b: `ts.device` is
 > genuine device time) is what made the path real rather than hypothetical.
 
@@ -2532,6 +2533,10 @@ is not a target:
 ---
 
 ### DL-112 — Late arrival: skip, meter, ACK, alert — signed
+
+> **BUILT 10 Sep 2026 — see [DL-133](#dl-133--a-record-past-its-window-is-skipped-and-acked-and-the-sweep-and-the-guard-share-one-cutoff).**
+> `RetentionGuard` implements it, and the guard reads the same cutoff as the sweep that
+> drops the partition. **The alert is still not built** — that half is T-050.
 
 **4 Sep 2026** · `RATIFIED` (D5b) · ADR-003, DL-083, DL-106, STA-23B · T-026, T-052, T-050
 
@@ -3572,9 +3577,17 @@ what DL-129's duplicate-key guard could not rely on.
 
 ---
 
-### DL-130 — The API's lorastats examples are real production records, shown post-normalisation
+### DL-131 — The API's lorastats examples are real production records, shown post-normalisation
 
 **8 Sep 2026** · `ENGINEERING` · DL-105, DL-127, D14b, ADR-007 §1, STA-35A · `openapi.yaml`, T-063
+
+> **Renumbered 10 Sep 2026 (was a second `DL-130`).** Two entries were written on 8 Sep and
+> both took the number 130. Every citation outside this file — three `build.gradle.kts`
+> files and two `application.properties` — resolves to the *other* one (configuration
+> metadata), so this entry is the one that moves and nothing else needed editing. It is the
+> same defect DL-129 itself caught and fixed twice on the day it was written: a duplicate
+> identifier that the file loads without a murmur, where the second definition is simply
+> unreachable by reference.
 
 **Decision.** Both `lorastats` examples in `docs/contracts/openapi.yaml` are now drawn
 from the three production records of 29 August 2026 — one per dialect — rather than from
@@ -3618,3 +3631,170 @@ added, moved or re-marked. The stale `$comment` on the canonical fixture — whi
 the other two dialects "dead-letter until then" — is corrected, and `RequestLimitTest`'s
 two byte counts are re-measured (1,462 → 1,758; 425 → 429) since the fixture that comment
 describes grew. `lorastats-valid.json` is untouched.
+
+---
+
+### DL-132 — Retention is detach-and-drop, and every run begins by repairing the last one
+
+**10 Sep 2026** · `ENGINEERING` · ADR-003 D1/D3/D4, STA-23A, STA-23C, DL-096, DL-130 · T-025, T-031, T-051, T-054, T-055
+
+**Decision.** `PartitionRetention` implements ADR-003 D1: for every daily partition wholly
+older than the retention window, `ALTER TABLE … DETACH PARTITION … CONCURRENTLY` followed
+by `DROP TABLE`. Never row deletion. It runs once daily on the existing
+`stats.retention.schedule`, under the same `pg_try_advisory_lock` pre-creation already uses
+(D3), and `stats.retention.default-days=90` is un-parked and bound at last (DL-130
+predicted this).
+
+Four things are decided alongside the mechanism.
+
+**One maintenance pass, in one order.** `PartitionMaintenance.maintainOnSchedule()` runs
+pre-creation and then retention, per type, and `PartitionMaintenanceScheduler` is the only
+`@Scheduled` entry point. Two scheduled methods on one cron expression would have run in
+whatever order Spring registered them, and the order is load-bearing: tomorrow's partition
+is created before yesterday's is dropped.
+
+**Every run finalises an abandoned detach first.** This is the part that is not in
+ADR-003, because it is a property of PostgreSQL rather than of the design, and it was
+found by probing PostgreSQL 17 before the class was written:
+
+* `ALTER TABLE … DETACH PARTITION … CONCURRENTLY` **cannot run inside a transaction
+  block** — a hard `ERROR`. `PartitionSession` forces auto-commit for it, and nothing in
+  the sweep opens a transaction.
+* An **interrupted** detach leaves `pg_inherits.inhdetachpending = true`, and from that
+  moment **every** `DETACH CONCURRENTLY` on that parent fails with
+  `partition "…" already pending detach`.
+* Meanwhile `INSERT` and `CREATE TABLE … PARTITION OF` **keep working perfectly.**
+
+So a run killed by a rolling deploy, an OOM or a statement timeout wedges retention for
+that stat type *permanently*, ingestion looks completely healthy, and the only symptom is
+disk. That is a twelfth entry in the shape of `FLOW.md` §8, and it is silent. Beginning
+each run with `DETACH … FINALIZE` turns it into a cost of one day.
+
+**The gap between the detach and the drop is swept.** After the detach the table still
+exists, standalone, still holding its rows, with `relispartition` false. A crash there
+leaks a day of storage that nothing would ever reclaim, so the sweep drops leftovers it
+can name, date and place outside the window — counted as `retention_orphans_dropped`, its
+own series rather than a tag, because a non-zero value means an earlier run *died* and an
+ordinary drop counter would read as retention working.
+
+**Nothing is dropped that has not been proved droppable.** The name must be one
+`PartitionNaming` produced, the catalogue bound must be exactly the bound that name
+implies, and the day must be wholly outside the window. A hand-made child, a name that
+does not parse, a bound that disagrees — all logged and kept. Dropping is irreversible
+short of a per-partition restore (D5), so the safe direction is to retain something that
+could have gone, never the reverse.
+
+**Why.** The alternative to partitioning was never on the table — `claude/CLAUDE.md` §6
+lists row-by-row deletion at 115.2m records/day as a trap, and D1 chose
+`RANGE (ts_device)` partly so retention could be a catalogue operation. What T-025 adds is
+the discovery that the mechanism has a failure mode which *presents as nothing at all*,
+and a class that assumed the previous run finished would have inherited it.
+
+`RetentionProperties` gains three things and one of them is a change of shape.
+`default-days` has **no default in code**: retention deletes data, so a deployment that
+omits the key must fail to start rather than adopt a window somebody guessed — the same
+reasoning that leaves `stats.input.auth.mode` undefaulted. Per-type overrides become
+**`stats.retention.days-by-type.<wire-name>`**, replacing the recorded-but-never-live
+`stats.retention.<type>-days`; the map is validated against `StatType.wireName()` at
+startup, so a typo fails the context instead of silently reverting that type to 90 days.
+That is DL-100, DL-129 and DL-130's shared lesson applied *before* the key goes live
+rather than after. `stagger` implements D3's "stagger the five types" as an offset derived
+from the **type**, so one mechanism covers both shapes: five deployments firing on one
+cron in production, and five passes inside one process in `all` mode.
+
+**Rejected.** *A `stats.retention.enabled` kill switch* — `schedule=-` already stops the
+cron, and an unrequested off-switch on a mechanism ADR-003 makes mandatory is the
+`intended-scope` hazard again (DL-100). *A cap on partitions dropped per run* — a detach
+and a drop are catalogue operations, and a cap would leave partitions past the window
+attached with nothing saying so. *Letting retention discover partitions by parsing
+`pg_get_expr` alone* — the bound is verified, but the **name** is what makes a partition
+recognisable as ours; accepting anything whose bound merely looks like a day would put a
+hand-made table in scope. *Copying the lock and session protocol into a second class* —
+D3 names one lock, and two spellings of `hashtext('stats.retention:' || …)` that drifted
+would leave the two jobs mutually invisible, running concurrently and mostly getting away
+with it. `PartitionSession` is extracted so the key cannot disagree with itself.
+
+**Consequence.** 523 tests, 0 failures. `PartitionRetentionIntegrationTest` proves the
+mechanism against real PostgreSQL 17 — including the pending-detach state, staged by
+cancelling a detach that a second session is blocking, which is the only way to prove the
+recovery exists. Every drop in that class runs through `DETACH CONCURRENTLY`, so a sweep
+that ever acquired a transaction would fail the suite rather than degrade quietly.
+**T-051, T-054 and T-055 are unblocked** — they measure what this built. `PartitionPrecreator`
+keeps its public API, so T-012's tests are unchanged; `PartitionPrecreationScheduler` is
+renamed `PartitionMaintenanceScheduler`, because a class that now runs retention as well
+should not be named for half of what it does.
+
+---
+
+### DL-133 — A record past its window is skipped and ACKed, and the sweep and the guard share one cutoff
+
+**10 Sep 2026** · `ENGINEERING` implementing `SIGNED` (D5b) · DL-112, DL-106, ADR-003 option B, STA-23B, ADR-002 §12 · T-026, T-031, T-050, T-052
+
+**Decision.** D5b is implemented. `RetentionGuard` runs between the payload gate and the
+write: a record whose `ts.device` is already past the retention window is **skipped**,
+`records_expired_on_arrival{type}` is incremented, a `WARN` is logged carrying envelope
+members only, and the delivery is **acknowledged**. It is **never dead-lettered**.
+
+**The guard and the sweep read one cutoff, and that is the decision inside the
+decision.** `RetentionWindow` is the single definition; `PartitionRetention` and
+`RetentionGuard` both derive from it. Two independent calculations would fail in opposite
+directions and only one of them noisily: a guard even a day more permissive than the sweep
+admits a record into a partition retention has just dropped, the `INSERT` fails, the record
+dead-letters, and every redrive re-derives the identical verdict forever in a queue
+ADR-002 §12 forbids ever expiring. Written as one function, the disagreement is
+unrepresentable rather than merely unlikely.
+
+The arithmetic leans deliberately: `cutoffDay = today(UTC) − retentionDays`, a record is
+expired when `ts.device < cutoffDay 00:00Z`, and a partition is droppable when its day is
+*before* `cutoffDay`. The boundary belongs to the **retained** side on both sides of the
+comparison. Over-retaining by one day costs one partition; under-retaining deletes records
+still inside the window the business asked for, and nothing would report it.
+
+**Why it returns `false` where `PayloadGate` throws.** The two gates differ in consequence,
+so they differ in signature. A payload failure throws `PermanentFailureException`, which is
+this module's channel to the DLQ. This one has to end in a broker ACK, and an exception is
+the one thing that cannot produce one — `LorastatsConsumer` would hand it to
+`FailedDeliveryRouter` instead. Making the two look alike is how the skip would eventually
+acquire a dead-letter it must not have.
+
+**Why the gate runs first and the guard second.** A record that is both too old *and*
+malformed dead-letters, where the schema mismatch can be diagnosed, rather than being
+discarded as merely late. The reverse order silently swallows the more informative of the
+two failures.
+
+**The five late-arrival fixtures were wrong, and quietly.** `edge/<type>-late-arrival.json`
+each said the record is *"DLQ'd without retry"* — the opposite of the signed policy — and
+that the policy was *"still pending product sign-off"*, which stopped being true on
+4 Sep 2026. Worse, none carried an `$expect` marker, so all five asserted only "the schema
+accepts this" and said nothing about a signed, deliberate data-loss path. That is precisely
+the gap `input-reject` was invented to close for the clock-skew fixtures, where an undecided
+question had "accept" baked into ten green assertions. A fourth marker, **`writer-skip`**,
+now states it: schema-valid, accepted by Input, published, consumed, and then deliberately
+not stored. Markers **7 → 12**, assertions **91 → 96**, and no fixture added, moved or
+removed.
+
+**Why "never dead-letter" is worth this much text.** The record is *valid*. A dead-letter
+would describe it wrongly, occupy a queue with no TTL and manual disposition, and be
+rejected on every redrive because the record can only have got older. It is also trap 18
+read from the other end: **a DLQ message redriven after roughly ninety days lands in this
+class, increments this counter and stores nothing** — a no-op that looks like a recovery.
+The redrive runbook (T-052) has to say so outright.
+
+**Rejected.** *A `DEFAULT` catch-all partition* (ADR-003 option A) — degrades pruning and
+grows unwatched. *Clamping `ts.device` to the oldest live partition* (option C) — falsifies
+the time series. *Silently dropping the record* — this is deliberate data loss by a signed
+decision, which is exactly why it is metered and logged rather than quiet. *Rate-limiting
+the `WARN`* — a flood of warnings about a systemic gateway backlog is the correct noise,
+and a stateful suppressor is the kind of cleverness that hides the second incident.
+*Putting the counter in `WriterGateMetrics`* — that class answers "what was wrong with this
+record", and nothing is wrong with this one.
+
+**Consequence.** 523 tests, 0 failures.
+`LorastatsPersistenceConsumerIntegrationTest.aRecordPastItsRetentionWindowIsSkippedAndAckedRatherThanDeadLettered`
+proves it end to end against a real broker and a real database: the counter moves, the main
+queue drains, **the DLQ stays empty**, and no row is written. `RetentionWindowTest` asserts
+the boundary at the exact second on both sides — the assertion T-031 asks for, alongside the
+integration test that proves the same boundary through a dropped partition.
+**The alert is not built.** The counter is exported and registered at zero from startup, but
+nothing watches it; that is T-050, and it is the half of D5b that separates a systemic
+backlog from a harmless one-off.
