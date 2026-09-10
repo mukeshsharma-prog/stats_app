@@ -16,6 +16,7 @@ import com.zenner.datahub.stats.writer.validation.ValidatedRecord;
 import com.zenner.datahub.stats.writer.validation.WriterGateMetrics;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
+import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.sql.Types;
 import java.time.Instant;
@@ -29,9 +30,11 @@ import java.util.Objects;
 import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.TransactionException;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -65,6 +68,8 @@ public final class LorastatsBatchWriter implements StatsBatchWriter {
     public static final String DUPLICATE_METRIC = "records_duplicate_suppressed";
     public static final String UNMAPPED_DATA_METRIC = "records_unmapped_data_field";
     public static final String WRITE_FAILED_METRIC = "records_write_failed";
+    public static final String PERSISTED_METRIC = "records_persisted";
+    public static final String POSTGRES_ERROR_METRIC = "records_postgres_errors";
 
     /**
      * DL-105 rule 2: the dialect is a metric label, never a column. This answers the
@@ -127,6 +132,8 @@ public final class LorastatsBatchWriter implements StatsBatchWriter {
     private final Counter writeFailures;
     private final WriterGateMetrics gateMetrics;
     private final Map<Dialect, Counter> dialects = new EnumMap<>(Dialect.class);
+    private final Counter persisted;
+    private final Counter postgresErrors;
 
     public LorastatsBatchWriter(
             NamedParameterJdbcTemplate jdbc,
@@ -172,6 +179,12 @@ public final class LorastatsBatchWriter implements StatsBatchWriter {
                             .tag("dialect", dialect.label())
                             .register(meterRegistry));
         }
+        this.persisted = Counter.builder(PERSISTED_METRIC)
+                .description("Records inserted in successfully committed PostgreSQL transactions")
+                .tag("type", TYPE.wireName()).register(meterRegistry);
+        this.postgresErrors = Counter.builder(POSTGRES_ERROR_METRIC)
+                .description("Record writes failing with a database access or transaction exception")
+                .tag("type", TYPE.wireName()).register(meterRegistry);
     }
 
     @Override
@@ -215,6 +228,8 @@ public final class LorastatsBatchWriter implements StatsBatchWriter {
             try {
                 int affectedRows = insertOne(parameters);
                 if (affectedRows == 1) {
+                    // insertOne returns only after TransactionTemplate commits.
+                    persisted.increment();
                     results.add(RecordWriteResult.inserted(index));
                 } else if (affectedRows == 0) {
                     duplicates.increment();
@@ -235,6 +250,9 @@ public final class LorastatsBatchWriter implements StatsBatchWriter {
                 // DEBUG-gating the payload never sees it. uid stays: it is the correlation
                 // ID by decision (D1), and it is what makes a DLQ message findable.
                 writeFailures.increment();
+                if (isDatabaseFailure(failure)) {
+                    postgresErrors.increment();
+                }
                 WriterLogContext.errorCode("write_failed");
                 // uid is carried explicitly as well as in the MDC: this is a batch-shaped
                 // API, and once G3 batches for real the MDC will name the delivery, not
@@ -252,6 +270,22 @@ public final class LorastatsBatchWriter implements StatsBatchWriter {
             }
         }
         return List.copyOf(results);
+    }
+
+    /**
+     * Whether a failed write is the database's (T-027): a JDBC, Spring data-access or
+     * transaction exception anywhere in a bounded cause chain. Only the TYPE is inspected
+     * -- no driver message becomes a label or a log value (guard P2).
+     */
+    private static boolean isDatabaseFailure(Throwable failure) {
+        for (int depth = 0; failure != null && depth < 8; depth++, failure = failure.getCause()) {
+            if (failure instanceof SQLException
+                    || failure instanceof DataAccessException
+                    || failure instanceof TransactionException) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

@@ -4,6 +4,9 @@ import com.rabbitmq.client.Channel;
 import com.zenner.datahub.stats.writer.retry.FailedDeliveryRouter;
 import com.zenner.datahub.stats.writer.log.WriterLogContext;
 import java.util.Objects;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 
@@ -15,14 +18,25 @@ public final class LorastatsConsumer {
 
     private final StatsMessageProcessorAvailability processorAvailability;
     private final FailedDeliveryRouter failedDeliveryRouter;
+    private final MeterRegistry registry;
+    private final Counter consumed;
+    private final Timer duration;
 
     public LorastatsConsumer(
             StatsMessageProcessorAvailability processorAvailability,
-            FailedDeliveryRouter failedDeliveryRouter) {
+            FailedDeliveryRouter failedDeliveryRouter,
+            MeterRegistry registry) {
         this.processorAvailability =
                 Objects.requireNonNull(processorAvailability, "processorAvailability");
         this.failedDeliveryRouter =
                 Objects.requireNonNull(failedDeliveryRouter, "failedDeliveryRouter");
+        this.registry = Objects.requireNonNull(registry, "registry");
+        this.consumed = Counter.builder("records_consumed")
+                .description("Broker deliveries entering processing, including redeliveries and malformed bodies")
+                .tag("type", LorastatsConsumerDescriptor.WIRE_NAME).register(registry);
+        this.duration = Timer.builder("records_processing_duration")
+                .description("Delivery processing time including persistence, failure hand-off and ACK attempts")
+                .tag("type", LorastatsConsumerDescriptor.WIRE_NAME).register(registry);
     }
 
     /**
@@ -50,6 +64,9 @@ public final class LorastatsConsumer {
                             + LorastatsConsumerDescriptor.WIRE_NAME
                             + "')}")
     public void consume(Message message, Channel channel) throws Exception {
+        // Count before decoding so malformed records remain observable.
+        consumed.increment();
+        Timer.Sample sample = Timer.start(registry);
         try (WriterLogContext.Scope ignored =
                 WriterLogContext.open(message, LorastatsConsumerDescriptor.TYPE)) {
             try {
@@ -62,6 +79,8 @@ public final class LorastatsConsumer {
                 return;
             }
             channel.basicAck(message.getMessageProperties().getDeliveryTag(), false);
+        } finally {
+            sample.stop(duration);
         }
     }
 }

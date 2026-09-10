@@ -131,6 +131,7 @@ class LorastatsBatchWriterIntegrationTest {
         StatsEnvelope original = envelope("duplicate-key", "tenant-original", completeData(1));
         StatsEnvelope collision = envelope("duplicate-key", "tenant-other", completeData(2));
         double before = duplicateCount();
+        double persistedBefore = counter(LorastatsBatchWriter.PERSISTED_METRIC);
 
         assertThat(writer.write(List.of(admitted(original))))
                 .extracting(RecordWriteResult::status)
@@ -154,6 +155,7 @@ class LorastatsBatchWriterIntegrationTest {
                                 "duplicate-key"))
                 .isEqualTo("tenant-original");
         assertThat(duplicateCount()).isEqualTo(before + 1.0d);
+        assertThat(counter(LorastatsBatchWriter.PERSISTED_METRIC)).isEqualTo(persistedBefore + 1);
     }
 
     @Test
@@ -323,6 +325,8 @@ class LorastatsBatchWriterIntegrationTest {
     void metersAFailedWrite() {
         double before = counter(LorastatsBatchWriter.WRITE_FAILED_METRIC);
         double unmappableBefore = rejected("unmappable");
+        double databaseBefore = counter(LorastatsBatchWriter.POSTGRES_ERROR_METRIC);
+        double persistedBefore = counter(LorastatsBatchWriter.PERSISTED_METRIC);
 
         StatsEnvelope noPartition =
                 new StatsEnvelope(
@@ -352,6 +356,46 @@ class LorastatsBatchWriterIntegrationTest {
         assertThat(rejected("unmappable"))
                 .as("...and that is not a payload the mapper could not handle")
                 .isEqualTo(unmappableBefore);
+        assertThat(counter(LorastatsBatchWriter.POSTGRES_ERROR_METRIC))
+                .as("a missing partition is PostgreSQL's refusal, so it is a database error too (T-027)")
+                .isEqualTo(databaseBefore + 1.0d);
+        assertThat(counter(LorastatsBatchWriter.PERSISTED_METRIC))
+                .as("nothing was committed")
+                .isEqualTo(persistedBefore);
+    }
+
+    /** T-027: a table-invariant rejection counts as a database error and never as persisted. */
+    @Test
+    void databaseConstraintFailureIsCountedWithoutClaimingPersistence() {
+        double databaseBefore = counter(LorastatsBatchWriter.POSTGRES_ERROR_METRIC);
+        double persistedBefore = counter(LorastatsBatchWriter.PERSISTED_METRIC);
+        double failuresBefore = counter(LorastatsBatchWriter.WRITE_FAILED_METRIC);
+
+        StatsEnvelope badClsbox =
+                new StatsEnvelope(
+                        "metrics-check-failure",
+                        "tenant-a",
+                        "management-parent",
+                        // Not 12 hex characters: refused by the table's own CHECK (DL-115).
+                        "INVALID",
+                        StatType.LORASTATS,
+                        1,
+                        new Timestamps(Instant.now(), Instant.now(), null, null, null),
+                        completeData(0),
+                        null);
+
+        assertThat(writer.write(List.of(admitted(badClsbox))))
+                .extracting(RecordWriteResult::status)
+                .containsExactly(RecordWriteStatus.FAILED);
+
+        assertThat(counter(LorastatsBatchWriter.POSTGRES_ERROR_METRIC)).isEqualTo(databaseBefore + 1);
+        assertThat(counter(LorastatsBatchWriter.PERSISTED_METRIC)).isEqualTo(persistedBefore);
+        assertThat(counter(LorastatsBatchWriter.WRITE_FAILED_METRIC)).isEqualTo(failuresBefore + 1);
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT count(*) FROM lorastats WHERE uid = 'metrics-check-failure'",
+                                Integer.class))
+                .isZero();
     }
 
     /**

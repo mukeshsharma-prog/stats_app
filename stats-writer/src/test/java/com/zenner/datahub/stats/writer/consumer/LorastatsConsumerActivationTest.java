@@ -19,11 +19,13 @@ class LorastatsConsumerActivationTest {
 
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
             .withUserConfiguration(LorastatsConsumerConfiguration.class)
+            .withBean(io.micrometer.core.instrument.MeterRegistry.class,
+                    io.micrometer.core.instrument.simple.SimpleMeterRegistry::new)
             .withBean(
                     SimpleRabbitListenerContainerFactoryConfigurer.class,
                     () -> mock(SimpleRabbitListenerContainerFactoryConfigurer.class))
             .withBean(ConnectionFactory.class, () -> mock(ConnectionFactory.class))
-            // The configuration declares the whole failure arm since T-024, so the tier
+            // The configuration declares the whole failure arm, so the tier
             // delays it reads and the router the consumer takes both have to be present.
             // Supplied directly rather than bound from properties: what this class tests
             // is ACTIVATION, and the delays are covered by WriterAmqpPropertiesTest and

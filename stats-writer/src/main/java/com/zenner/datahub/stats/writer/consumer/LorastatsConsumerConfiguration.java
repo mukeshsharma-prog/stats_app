@@ -168,7 +168,8 @@ public class LorastatsConsumerConfiguration {
     @Conditional(LorastatsDeploymentCondition.class)
     LorastatsConsumer lorastatsConsumer(
             StatsMessageProcessorAvailability processorAvailability,
-            FailedDeliveryRouter failedDeliveryRouter) {
-        return new LorastatsConsumer(processorAvailability, failedDeliveryRouter);
+            FailedDeliveryRouter failedDeliveryRouter,
+            io.micrometer.core.instrument.MeterRegistry registry) {
+        return new LorastatsConsumer(processorAvailability, failedDeliveryRouter, registry);
     }
 }
