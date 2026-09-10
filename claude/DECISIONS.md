@@ -3841,3 +3841,38 @@ so `SafeFailure.describe(failure)` still passes and a bare throwable does not; a
 asserts each shape it claims to catch. Every plain log statement that had landed on `main`
 after this branch was cut — T-057's gate, T-025's retention and guard — was converted to
 carry its `event` field, which is what `StructuredLoggingContractTest` requires of it.
+
+---
+
+### DL-135 — Database capability is proved by PostgreSQL, not application convention
+
+**8 Sep 2026, merged 10 Sep 2026** · `ENGINEERING` · STA-32, ADR-006 · T-009
+
+*Written as DL-127, renumbered on merge: `main` had meanwhile assigned DL-127 to the `lorastats` dialects (T-063).*
+
+**Decision.** The PostgreSQL bootstrap explicitly states the `stats` owner role's
+Writer/Flyway capabilities and grants `stats_ro` only `CONNECT`, schema `USAGE`, and
+table `SELECT`. Default privileges apply both role contracts to tables and partitions
+created later. `stats_ro` receives no sequence or temporary-table capability, cannot
+inherit `stats`, and there is no `stats_input` database identity.
+
+**Credential boundary.** The shared development `.env` remains the single local input,
+but Compose overrides database variables to empty in `stats-input`, removes the Writer
+credential from `stats-api`, and removes the API credential from `stats-writer`. A module
+therefore receives only the database capability its architecture permits; merely
+choosing another Spring datasource username cannot recover a stronger secret from the
+process environment.
+
+**Proof.** `DatabaseRolesIntegrationTest` starts PostgreSQL 17 with the exact production
+init SQL, creates a table after bootstrap, and connects as both identities. `stats_ro`
+must read that future table, while `INSERT`, `UPDATE`, `DELETE`, `TRUNCATE`, and `CREATE`
+must each fail in PostgreSQL with SQLSTATE `42501`. `DatabaseCapabilityIsolationTest`
+guards Input's absent database dependency/configuration and the Compose secret
+overrides. The failure is consequently a database error, not a code-review promise.
+
+**Boundary retained.** The official PostgreSQL image creates `POSTGRES_USER` as its
+bootstrap/database owner, and PostgreSQL 17 refuses to demote that bootstrap identity in
+its own init session. Separating a cluster administrator from `stats` would change the
+approved one-name image/Writer setup, credential rotation, migration ownership, and
+existing-volume upgrade procedure; that is a separate platform decision, not silently
+introduced by T-009.

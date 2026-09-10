@@ -43,3 +43,12 @@ dependencies {
     testImplementation(libs.rabbitmq.amqp.client)
     testRuntimeOnly(libs.junit.platform.launcher)
 }
+
+// T-009 executes the production PostgreSQL bootstrap script itself. Exposing the
+// directory as a test resource avoids a second SQL copy that could drift from the
+// Compose artifact we actually ship.
+sourceSets {
+    test {
+        resources.srcDir(rootProject.file("docker/postgres-init"))
+    }
+}

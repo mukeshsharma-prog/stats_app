@@ -118,6 +118,16 @@ services:
     container_name: stats-input
     restart: unless-stopped
     env_file: ../.env
+    environment:
+      # env_file is shared for local convenience, but Input has no database role
+      # (ADR-006). Empty overrides ensure no PostgreSQL endpoint or credential is
+      # present in this container even though those keys exist in the source file.
+      POSTGRES_URL: ""
+      POSTGRES_DB: ""
+      POSTGRES_USER: ""
+      POSTGRES_PASSWORD: ""
+      POSTGRES_RO_USER: ""
+      POSTGRES_RO_PASSWORD: ""
     ports:
       - "8081:8081"
     depends_on:
@@ -143,6 +153,11 @@ services:
     container_name: stats-writer
     restart: unless-stopped
     env_file: ../.env
+    environment:
+      # Writer receives only its write-capable database identity, never the API
+      # role's credential.
+      POSTGRES_RO_USER: ""
+      POSTGRES_RO_PASSWORD: ""
     ports:
       - "8082:8082"
     depends_on:
@@ -172,6 +187,10 @@ services:
     restart: unless-stopped
     env_file: ../.env
     environment:
+      # API connects as stats_ro. Do not leave the Writer identity available for
+      # application code to read from its process environment.
+      POSTGRES_USER: ""
+      POSTGRES_PASSWORD: ""
       # `iss` stays http://localhost:8080/realms/statsapp — it is validated as a
       # string, never fetched. But this container cannot reach the host's
       # localhost:8080 to download signing keys, so point the JWK set at the
