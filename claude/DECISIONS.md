@@ -3828,3 +3828,16 @@ and no direct body/payload/data expression handed to a logger. Runtime tests ass
 actual ECS line, correlation hand-off and context cleanup. P1 and P2 remain stricter:
 `ltestats`/`netstats` payloads never reach a log at any level, and Writer failures use
 `SafeFailure.describe()` rather than messages or stacks.
+
+**On merge (10 Sep 2026).** Two things changed between the branch and `main`. This entry was
+written as DL-126, a number `main` had meanwhile given to the payload gate (T-057); it is
+renumbered here rather than leaving two entries under one ID — the failure DL-131 had just
+repaired. And the move to the SLF4J fluent API would have silently switched off
+`WriterLogsCarryNoThrowableTest` (DL-124): its regex recognised only
+`log.error("…", e)`, so `log.atError().log("…", e)`, `.addKeyValue("cause", e)` and
+`.setCause(e)` would all have passed the build while printing the same stack. The guard now
+walks fluent statements with balanced parentheses and checks each sink's direct arguments,
+so `SafeFailure.describe(failure)` still passes and a bare throwable does not; a self-check
+asserts each shape it claims to catch. Every plain log statement that had landed on `main`
+after this branch was cut — T-057's gate, T-025's retention and guard — was converted to
+carry its `event` field, which is what `StructuredLoggingContractTest` requires of it.

@@ -198,13 +198,16 @@ public final class LorastatsBatchWriter implements StatsBatchWriter {
                 parameters = parameters(records.get(index));
             } catch (RuntimeException notMappable) {
                 gateMetrics.payloadRejected(TYPE, WriterGateMetrics.REASON_UNMAPPABLE);
-                LOGGER.error(
-                        "lorastats payload could NOT BE MAPPED to a row; no transaction was "
-                                + "opened and the delivery is not acknowledged: uid={}, "
-                                + "index={}, cause={}",
-                        uidOf(records.get(index)),
-                        index,
-                        SafeFailure.describe(notMappable));
+                WriterLogContext.errorCode(WriterGateMetrics.REASON_UNMAPPABLE);
+                LOGGER.atError()
+                        .addKeyValue("event", "payload_rejected")
+                        .addKeyValue("reason", WriterGateMetrics.REASON_UNMAPPABLE)
+                        .addKeyValue("uid", uidOf(records.get(index)))
+                        .addKeyValue("recordIndex", index)
+                        .addKeyValue("cause", SafeFailure.describe(notMappable))
+                        .log(
+                                "lorastats payload could NOT BE MAPPED to a row; no transaction was "
+                                        + "opened and the delivery is not acknowledged");
                 results.add(RecordWriteResult.failed(index, notMappable));
                 continue;
             }

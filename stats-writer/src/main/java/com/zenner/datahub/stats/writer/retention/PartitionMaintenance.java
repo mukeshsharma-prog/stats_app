@@ -146,11 +146,14 @@ public class PartitionMaintenance {
             } catch (RuntimeException failure) {
                 // Isolated from pre-creation above, and from the other types. Retention
                 // failing is a storage problem; it must not become an ingestion one.
-                LOGGER.error(
-                        "Scheduled retention FAILED; partitions past the window are still "
-                                + "attached and holding storage: statType={}, cause={}",
-                        type.wireName(),
-                        SafeFailure.describe(failure));
+                LOGGER.atError()
+                        .addKeyValue("event", "retention_failed")
+                        .addKeyValue("statType", type.wireName())
+                        .addKeyValue("errorCode", "retention_failed")
+                        .addKeyValue("cause", SafeFailure.describe(failure))
+                        .log(
+                                "Scheduled retention FAILED; partitions past the window are still "
+                                        + "attached and holding storage");
             }
         }
     }
@@ -181,29 +184,31 @@ public class PartitionMaintenance {
     private void retainOne(StatType type) {
         RetentionResult result = retention.sweep(type);
         if (!result.lockAcquired()) {
-            LOGGER.debug(
-                    "Skipping retention because the advisory lock is held: statType={}",
-                    type.wireName());
+            LOGGER.atDebug()
+                    .addKeyValue("event", "retention_skipped")
+                    .addKeyValue("statType", type.wireName())
+                    .log("Skipping retention because the advisory lock is held");
             return;
         }
         if (!result.changedAnything()) {
             // The steady state: nothing has aged out since yesterday's run. DEBUG, so a
             // daily no-op does not read as an event.
-            LOGGER.debug(
-                    "Retention found nothing past the window: statType={}, cutoffDay={}",
-                    type.wireName(),
-                    result.cutoffDay());
+            LOGGER.atDebug()
+                    .addKeyValue("event", "retention_no_op")
+                    .addKeyValue("statType", type.wireName())
+                    .addKeyValue("cutoffDay", result.cutoffDay())
+                    .log("Retention found nothing past the window");
             return;
         }
-        LOGGER.info(
-                "Applied retention: statType={}, cutoffDay={}, retentionDays={}, "
-                        + "partitionsDropped={}, orphansDropped={}, detachesFinalised={}",
-                type.wireName(),
-                result.cutoffDay(),
-                properties.retentionDaysFor(type),
-                result.partitionsDropped(),
-                result.orphansDropped(),
-                result.detachesFinalised());
+        LOGGER.atInfo()
+                .addKeyValue("event", "retention_applied")
+                .addKeyValue("statType", type.wireName())
+                .addKeyValue("cutoffDay", result.cutoffDay())
+                .addKeyValue("retentionDays", properties.retentionDaysFor(type))
+                .addKeyValue("partitionsDropped", result.partitionsDropped())
+                .addKeyValue("orphansDropped", result.orphansDropped())
+                .addKeyValue("detachesFinalised", result.detachesFinalised())
+                .log("Applied retention");
     }
 
     /**
@@ -228,10 +233,12 @@ public class PartitionMaintenance {
             return true;
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
-            LOGGER.warn(
-                    "Maintenance was interrupted while waiting for a stat type's stagger "
-                            + "slot; the remaining types are left to the next run: statType={}",
-                    type.wireName());
+            LOGGER.atWarn()
+                    .addKeyValue("event", "maintenance_interrupted")
+                    .addKeyValue("statType", type.wireName())
+                    .log(
+                            "Maintenance was interrupted while waiting for a stat type's stagger "
+                                    + "slot; the remaining types are left to the next run");
             return false;
         }
     }
