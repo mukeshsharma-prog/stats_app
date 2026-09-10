@@ -62,9 +62,9 @@ sourceSets {
 
 // The architecture guards in src/test/.../architecture read the OTHER modules' main
 // sources: StatTypeFanOutTest (no code special-cases one stat type, STA-22/trap 15),
-// VersionIsNotADiscriminatorTest (trap 20, DL-105) and WriterLogsCarryNoThrowableTest
-// (guard P2, T-066). Gradle supplies the repository root rather than the tests guessing
-// it from a working directory.
+// VersionIsNotADiscriminatorTest (trap 20, DL-105), WriterLogsCarryNoThrowableTest
+// (guard P2, T-066), and StructuredLoggingContractTest (T-005). Gradle supplies the
+// repository root rather than the tests guessing it from a working directory.
 tasks.test {
     systemProperty("stats.repositoryRoot", rootProject.projectDir.absolutePath)
 

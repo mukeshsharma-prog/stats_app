@@ -165,13 +165,14 @@ public class PartitionRetention {
                             + " DETACH PARTITION "
                             + PartitionNaming.quotedIdentifier(name)
                             + " FINALIZE");
-            LOGGER.warn(
-                    "Completed a partition detach that an earlier maintenance run left "
-                            + "unfinished; until now every DETACH CONCURRENTLY on this table "
-                            + "was failing while ingestion carried on normally: statType={}, "
-                            + "partition={}",
-                    type.wireName(),
-                    name);
+            LOGGER.atWarn()
+                    .addKeyValue("event", "detach_finalised")
+                    .addKeyValue("statType", type.wireName())
+                    .addKeyValue("partition", name)
+                    .log(
+                            "Completed a partition detach that an earlier maintenance run left "
+                                    + "unfinished; until now every DETACH CONCURRENTLY on this table "
+                                    + "was failing while ingestion carried on normally");
         }
         return pending.size();
     }
@@ -196,11 +197,14 @@ public class PartitionRetention {
             Optional<LocalDate> day = PartitionNaming.dayOf(type, child.name());
             if (day.isEmpty()) {
                 if (report) {
-                    LOGGER.warn(
-                            "Ignoring a partition whose name this module did not create; "
-                                    + "retention will never drop it: statType={}, partition={}",
-                            type.wireName(),
-                            child.name());
+                    LOGGER.atWarn()
+                            .addKeyValue("event", "partition_ignored")
+                            .addKeyValue("statType", type.wireName())
+                            .addKeyValue("partition", child.name())
+                            .addKeyValue("reason", "unrecognised_name")
+                            .log(
+                                    "Ignoring a partition whose name this module did not create; "
+                                            + "retention will never drop it");
                 }
                 continue;
             }
@@ -209,14 +213,16 @@ public class PartitionRetention {
                 // Refusing is the whole point. A name that says one day and a bound that
                 // says another means dropping it would delete a range nobody expects.
                 if (report) {
-                    LOGGER.error(
-                            "Ignoring a partition whose bounds do not match its name; retention "
-                                    + "will never drop it: statType={}, partition={}, "
-                                    + "expected={}, found={}",
-                            type.wireName(),
-                            child.name(),
-                            expectedBound,
-                            child.bound());
+                    LOGGER.atError()
+                            .addKeyValue("event", "partition_ignored")
+                            .addKeyValue("statType", type.wireName())
+                            .addKeyValue("partition", child.name())
+                            .addKeyValue("reason", "bound_mismatch")
+                            .addKeyValue("expectedBound", expectedBound)
+                            .addKeyValue("foundBound", child.bound())
+                            .log(
+                                    "Ignoring a partition whose bounds do not match its name; retention "
+                                            + "will never drop it");
                 }
                 continue;
             }
@@ -241,13 +247,14 @@ public class PartitionRetention {
         try {
             execute(connection, "ALTER TABLE " + parent + " DETACH PARTITION " + child + " CONCURRENTLY");
         } catch (SQLException | RuntimeException failure) {
-            LOGGER.error(
-                    "Partition DETACH failed; the partition is still attached and was NOT "
-                            + "dropped. If it was left pending, the next run finalises it: "
-                            + "statType={}, partition={}, cause={}",
-                    type.wireName(),
-                    partition.name(),
-                    SafeFailure.describe(failure));
+            LOGGER.atError()
+                    .addKeyValue("event", "partition_detach_failed")
+                    .addKeyValue("statType", type.wireName())
+                    .addKeyValue("partition", partition.name())
+                    .addKeyValue("cause", SafeFailure.describe(failure))
+                    .log(
+                            "Partition DETACH failed; the partition is still attached and was NOT "
+                                    + "dropped. If it was left pending, the next run finalises it");
             return false;
         }
         try {
@@ -255,22 +262,23 @@ public class PartitionRetention {
         } catch (SQLException | RuntimeException failure) {
             // Detached but not dropped: the data is out of the table and the storage is
             // not yet reclaimed. sweepOrphans picks it up, here or on the next run.
-            LOGGER.error(
-                    "Partition was detached but could NOT be dropped; it is now an orphan "
-                            + "holding storage until a later sweep reclaims it: statType={}, "
-                            + "partition={}, cause={}",
-                    type.wireName(),
-                    partition.name(),
-                    SafeFailure.describe(failure));
+            LOGGER.atError()
+                    .addKeyValue("event", "partition_drop_failed")
+                    .addKeyValue("statType", type.wireName())
+                    .addKeyValue("partition", partition.name())
+                    .addKeyValue("cause", SafeFailure.describe(failure))
+                    .log(
+                            "Partition was detached but could NOT be dropped; it is now an orphan "
+                                    + "holding storage until a later sweep reclaims it");
             return false;
         }
-        LOGGER.info(
-                "Dropped a partition past the retention window: statType={}, partition={}, "
-                        + "day={}, retentionDays={}",
-                type.wireName(),
-                partition.name(),
-                partition.day(),
-                window.retentionDaysFor(type));
+        LOGGER.atInfo()
+                .addKeyValue("event", "partition_dropped")
+                .addKeyValue("statType", type.wireName())
+                .addKeyValue("partition", partition.name())
+                .addKeyValue("day", partition.day())
+                .addKeyValue("retentionDays", window.retentionDaysFor(type))
+                .log("Dropped a partition past the retention window");
         metrics.partitionDropped(type);
         return true;
     }
@@ -291,34 +299,37 @@ public class PartitionRetention {
                 continue;
             }
             if (!window.isDroppable(type, day.get())) {
-                LOGGER.warn(
-                        "A detached table inside the retention window was left alone; "
-                                + "retention never detaches one, so this was done by hand: "
-                                + "statType={}, table={}, day={}",
-                        type.wireName(),
-                        name,
-                        day.get());
+                LOGGER.atWarn()
+                        .addKeyValue("event", "orphan_ignored")
+                        .addKeyValue("statType", type.wireName())
+                        .addKeyValue("table", name)
+                        .addKeyValue("day", day.get())
+                        .log(
+                                "A detached table inside the retention window was left alone; "
+                                        + "retention never detaches one, so this was done by hand");
                 continue;
             }
             try {
                 execute(connection, "DROP TABLE " + PartitionNaming.quotedIdentifier(name));
             } catch (SQLException | RuntimeException failure) {
-                LOGGER.error(
-                        "Failed to drop a detached partition table; it keeps holding storage: "
-                                + "statType={}, table={}, cause={}",
-                        type.wireName(),
-                        name,
-                        SafeFailure.describe(failure));
+                LOGGER.atError()
+                        .addKeyValue("event", "orphan_drop_failed")
+                        .addKeyValue("statType", type.wireName())
+                        .addKeyValue("table", name)
+                        .addKeyValue("cause", SafeFailure.describe(failure))
+                        .log("Failed to drop a detached partition table; it keeps holding storage");
                 continue;
             }
             dropped++;
             metrics.orphanDropped(type);
-            LOGGER.warn(
-                    "Dropped a partition table that an earlier run detached but never "
-                            + "dropped: statType={}, table={}, day={}",
-                    type.wireName(),
-                    name,
-                    day.get());
+            LOGGER.atWarn()
+                    .addKeyValue("event", "orphan_dropped")
+                    .addKeyValue("statType", type.wireName())
+                    .addKeyValue("table", name)
+                    .addKeyValue("day", day.get())
+                    .log(
+                            "Dropped a partition table that an earlier run detached but never "
+                                    + "dropped");
         }
         return dropped;
     }

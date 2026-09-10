@@ -52,6 +52,16 @@ public record ProblemDetails(
     /** As {@link #of(ErrorCode, String, String)}, with the stat type when it is known. */
     public static ProblemDetails of(
             ErrorCode errorCode, String detail, String instance, StatType statType) {
+        return of(errorCode, detail, instance, statType, null);
+    }
+
+    /** As {@link #of(ErrorCode, String, String, StatType)}, with a correlation identifier. */
+    public static ProblemDetails of(
+            ErrorCode errorCode,
+            String detail,
+            String instance,
+            StatType statType,
+            String traceId) {
         Objects.requireNonNull(errorCode, "errorCode");
         return new ProblemDetails(
                 errorCode.typeUri(),
@@ -60,7 +70,7 @@ public record ProblemDetails(
                 detail,
                 instance,
                 statType,
-                null,
+                traceId,
                 null);
     }
 

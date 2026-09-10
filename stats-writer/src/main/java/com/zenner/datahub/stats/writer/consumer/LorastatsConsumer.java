@@ -2,6 +2,7 @@ package com.zenner.datahub.stats.writer.consumer;
 
 import com.rabbitmq.client.Channel;
 import com.zenner.datahub.stats.writer.retry.FailedDeliveryRouter;
+import com.zenner.datahub.stats.writer.log.WriterLogContext;
 import java.util.Objects;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
@@ -49,15 +50,18 @@ public final class LorastatsConsumer {
                             + LorastatsConsumerDescriptor.WIRE_NAME
                             + "')}")
     public void consume(Message message, Channel channel) throws Exception {
-        try {
-            processorAvailability
-                    .requiredProcessor(LorastatsConsumerDescriptor.TYPE)
-                    .process(LorastatsConsumerDescriptor.TYPE, message);
-        } catch (Exception failure) {
-            failedDeliveryRouter.route(LorastatsConsumerDescriptor.TYPE, message, failure);
+        try (WriterLogContext.Scope ignored =
+                WriterLogContext.open(message, LorastatsConsumerDescriptor.TYPE)) {
+            try {
+                processorAvailability
+                        .requiredProcessor(LorastatsConsumerDescriptor.TYPE)
+                        .process(LorastatsConsumerDescriptor.TYPE, message);
+            } catch (Exception failure) {
+                failedDeliveryRouter.route(LorastatsConsumerDescriptor.TYPE, message, failure);
+                channel.basicAck(message.getMessageProperties().getDeliveryTag(), false);
+                return;
+            }
             channel.basicAck(message.getMessageProperties().getDeliveryTag(), false);
-            return;
         }
-        channel.basicAck(message.getMessageProperties().getDeliveryTag(), false);
     }
 }

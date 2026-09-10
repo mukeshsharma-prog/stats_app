@@ -34,6 +34,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 
 /**
  * The publish half of rule 8, against a real broker: T-014 (confirm before 2xx),
@@ -92,7 +93,8 @@ class IngestPublishIntegrationTest {
     @Test
     @DisplayName("a confirmed publish is what earns the 2xx, and the record is on the queue")
     void confirmedPublishEarnsTheSuccessStatus() throws Exception {
-        mockMvc.perform(postRecord(ADVERSARIAL_FIXTURE)).andExpect(status().isOk());
+        MvcResult response =
+                mockMvc.perform(postRecord(ADVERSARIAL_FIXTURE)).andExpect(status().isOk()).andReturn();
 
         Message published = receive();
         assertThat(published).isNotNull();
@@ -104,6 +106,10 @@ class IngestPublishIntegrationTest {
                 .isEqualTo(MessageProperties.CONTENT_TYPE_JSON);
         assertThat(published.getMessageProperties().getReceivedRoutingKey())
                 .isEqualTo(StatType.LORASTATS.wireName());
+        assertThat(published.getMessageProperties().getMessageId())
+                .isEqualTo("CLSCON-11d3ec4c-f6e1-403a-a9ef-b6f5fe909eee");
+        assertThat(published.getMessageProperties().getCorrelationId())
+                .isEqualTo(response.getResponse().getHeader("X-Trace-Id"));
     }
 
     @Test

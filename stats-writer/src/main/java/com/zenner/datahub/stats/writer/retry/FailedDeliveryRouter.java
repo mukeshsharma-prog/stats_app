@@ -3,6 +3,7 @@ package com.zenner.datahub.stats.writer.retry;
 import com.zenner.datahub.stats.common.amqp.AmqpTopology;
 import com.zenner.datahub.stats.common.model.StatType;
 import com.zenner.datahub.stats.writer.log.SafeFailure;
+import com.zenner.datahub.stats.writer.log.WriterLogContext;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -117,18 +118,20 @@ public class FailedDeliveryRouter {
                 "", queue, copyWithHeaders(message, attempt, reason, null), statType, queue);
 
         metrics.retried(statType, tier);
+        WriterLogContext.errorCode(reason);
         // The failure is DESCRIBED, never passed to the logger: a throwable argument
         // prints a stack whose driver message carries the offending row values
         // (guard P2, DEVELOPMENT.md §7). SafeFailure explains what survives and why.
-        log.warn(
-                "Write failed for type={}; attempt {} of {} routed to {} (delay {}), cause={}. "
-                        + "The original is ACKed only now that this copy is confirmed (ADR-005)",
-                statType.wireName(),
-                attempt,
-                properties.maxRetries(),
-                queue,
-                properties.delayForTier(tier),
-                SafeFailure.describe(failure));
+        log.atWarn()
+                .addKeyValue("event", "retried")
+                .addKeyValue("attempt", attempt)
+                .addKeyValue("maxRetries", properties.maxRetries())
+                .addKeyValue("targetQueue", queue)
+                .addKeyValue("retryDelay", properties.delayForTier(tier))
+                .addKeyValue("cause", SafeFailure.describe(failure))
+                .log(
+                        "Write failed and was routed to a confirmed retry tier; the original is "
+                                + "ACKed only after this hand-off (ADR-005)");
     }
 
     private void deadLetter(
@@ -148,17 +151,16 @@ public class FailedDeliveryRouter {
                 AmqpTopology.deadLetterQueue(statType));
 
         metrics.deadLettered(statType, reason);
-        log.error(
-                "Record DEAD-LETTERED to {}: type={} attempt={} permanent={} cause={}. "
-                        + "The queue has no TTL, so this record waits for a person "
-                        + "(ADR-002 §12); disposition is expected within 14 days and a redrive "
-                        + "after ~90 days is a no-op, because ts.device will have aged past "
-                        + "retention",
-                AmqpTopology.deadLetterQueue(statType),
-                statType.wireName(),
-                attempt,
-                permanent,
-                SafeFailure.describe(failure));
+        WriterLogContext.errorCode(reason);
+        log.atError()
+                .addKeyValue("event", "dead_lettered")
+                .addKeyValue("attempt", attempt)
+                .addKeyValue("permanent", permanent)
+                .addKeyValue("targetQueue", AmqpTopology.deadLetterQueue(statType))
+                .addKeyValue("cause", SafeFailure.describe(failure))
+                .log(
+                        "Record dead-lettered after a confirmed hand-off. The queue has no TTL; "
+                                + "disposition is manual within 14 days (ADR-002 §12)");
     }
 
     /**
@@ -240,6 +242,8 @@ public class FailedDeliveryRouter {
         // Rule 10 / STA-13A. A transient copy in a durable retry queue survives exactly
         // as long as the broker process, which is not what "retry in 30 minutes" means.
         properties.setDeliveryMode(MessageDeliveryMode.PERSISTENT);
+        properties.setCorrelationId(source.getCorrelationId());
+        properties.setMessageId(source.getMessageId());
 
         return new Message(message.getBody(), properties);
     }

@@ -80,7 +80,9 @@ public class PartitionBootstrap implements SmartLifecycle {
 
     @Override
     public void start() {
-        LOGGER.info("Ensuring partitions before ingestion starts");
+        LOGGER.atInfo()
+                .addKeyValue("event", "partition_bootstrap_started")
+                .log("Ensuring partitions before ingestion starts");
         maintenance.ensureBeforeIngestion();
         running = true;
     }

@@ -89,20 +89,22 @@ public class RetentionGuard {
         // Envelope members only — uid is the correlation ID by decision (D1) and clsbox is
         // what makes a systemic backlog attributable to one gateway. No payload reaches
         // this line at any level (guard P1, DL-102).
-        LOGGER.warn(
-                "Record arrived past its retention window and was SKIPPED, not stored and "
-                        + "not dead-lettered; the delivery is acknowledged: uid={}, type={}, "
-                        + "clsbox={}, tsDevice={}, tsServer={}, cutoff={}, ageDays={}, "
-                        + "retentionDays={}",
-                envelope.uid(),
-                type.wireName(),
-                envelope.clsbox(),
-                tsDevice,
-                ts.server(),
-                window.cutoff(type),
-                ChronoUnit.DAYS.between(
-                        tsDevice.atZone(ZoneOffset.UTC).toLocalDate(), window.today()),
-                window.retentionDaysFor(type));
+        LOGGER.atWarn()
+                .addKeyValue("event", "expired_on_arrival")
+                .addKeyValue("uid", envelope.uid())
+                .addKeyValue("statType", type.wireName())
+                .addKeyValue("clsbox", envelope.clsbox())
+                .addKeyValue("tsDevice", tsDevice)
+                .addKeyValue("tsServer", ts.server())
+                .addKeyValue("cutoff", window.cutoff(type))
+                .addKeyValue(
+                        "ageDays",
+                        ChronoUnit.DAYS.between(
+                                tsDevice.atZone(ZoneOffset.UTC).toLocalDate(), window.today()))
+                .addKeyValue("retentionDays", window.retentionDaysFor(type))
+                .log(
+                        "Record arrived past its retention window and was SKIPPED, not stored and "
+                                + "not dead-lettered; the delivery is acknowledged");
         return false;
     }
 }

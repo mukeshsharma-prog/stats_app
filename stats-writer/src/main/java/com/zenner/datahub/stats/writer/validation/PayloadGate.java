@@ -7,6 +7,7 @@ import com.zenner.datahub.stats.common.model.StatType;
 import com.zenner.datahub.stats.common.model.StatsEnvelope;
 import com.zenner.datahub.stats.common.validation.StatsSchemaValidator;
 import com.zenner.datahub.stats.common.validation.ValidationResult;
+import com.zenner.datahub.stats.writer.log.WriterLogContext;
 import com.zenner.datahub.stats.writer.retry.PermanentFailureException;
 import java.io.IOException;
 import java.util.List;
@@ -102,12 +103,15 @@ public class PayloadGate {
             // safe to print by construction: pointers, codes and reviewed constants.
             // uid is the correlation ID by decision (D1) and is bounded by Input's
             // 256 KB request limit (DL-121), which is what makes printing it safe here.
-            LOGGER.warn(
-                    "Payload REJECTED by the {} schema; the record is dead-lettered without "
-                            + "a retry: uid={}, fields={}",
-                    expectedType.wireName(),
-                    record.path("uid").asText(""),
-                    result.errors());
+            WriterLogContext.errorCode(WriterGateMetrics.REASON_PAYLOAD_SCHEMA);
+            LOGGER.atWarn()
+                    .addKeyValue("event", "payload_rejected")
+                    .addKeyValue("reason", WriterGateMetrics.REASON_PAYLOAD_SCHEMA)
+                    .addKeyValue("uid", record.path("uid").asText(""))
+                    .addKeyValue("fieldErrors", result.errors())
+                    .log(
+                            "Payload REJECTED by the per-type schema; the record is dead-lettered "
+                                    + "without a retry");
             throw new PermanentFailureException("Payload failed its per-type schema");
         }
 
@@ -117,10 +121,13 @@ public class PayloadGate {
             // caught here rather than at the INSERT so it costs one delivery instead of
             // four, and so the failure names routing rather than a column mismatch.
             metrics.payloadRejected(expectedType, WriterGateMetrics.REASON_TYPE_MISMATCH);
-            LOGGER.warn(
-                    "Delivery on the {} queue declares a different type; dead-lettering: uid={}",
-                    expectedType.wireName(),
-                    envelope.uid());
+            WriterLogContext.errorCode(WriterGateMetrics.REASON_TYPE_MISMATCH);
+            LOGGER.atWarn()
+                    .addKeyValue("event", "payload_rejected")
+                    .addKeyValue("reason", WriterGateMetrics.REASON_TYPE_MISMATCH)
+                    .addKeyValue("uid", envelope.uid())
+                    .addKeyValue("declaredType", envelope.type() == null ? "unknown" : envelope.type().wireName())
+                    .log("Delivery on this queue declares a different type; dead-lettering");
             throw new PermanentFailureException("Record type does not match its queue");
         }
 
@@ -149,13 +156,12 @@ public class PayloadGate {
         metrics.upstreamStatusNotOk(statType);
         // status is an ENVELOPE member, which DL-108 names explicitly; the DL-102 level
         // gate that keeps payloads at DEBUG does not extend to it.
-        LOGGER.warn(
-                "Upstream reported a non-OK conversion; the record is stored anyway: "
-                        + "uid={}, type={}, clsbox={}, status={}",
-                envelope.uid(),
-                statType.wireName(),
-                envelope.clsbox(),
-                status);
+        LOGGER.atWarn()
+                .addKeyValue("event", "upstream_status_not_ok")
+                .addKeyValue("uid", envelope.uid())
+                .addKeyValue("clsbox", envelope.clsbox())
+                .addKeyValue("status", status)
+                .log("Upstream reported a non-OK conversion; the record is stored anyway");
     }
 
     private JsonNode parse(Message message) {

@@ -1,8 +1,10 @@
 package com.zenner.datahub.stats.input.publish;
 
 import com.zenner.datahub.stats.common.amqp.AmqpTopology;
+import com.zenner.datahub.stats.common.error.ErrorCode;
 import com.zenner.datahub.stats.common.model.StatType;
 import com.zenner.datahub.stats.input.ingest.IngestMetrics;
+import com.zenner.datahub.stats.input.log.IngestLogContext;
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 import java.util.UUID;
@@ -94,12 +96,14 @@ public final class ConfirmingStatsPublisher implements StatsPublisher {
                             .get(properties.confirmTimeout().toMillis(), TimeUnit.MILLISECONDS);
 
             if (confirm == null || !confirm.isAck()) {
-                log.error(
-                        "Broker NACKed the publish: type={} routingKey={} reason={}. "
-                                + "Answering 503 so Heimdal resends (STA-04A)",
-                        statType.wireName(),
-                        routingKey,
-                        confirm == null ? "no confirm" : confirm.getReason());
+                IngestLogContext.errorCode(ErrorCode.SERVICE_UNAVAILABLE);
+                log.atError()
+                        .addKeyValue("event", "publish_failed")
+                        .addKeyValue("routingKey", routingKey)
+                        .addKeyValue(
+                                "confirmReason",
+                                confirm == null ? "no_confirm" : "broker_nack")
+                        .log("Broker NACKed the publish; answering 503 so Heimdal resends (STA-04A)");
                 return PublishOutcome.NOT_CONFIRMED;
             }
 
@@ -118,29 +122,33 @@ public final class ConfirmingStatsPublisher implements StatsPublisher {
             // We do not know whether it was published. 503 is the honest answer:
             // a duplicate on Heimdal's resend is absorbed by ON CONFLICT DO NOTHING
             // (ADR-005), whereas a 200 here would be a record nobody holds.
-            log.error(
-                    "Publisher confirm did not arrive within {} for type={} routingKey={}. "
-                            + "Outcome unknown, answering 503 (STA-04A, STA-06A)",
-                    properties.confirmTimeout(),
-                    statType.wireName(),
-                    routingKey);
+            IngestLogContext.errorCode(ErrorCode.SERVICE_UNAVAILABLE);
+            log.atError()
+                    .addKeyValue("event", "publish_failed")
+                    .addKeyValue("routingKey", routingKey)
+                    .addKeyValue("confirmTimeout", properties.confirmTimeout())
+                    .log(
+                            "Publisher confirm did not arrive within the configured timeout; "
+                                    + "outcome unknown, answering 503 (STA-04A, STA-06A)");
             return PublishOutcome.NOT_CONFIRMED;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            log.error(
-                    "Interrupted while waiting for the publisher confirm: type={} routingKey={}. "
-                            + "Answering 503",
-                    statType.wireName(),
-                    routingKey,
-                    e);
+            IngestLogContext.errorCode(ErrorCode.SERVICE_UNAVAILABLE);
+            log.atError()
+                    .addKeyValue("event", "publish_failed")
+                    .addKeyValue("routingKey", routingKey)
+                    .addKeyValue("failureType", e.getClass().getSimpleName())
+                    .log("Interrupted while waiting for the publisher confirm; answering 503");
             return PublishOutcome.NOT_CONFIRMED;
         } catch (ExecutionException | AmqpException e) {
-            log.error(
-                    "Publish failed before confirmation: type={} routingKey={}. Answering 503 so "
-                            + "Heimdal resends (STA-06A)",
-                    statType.wireName(),
-                    routingKey,
-                    e);
+            IngestLogContext.errorCode(ErrorCode.SERVICE_UNAVAILABLE);
+            log.atError()
+                    .addKeyValue("event", "publish_failed")
+                    .addKeyValue("routingKey", routingKey)
+                    .addKeyValue("failureType", e.getClass().getSimpleName())
+                    .log(
+                            "Publish failed before confirmation; answering 503 so Heimdal resends "
+                                    + "(STA-06A)");
             return PublishOutcome.NOT_CONFIRMED;
         }
     }
@@ -156,6 +164,11 @@ public final class ConfirmingStatsPublisher implements StatsPublisher {
         messageProperties.setContentType(MessageProperties.CONTENT_TYPE_JSON);
         messageProperties.setContentEncoding(StandardCharsets.UTF_8.name());
         messageProperties.setDeliveryMode(MessageDeliveryMode.PERSISTENT);
+        // Standard AMQP properties, not custom headers: Writer can restore correlation
+        // before it parses the body, and retries can preserve them without changing the
+        // byte-identical record body (T-005, ADR-004).
+        messageProperties.setCorrelationId(IngestLogContext.traceId());
+        messageProperties.setMessageId(IngestLogContext.uid());
         return new Message(body, messageProperties);
     }
 }

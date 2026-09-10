@@ -67,14 +67,13 @@ public class StatTypeDeploymentGuard {
         }
 
         if (ALL_TYPES.equals(configured)) {
-            log.warn(
-                    "stats-writer is running in ALL-TYPES mode ({}={}). This consumes every "
-                            + "per-type queue in one process and defeats per-type prefetch, "
-                            + "concurrency and replica tuning (ADR-003 D8). It is intended for "
-                            + "local development only and the '{}' profile refuses it.",
-                    STAT_TYPE_PROPERTY,
-                    ALL_TYPES,
-                    PRODUCTION_PROFILE);
+            log.atWarn()
+                    .addKeyValue("event", "all_types_mode_enabled")
+                    .addKeyValue("configuredStatType", ALL_TYPES)
+                    .log(
+                            "stats-writer is running in all-types mode. This defeats per-type "
+                                    + "prefetch, concurrency and replica tuning and is intended "
+                                    + "for local development only (ADR-003 D8)");
         }
     }
 
