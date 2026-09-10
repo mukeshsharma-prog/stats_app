@@ -59,11 +59,12 @@ class SchemaFixtureParityTest {
      * docs/schemas/validate-fixtures.py exactly: valid/ and edge/ must validate,
      * invalid/ must fail, malformed/ is not schema-testable.
      *
-     * <p>The Python gate additionally asserts the seven {@code $expect} markers —
+     * <p>The Python gate additionally asserts the twelve {@code $expect} markers —
      * {@code "input-reject"} on the five clock-skew fixtures (ADR-003 D9),
-     * {@code "writer-dlq"} on the unknown fourth dialect (DL-105 rule 4), and
+     * {@code "writer-dlq"} on the unknown fourth dialect (DL-105 rule 4),
      * {@code "writer-range-reject"} on the dialect-B counter that overflows a
-     * {@code BIGINT} (DL-105 rule 3) — none of which are schema cases. So it reports 91
+     * {@code BIGINT} (DL-105 rule 3), and {@code "writer-skip"} on the five late-arrival
+     * fixtures (D5b → DL-112, T-026) — none of which are schema cases. So it reports 96
      * assertions where this test expands to 84 outcomes. That gap is deliberate — do not
      * "fix" either number to match the other.</p>
      *
@@ -72,6 +73,13 @@ class SchemaFixtureParityTest {
      * markers when T-063 made them valid, and two new fixtures took their place at the
      * two boundaries the widened schema created — the dialect nobody has explained, and
      * the value the schema admits and the column cannot hold.</p>
+     *
+     * <p>It moved to twelve on 10 Sep 2026, and the five that joined were already in the
+     * set: the late-arrival fixtures had <strong>no</strong> marker, so they silently
+     * asserted "the schema accepts this" and said nothing at all about a decided,
+     * signed, deliberate data-loss path. That is the identical gap the clock-skew
+     * fixtures had before {@code "input-reject"} existed — an undecided question with
+     * "accept" quietly baked into a green assertion.</p>
      */
     static List<Arguments> fixtureCases() {
         List<Path> files = new ArrayList<>();

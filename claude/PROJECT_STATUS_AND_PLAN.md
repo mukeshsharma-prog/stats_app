@@ -86,7 +86,8 @@ engineering agreed D5b** (adding a non-zero-counter alert) **and put a counter-p
 to product on D5a: RPO ≤ 5 min, RTO 1 h per partition / 24 h full cluster.** The ARD's
 `RPO~0 / RTO 30 min` is not achievable at multi-terabyte scale and was never costed.
 **Both were SIGNED on 4 September 2026** — D5a as the counter-proposal (DL-111), D5b as
-agreed (DL-112). T-051 and T-026 are unblocked.
+agreed (DL-112). T-051 and T-026 are unblocked — **and T-026 is BUILT as of 10 Sep 2026
+(DL-133), which also unblocks T-051 by building the partitions it will restore.**
 
 ~~**Chase:** the ARD references `Stats_App_OpenAPI_v1_draft.yaml` as "delivered
 separately".~~ **Closed 21 Aug 2026.** It was never delivered, and it was always
@@ -190,7 +191,7 @@ close alone:
 | Item | Needs |
 |---|---|
 | `uid` uniqueness becomes `(ts_device, uid)` — in that column order — scoped per partition — a global unique index is not possible on a partitioned table | A formal amendment to **STA-21B**. Redelivery still cannot duplicate, because a redelivered record carries the same `ts_device`. |
-| ~~Late-arriving records have no live partition to land in~~ | **CLOSED 4 Sep 2026 — D5b SIGNED (DL-112).** Skip, meter `records_expired_on_arrival`, ACK, alert when non-zero. T-026 unblocked. Q15b (DL-106) confirms `ts.device` is genuine device time, so the path is real |
+| ~~Late-arriving records have no live partition to land in~~ | **CLOSED 4 Sep 2026 — D5b SIGNED (DL-112); BUILT 10 Sep 2026 (T-026, DL-133).** Skip, meter `records_expired_on_arrival{type}`, `WARN`, ACK — never dead-lettered. The guard reads the **same cutoff** as the retention sweep, so a record cannot be admitted into a partition that has just been dropped. **The alert is still T-050.** Q15b (DL-106) confirms `ts.device` is genuine device time, so the path is real |
 | ~~Backup / PITR / restore targets~~ | **CLOSED 4 Sep 2026 — D5a SIGNED (DL-111):** RPO ≤ 5 min via continuous WAL archiving; RTO 1 h single partition, 24 h full cluster. Obliges archiver-lag alerting (a stalled archiver silently converts RPO from 5 min to *"however long ago it stopped"*) and a **timed** T-051. |
 
 ### 2b. Was "needs ZC" — ANSWERED 18 August 2026
@@ -232,7 +233,7 @@ remain: `claude/OPEN_QUESTIONS_STATUS_29AUG2026.md`.
 | **Q5a** | **115.2M records/day.** 160k gateways × 6/h × 24h × 5 types is arithmetic; "around 10 million" reads as an early single-type estimate and is withdrawn. It never blocked freezing the schema — daily `RANGE` partitions, `BIGINT`, `(ts_device, uid)` and the composite index are identical at both figures. The delta is hardware, not rework | ADR-003; §1 capacity table |
 | **DLQ retention** | **No TTL, ever.** A TTL'd dead-letter queue is silent data loss, and a DLQ message has already survived three retry tiers. Alert on depth > 0 and oldest-message age; manual disposition within 14 days; redrive by an authorised ops role, per type, capped at 2× nominal, root cause first | ADR-002 §12; `amqp-topology-v1.md` §6 |
 | **`pg_partman`** | **Never a dependency.** Pre-creation is a scheduled task in `stats-writer` behind the D3 advisory lock — needed anyway, because D8 puts N replicas per type and N replicas racing to create tomorrow's partition is what the lock exists to prevent | ADR-003 D1 |
-| **D5b** | **Engineering agrees** the late-arrival policy — skip, meter `records_expired_on_arrival`, ACK — and adds an **alert when the counter is non-zero**, because a systemic gateway backlog and a one-off look identical in the raw count. **SIGNED 4 Sep 2026 (DL-112) and T-026 is unblocked** — held until then because Q15b left it possible that `ts.device` was stamped on arrival, in which case the policy governed a path production never takes | ADR-003 |
+| **D5b** | **Engineering agrees** the late-arrival policy — skip, meter `records_expired_on_arrival`, ACK — and adds an **alert when the counter is non-zero**, because a systemic gateway backlog and a one-off look identical in the raw count. **SIGNED 4 Sep 2026 (DL-112); BUILT 10 Sep 2026 (T-026, DL-133)** — held until then because Q15b left it possible that `ts.device` was stamped on arrival, in which case the policy governed a path production never takes. **The alert is the one part still outstanding: T-050** | ADR-003 |
 
 ---
 

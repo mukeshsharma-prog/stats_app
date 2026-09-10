@@ -254,6 +254,11 @@ being written.
       DLQ for ~90 days is past the retention window: redriving it produces
       `expired_on_arrival`, not a recovery.** The counter goes up and the row never
       lands. Confirm the `ts.device` range before you replay anything old.
+      **Since T-026 (10 Sep 2026, DL-133) this is observable rather than theoretical:**
+      the redriven message reaches `RetentionGuard`, increments
+      `records_expired_on_arrival{type}`, logs a `WARN` naming the `uid`, `clsbox` and
+      the record's age in days, and is ACKed. Watch that counter while you redrive — if
+      it moves in step with the redrive, you are not recovering anything.
 - [ ] Confirm no data was lost
 - [ ] If the alert did not fire, fix the alert threshold. **Alert on DLQ depth > 0 and
       on oldest-message age — never on main-queue depth**, which spikes every cycle by
@@ -266,31 +271,53 @@ being written.
 Retention keys on **`ts.device`** — the device's own timestamp, not the time we
 received the record *(STA-23B, answered D9)*. Default 90 days.
 
+**The mechanism is detach-and-drop, not deletion** *(ADR-003 D1; built by T-025,
+DL-132)*. Nothing here ever issues a `DELETE`. Once a day, per stat type, behind
+`pg_try_advisory_lock`, `stats-writer` pre-creates the partitions ahead and then, for
+each daily partition wholly past the window, runs `ALTER TABLE … DETACH PARTITION …
+CONCURRENTLY` followed by `DROP TABLE`.
+
 ### Steps
 1. Confirm the intended period with the requester — it affects storage cost
-2. Set the value in `application.properties`, never in code *(STA-23A)*
-3. Restart the writer; confirm the new value is picked up and reported
-4. Confirm rows past the boundary are removed
-5. Confirm rows inside the boundary are **not** removed
-6. Confirm the deletion job is bounded — it must not hold a long transaction or
-   scan unindexed
-7. Watch deletion lag and table/index growth after the change *(STA-23C)*
-8. Record the value and the reason for it
+2. Set it in `application.properties`, never in code *(STA-23A)*:
+   `stats.retention.default-days`, or `stats.retention.days-by-type.<wire-name>` for
+   one type. A per-type key that does not name a known stat type **fails the context
+   at startup**; it does not silently fall back to the default
+3. Restart the writer; confirm the new value is reported in the `Applied retention`
+   log line and that the context came up at all
+4. Confirm partitions past the boundary are **gone from `pg_inherits`** and their
+   tables dropped — not that their rows were deleted
+5. Confirm the partition **on** the cutoff day is still attached. The boundary belongs
+   to the retained side on purpose
+6. Watch `retention_oldest_partition_age_days{type}`. In a healthy deployment it sits
+   just under the configured window; climbing past it means the sweep has stopped
+7. Record the value and the reason for it
 
 ### Cautions
-- Shortening retention **deletes data on the next sweep**. Confirm nobody
-  depends on it first, and consider running one sweep in dry-run.
+- Shortening retention **drops partitions on the next sweep** — a catalogue operation,
+  so the data is gone in milliseconds and only a per-partition restore brings it back
+  *(ADR-003 D5)*. Confirm nobody depends on it first.
 - Lengthening retention increases storage. Check the projection against the
   volume figures — up to 115.2M records/day across five types.
 - **Late-arriving records expire early, by design.** A gateway offline for weeks
   delivers records already deep into their window. That is the accepted business
-  rule, not a defect. Do not "fix" it by switching to `ts.server`.
-- **Unbounded `DELETE` is the trap at this volume.** It creates table and index
-  bloat, long transactions, and lock contention that slows the writer. Evaluate
-  time partitioning first — dropping a partition is a different operation from
-  deleting rows, with different locking and monitoring. If partitioning is not
-  approved yet, use bounded, indexed, resumable batches and accept the trade-off
-  explicitly *(STA-23C, ADR-003)*.
+  rule, not a defect. Do not "fix" it by switching to `ts.server`. Since T-026 those
+  records are skipped, metered as `records_expired_on_arrival{type}` and ACKed — and
+  the guard reads the **same cutoff** as the sweep, so changing the window moves both
+  together. Two separate calculations would admit a record into a partition the sweep
+  had just dropped.
+- **Unbounded `DELETE` is the trap at this volume**, and it is why the mechanism above
+  exists. It creates table and index bloat, long transactions, and lock contention that
+  slows the writer *(STA-23C, ADR-003)*. If you find yourself writing one, the design
+  has been misread.
+- **A retention run killed mid-detach wedges retention silently.** An interrupted
+  `DETACH … CONCURRENTLY` leaves the partition *pending detach*, after which every
+  later detach on that table fails — while `INSERT` and pre-creation keep working, so
+  ingestion looks perfectly healthy and the only symptom is disk. Every run now begins
+  with `DETACH … FINALIZE`, so this self-heals on the next cron; if you are diagnosing
+  it by hand, `pg_inherits.inhdetachpending` is the flag to look at. A non-zero
+  `retention_orphans_dropped{type}` means an earlier run died between the detach and
+  the drop.
 - Retention lives behind its own abstraction, separate from the write path.
 
 ---

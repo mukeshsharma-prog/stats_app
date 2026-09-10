@@ -4,6 +4,7 @@ import com.zenner.datahub.stats.common.model.StatType;
 import com.zenner.datahub.stats.writer.persistence.RecordWriteResult;
 import com.zenner.datahub.stats.writer.persistence.RecordWriteStatus;
 import com.zenner.datahub.stats.writer.persistence.StatsBatchWriter;
+import com.zenner.datahub.stats.writer.retention.RetentionGuard;
 import com.zenner.datahub.stats.writer.validation.PayloadGate;
 import com.zenner.datahub.stats.writer.validation.ValidatedRecord;
 import java.util.List;
@@ -22,16 +23,25 @@ import org.springframework.stereotype.Component;
  * that follows in Phase 3 is a sibling of this class rather than a copy of its gate —
  * which is what rule 6 asks for and what stops the fifth copy being the one that omits
  * the check.</p>
+ *
+ * <p>{@link RetentionGuard} then runs between the gate and the write, in that order and
+ * not the other way round (T-026, FLOW.md §4.1 step 3). A record too old to store is still
+ * worth validating: if it is <em>also</em> malformed it dead-letters, where a schema
+ * mismatch can be diagnosed, rather than being discarded as merely late. The reverse order
+ * would silently swallow the more informative of the two failures.</p>
  */
 @Component
 @Conditional(LorastatsDeploymentCondition.class)
 public final class LorastatsMessageProcessor implements StatsMessageProcessor {
 
     private final PayloadGate gate;
+    private final RetentionGuard retentionGuard;
     private final StatsBatchWriter writer;
 
-    public LorastatsMessageProcessor(PayloadGate gate, StatsBatchWriter writer) {
+    public LorastatsMessageProcessor(
+            PayloadGate gate, RetentionGuard retentionGuard, StatsBatchWriter writer) {
         this.gate = Objects.requireNonNull(gate, "gate");
+        this.retentionGuard = Objects.requireNonNull(retentionGuard, "retentionGuard");
         this.writer = Objects.requireNonNull(writer, "writer");
     }
 
@@ -49,6 +59,15 @@ public final class LorastatsMessageProcessor implements StatsMessageProcessor {
         Objects.requireNonNull(message, "message");
 
         ValidatedRecord validated = gate.admit(LorastatsConsumerDescriptor.TYPE, message);
+
+        if (!retentionGuard.admit(LorastatsConsumerDescriptor.TYPE, validated)) {
+            // Past its retention window: skipped, metered and logged by the guard, and
+            // ACKed by returning normally. Throwing would route a perfectly valid record
+            // into the retry arm and then a DLQ that never expires, where every redrive
+            // would reach this same line again (D5b, DL-112).
+            return;
+        }
+
         List<RecordWriteResult> results = writer.write(List.of(validated));
         if (results.size() != 1 || results.getFirst().index() != 0) {
             throw new IllegalStateException("Single-record write returned an invalid result shape");

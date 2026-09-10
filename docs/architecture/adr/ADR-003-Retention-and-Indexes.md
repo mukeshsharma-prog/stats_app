@@ -7,6 +7,19 @@
 **Amended 29 August 2026:** `pg_partman` is no longer a conditional dependency (D1);
 clock skew is decided (D9); the late-arrival policy carries engineering agreement but
 still awaits product sign-off.
+**Amended 10 September 2026 (DL-132, DL-133) — D1's retention half and D5b's late-arrival
+policy are BUILT (T-025, T-026).** Two mechanisms are added that this ADR did not name,
+because both are properties of PostgreSQL rather than of the design and both were found by
+probing PostgreSQL 17 rather than by reading it. **(a)** An *interrupted*
+`DETACH PARTITION … CONCURRENTLY` leaves the partition pending detach, and every later
+detach on that parent then fails — while `INSERT` and pre-creation keep working, so
+retention stops permanently and nothing about ingestion looks wrong. Every run therefore
+begins with `DETACH … FINALIZE`. **(b)** Between the detach and the drop the table still
+exists holding its rows, so a crash there leaks a day of storage nothing would reclaim; the
+sweep reclaims such orphans and counts them separately. Also decided: the guard of the
+late-arrival policy below and this sweep read **one** cutoff function, or a record is
+admitted into a partition that has just been dropped.
+
 **Amended 4 September 2026 (DL-111, DL-112):** **both rows that were open inside this
 approved ADR are now SIGNED.** D5a — RPO ≤ 5 min via continuous WAL archiving; RTO 1 h
 for a single partition, 24 h for a full cluster restore. D5b — the late-arrival policy
@@ -157,6 +170,19 @@ reviewed like code.
 
 **Decision:** on the partition path, retention runs **once daily off-peak** and
 drops one partition per type. Batch size does not apply.
+
+> **Built 10 September 2026 (T-025, DL-132).** Retention and pre-creation share one cron
+> (`stats.retention.schedule`) and **one scheduled entry point**, running pre-create then
+> retain per type — two `@Scheduled` methods on one expression would have run in whatever
+> order Spring registered them, and the order is load-bearing. D3's "stagger the five types"
+> is an offset derived from the **stat type**, so the same mechanism separates five
+> deployments in production and five passes in `all` mode. There is deliberately **no cap**
+> on partitions dropped per run: a detach and a drop are catalogue operations, and a cap
+> would leave partitions past the window attached with nothing saying so.
+>
+> **The fallback properties below were removed on 8 September 2026 (DL-130)** — partitioning
+> *was* approved, so they configured a path this ADR decided against. They are kept in this
+> section as the record of the reasoning, not as live configuration.
 
 The batched-deletion properties remain defined for the **fallback path only**, in
 case partitioning is not approved for the first increment:
@@ -407,6 +433,14 @@ may no longer exist, and the insert fails into the DLQ.
 **Option B needs product sign-off**, because it is a deliberate
 data-loss-by-design path, even though it only discards data that retention would
 remove almost immediately anyway. It must be metered and logged, never silent.
+
+**BUILT 10 September 2026 (T-026, DL-133).** `RetentionGuard` skips the write, increments
+`records_expired_on_arrival{type}`, logs at `WARN` and ACKs. It **returns a decision rather
+than throwing**, because this path has to end in a broker ACK and an exception would instead
+route a valid record into the retry arm and then a DLQ that never expires. It shares
+`RetentionWindow` with the sweep, so the boundary it enforces and the boundary the sweep
+drops on are the same instant by construction. **The alert is not built** — that half is
+T-050.
 
 **Engineering agreed Option B on 29 August 2026 (Naman Vashishtha), with one
 addition: alert when `records_expired_on_arrival` is non-zero.** A systemic gateway

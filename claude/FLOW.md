@@ -22,7 +22,7 @@ flow, because a specified flow and a running one are not the same claim.
 | **`SPECIFIED`** | Decided and contracted; not yet implemented |
 | **`BLOCKED`** | Cannot be built — an open question owns it |
 
-### What exists today (5 September 2026)
+### What exists today (10 September 2026)
 
 `stats-common` is complete, `stats-writer` and `stats-input` are substantially
 built, and `stats-api` is still a stub.
@@ -46,7 +46,8 @@ built, and `stats-api` is still a stub.
 | `stats-writer` — per-type payload gate, straight to the DLQ with no retry | **`BUILT`** (T-057; DL-126). Type-agnostic `PayloadGate`, one parse, `ValidatedRecord` into the writer, no property that can switch it off. Binding the row and writing it are separate stages with separate counters: a payload nobody can map never reaches PostgreSQL, so it is never counted as a write failure |
 | `stats-writer` — all three `lorastats` dialects normalised to one row | **`BUILT`** (T-063; DL-127). Structural detection, range-checked coercion before conversion, closed at three. The dialect is the metric label `records_lorastats_dialect{dialect}`, never a column |
 | `stats-writer` — a non-OK upstream `status` metered and stored | **`BUILT`** (T-064; DL-128). `records_upstream_status_not_ok{type}`, `WARN`, never a dead-letter. An *absent* status is not counted |
-| `stats-writer` — retention, late arrival | **`SPECIFIED`** (T-025, T-026) |
+| `stats-writer` — retention: `DETACH PARTITION … CONCURRENTLY` then `DROP TABLE` | **`BUILT`** (T-025; DL-132). Never row deletion. One daily maintenance pass — pre-create, *then* retain — per type, staggered, behind the same advisory lock. **Every run finalises a detach an earlier run left pending**, because an interrupted detach wedges every later one while ingestion carries on looking healthy |
+| `stats-writer` — late arrival: skip, meter, ACK | **`BUILT`** (T-026; DL-133). `RetentionGuard` reads the **same cutoff** as the sweep, so a record can never be admitted into a partition retention has just dropped. `records_expired_on_arrival{type}` + `WARN`. **Never dead-lettered.** The *alert* on that counter is still T-050 |
 | Cross-module topology declaration agreement | **`BUILT`** (T-032; DL-123). One set of definitions in `stats-common`, one assertion in `stats-testsupport` called by both modules, and `stats-api` asserts it has no AMQP client at all |
 | Liveness/readiness groups per module | **`BUILT`** (T-006, DL-103) |
 | `stats-api` | `@SpringBootApplication` **stub only** — Phase 4, gated on D-09 |
@@ -57,9 +58,12 @@ and — when the write fails — through three retry tiers to a dead-letter queu
 never expires anything. Since **8 Sep 2026** the failure arm is no longer idle: the
 per-type payload gate (T-057) produces dead-letters, all three `lorastats` dialects are
 accepted and normalised to one row (T-063), and a non-OK upstream `status` is metered
-rather than passing unremarked (T-064). **What is still missing** is retention and late
-arrival (T-025, T-026) and the DLQ depth alerting of T-060 — the queue is real, it now
-receives only genuine failures, and nobody is watching it. The ranked order is
+rather than passing unremarked (T-064). Since **10 Sep 2026** the record also *leaves*
+again on a schedule: retention detaches and drops each partition past the window
+(T-025), and a record that arrives already past it is skipped, metered and ACKed rather
+than dead-lettered (T-026). **What is still missing** is the *watching*: T-060's DLQ
+depth and age alerting, and T-050's alert on `records_expired_on_arrival` — both queues
+and both counters are real, and nobody is looking at either. The ranked order is
 `Stats_App_Tracker.xlsx` → `Next Up`. Phase 2 finishes it
 end to end for `lorastats` first (DL-030 rationale; see
 `CODE_START_CHECKLIST.md` §B).
@@ -329,7 +333,9 @@ unrepresentable, not merely documented (DL-034).
 > has aged past the 90-day retention window. **A redrive after ~90 days is
 > a no-op that increments a counter.** Operators must know this before
 > attempting one, or a failed recovery looks like a successful one
-> (DL-034, DL-083).
+> (DL-034, DL-083). **Since T-026 that counter is real** (DL-133): the
+> redriven message reaches `RetentionGuard`, increments
+> `records_expired_on_arrival{type}`, is ACKed and stores nothing.
 
 ---
 
@@ -340,14 +346,17 @@ unrepresentable, not merely documented (DL-034).
 > range check, `passthrough` round-tripping and partition pre-creation
 > (T-010 … T-012, T-019 … T-023, T-058), and — since 5 Sep 2026 — the three retry
 > tiers and per-type DLQ, with the onward copy confirmed before the original is
-> ACKed (T-024, DL-122); and — since 8 Sep 2026 — the per-type payload gate, the
+> ACKed (T-024, DL-122); since 8 Sep 2026 — the per-type payload gate, the
 > three-dialect normalisation and the non-OK `status` counter (T-057, T-063, T-064;
-> DL-126…DL-128). **`SPECIFIED`:** retention (T-025) and late arrival (T-026).
+> DL-126…DL-128); and since 10 Sep 2026 — **retention and late arrival**
+> (T-025, T-026; DL-132, DL-133). This module is now feature-complete for
+> `lorastats`.
 >
 > The arm is **no longer idle**: a payload that fails its per-type schema, a counter
 > that will not fit a `BIGINT`, and a fourth dialect nobody has explained all throw
 > `PermanentFailureException` and reach the DLQ on the first attempt, skipping the
-> tiers. What still does not exist is anyone watching that queue — T-060.
+> tiers. What still does not exist is anyone **watching**: T-060 for the DLQ, T-050
+> for `records_expired_on_arrival`.
 
 ### 4.1 Per-message flow
 
@@ -390,8 +399,19 @@ consume from app_statsstore.<type>      one deployment per type,
   │
   ├─ 3. RETENTION GUARD   ts_device older than the window ⇒ no live
   │                       partition exists.  Skip the write,
-  │                       records_expired_on_arrival++, ACK, alert.
-  │                       BLOCKED — product sign-off owed (DL-083)
+  │                       records_expired_on_arrival{type}++, WARN, ACK.
+  │                       NEVER dead-lettered: the record is valid, the
+  │                       DLQ never expires, and a redrive re-derives the
+  │                       same verdict forever — the record only gets
+  │                       OLDER.  Returns a decision where the payload
+  │                       gate throws, because this path must end in an
+  │                       ACK and an exception cannot produce one.
+  │                       The cutoff here and the cutoff §4.4 drops on
+  │                       are the SAME function (RetentionWindow), or a
+  │                       record is admitted into a partition that has
+  │                       just been dropped.
+  │                       (D5b, DL-112, DL-133; T-026)  ✔ BUILT 10 Sep 2026
+  │                       The ALERT on that counter is still T-050.
   │
   ├─ 4. INSERT            INSERT INTO <type> (…, schema_version, received_at)
   │                       VALUES (…)
@@ -425,17 +445,22 @@ G3).
 | Transient database error | Do **not** ACK. Publish to `retry.<tier>`, confirm that publish, then ACK the original (§3.3) |
 | Retries exhausted | Publish to `.dlq`, confirm, then ACK. Log ERROR, alert |
 | Duplicate `(ts_device, uid)` | Not a failure — `DO NOTHING`, meter, commit, ACK |
-| `ts_device` past retention | Skip, meter, ACK, alert (`BLOCKED`, DL-083) |
+| `ts_device` past retention | Skip, meter `records_expired_on_arrival{type}`, `WARN`, ACK. **Never a dead-letter** (`BUILT`, DL-133). Alerting is T-050 |
 | Counter exceeds `BIGINT` | Reject to DLQ. Never truncate silently |
 | Partition missing | **Insert fails.** Pre-creation is on the critical path (§4.4) |
 
-### 4.4 Partition and retention flow   `SPECIFIED`
+### 4.4 Partition and retention flow   `BUILT` (T-012, T-025)
 
 Both run **inside `stats-writer`**, both behind the same per-type advisory
-lock, because N replicas per type would otherwise race (DL-045).
+lock, because N replicas per type would otherwise race (DL-045). One cron,
+one entry point, one order — pre-create **then** retain, so tomorrow's
+partition exists before yesterday's is dropped.
 
 ```
-scheduled tick (staggered across the five types, not fired together)
+scheduled tick   stats.retention.schedule, 03:30 UTC
+  │              types taken at their own stagger offset, derived from the
+  │              TYPE — so it separates five deployments in production and
+  │              five passes in `all` mode, with one mechanism
   │
   ├─ SELECT pg_try_advisory_lock(hashtext('stats.retention:' || :statType))
   │     not acquired ⇒ skip this run, log DEBUG, done
@@ -444,12 +469,37 @@ scheduled tick (staggered across the five types, not fired together)
   │                  If this fails, INSERTS FAIL. Not a nicety.
   │                  pg_partman is NEVER a dependency (DL-027)
   │
-  └─ RETENTION       for each partition wholly older than the window:
-                       ALTER TABLE … DETACH PARTITION … CONCURRENTLY
-                       DROP TABLE …
+  └─ RETENTION       0. FINALIZE any detach an earlier run left pending
+                        — see the hazard below; without this the sweep is
+                        wedged and nothing else looks wrong
+                     1. for each partition wholly older than the window,
+                        whose NAME we produced and whose CATALOGUE BOUND
+                        matches that name:
+                          ALTER TABLE … DETACH PARTITION … CONCURRENTLY
+                          DROP TABLE …
+                     2. sweep orphans — detached but never dropped
+                     3. publish retention_oldest_partition_age_days{type}
+
                      A catalog operation — milliseconds, no dead tuples,
                      no vacuum debt.  NOT row deletion (DL-042)
 ```
+
+**Three PostgreSQL facts this is built around** (verified against PG 17,
+DL-132). `DETACH … CONCURRENTLY` **cannot run inside a transaction block** —
+a hard `ERROR`, so the sweep runs auto-commit. An **interrupted** detach
+leaves the partition *pending detach*, and from then on **every** detach on
+that parent fails — **while `INSERT` and pre-creation keep working**, so a
+run killed by a rolling deploy wedges retention permanently and the only
+symptom is disk. And between the detach and the drop the table still exists
+holding its rows, so a crash there leaks a day of storage that nothing would
+reclaim: hence step 2, counted separately as
+`retention_orphans_dropped{type}` because an ordinary drop counter would
+read as retention working.
+
+**Nothing is dropped that has not been proved droppable.** Name we produced,
+bound that matches the name, day wholly outside the window — all three, or
+the partition is logged and kept. Dropping is irreversible short of a
+per-partition restore (ADR-003 D5).
 
 **Retention keys on `ts.device`, and that has a consequence.** A gateway
 that was offline delivers records whose `ts.device` is weeks older than
@@ -466,8 +516,11 @@ switching to `ts.server`.
   │                              │  in THAT column order, per partition
   ├─ tenant         text         │  (DL-043, G2)
   ├─ maintenant     text        ─┘  deliberately NOT in the key (DL-044)
-  ├─ gateway        text
-  ├─ ts_server   timestamptz
+  ├─ clsbox         text        12 UPPERCASE hex, normalised by the
+  │                              Writer with a table CHECK behind it
+  │                              (DL-115). NOT `gateway` — the SRS name
+  │                              was never on the wire (ADR-007 §1)
+  ├─ ts_server      timestamptz
   ├─ received_at    timestamptz
   ├─ schema_version smallint  NOT NULL   which schema validated it (DL-046)
   └─ …type-specific typed columns…
@@ -654,15 +707,16 @@ what happens if the control is removed.
 | 4 | ACK the original, then publish to retry | Publish → **confirm** → then ACK | Crash in the window loses it silently |
 | 5 | DLQ expiry | **No TTL, ever** — unrepresentable in the API | The last remaining copy of the record is deleted on a timer |
 | 6 | Duplicate suppressed with no counter | `records_duplicate_suppressed{type}` | A cross-tenant `uid` collision becomes invisible |
-| 7 | Late arrival, no live partition | Skip + meter + **alert** — **D5b SIGNED 4 Sep 2026 (DL-112), T-026 unblocked** | Either a silent drop, or a write into a partition that does not exist. Q15b (DL-106) confirms `ts.device` is genuine device time, so this path is real |
+| 7 | Late arrival, no live partition | Skip + meter + ACK — **BUILT 10 Sep 2026 (T-026, DL-133)**; the **alert** on `records_expired_on_arrival` is still T-050 | Either a silent drop, or a write into a partition that does not exist. Q15b (DL-106) confirms `ts.device` is genuine device time, so this path is real |
 | 8 | Counter wider than `BIGINT` | Range-check before conversion | Silent value corruption, no error anywhere |
 | 9 | In-flight transformation of any kind | **Byte-identical publication** | Per-partition duplicate suppression stops working, silently |
 | 10 | Unsorted pagination | Fixed `(ts_device DESC, uid DESC)` | A row returned twice or skipped entirely, with no error |
-| 11 | Redrive after ~90 days | Runbook note | A no-op that increments a counter — and looks like a successful recovery |
+| 11 | Redrive after ~90 days | Runbook note (T-052) — the counter it increments is real since T-026 | A no-op that increments a counter — and looks like a successful recovery |
 | 12 | **Payload validated at Input instead of the Writer** | Two gates: `validateEnvelope()` at Input, `validate()` at the Writer (ADR-007 §5) | A dialect mismatch becomes a 400. Heimdal retries only on a non-2xx, so the record is **destroyed** where a dead-letter would have been redrivable. The one loud window on this list — and loud does not mean recoverable |
 | 13 | **DLQ depth alert drowned by routine dialect volume** — *closed 8 Sep 2026 (DL-127)* | Per-type DLQ thresholds (ADR-002 §12). **All three `lorastats` dialects are now accepted**, so the routine volume is gone and T-060 can be sized against real failure | ~15M lorastats messages/day used to sit permanently above a uniform threshold, so a genuine dead-letter in another type was never noticed. **Closed by the build, not by the decision** — DL-105 decided it on 4 Sep and it stayed live for four more days. Any future decision that dead-letters a type by design reintroduces it whole |
+| 14 | **A retention run killed mid-detach** — *closed 10 Sep 2026 (DL-132)* | Every run begins with `ALTER TABLE … DETACH PARTITION … FINALIZE` | This is not a loss of a record; it is a loss of the *mechanism*. An interrupted `DETACH CONCURRENTLY` leaves the partition pending detach, and from then on every detach on that parent fails — **while `INSERT` and pre-creation keep working perfectly.** Retention stops, ingestion looks healthy, and the only symptom is disk. The gap between detach and drop is the same shape: a crash there leaks a day of rows nothing would reclaim, which is why `retention_orphans_dropped{type}` is its own series |
 
-**Ten of the thirteen fail silently.** Window 12 is the exception worth
+**Eleven of the fourteen fail silently.** Window 12 is the exception worth
 studying: it is fully logged, fully visible, returns a correct-looking
 `400 invalid_type` — and still destroys the record, because the loss is in
 what the *caller* does with a well-formed answer. Visibility is not

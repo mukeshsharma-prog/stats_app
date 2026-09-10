@@ -20,10 +20,14 @@ path**: `stats-input` validates the envelope and publishes only after a broker c
 `stats-writer` persists it idempotently, and a failed write goes through three retry
 tiers to a
 per-type dead-letter queue that expires nothing — with the onward copy confirmed
-before the original is acknowledged (T-014 … T-018, T-024, T-032). What is still
-missing before Phase 2 closes is the per-type **payload gate** (T-057), which is what
-will produce most dead-letters, **DLQ depth and age alerting** (T-060) — the queue is
-real and nobody is watching it — and the **retention job** (T-025). `stats-api` is a
+before the original is acknowledged (T-014 … T-018, T-024, T-032). Since
+**10 September 2026 the record also leaves again**: retention detaches and drops each
+daily partition past the window — never row deletion — and a record that arrives already
+past it is skipped, metered as `records_expired_on_arrival{type}` and acknowledged rather
+than dead-lettered (T-025, T-026; DL-132, DL-133). What is still missing before Phase 2
+closes is the **watching**: DLQ depth and age alerting (T-060), and the alert on
+`records_expired_on_arrival` (T-050). Both queues and both counters are real, and nobody
+is looking at either. `stats-api` is a
 stub awaiting the OpenAPI confirmation (D-09). See `claude/PROJECT_STATUS_AND_PLAN.md`
 and `claude/FLOW.md` for what is BUILT versus SPECIFIED, and **`Stats_App_Tracker.xlsx`
 → the `Next Up` sheet** for the ranked answer to *what do I pick up now*.
@@ -307,10 +311,13 @@ before any shared deployment:
    via continuous WAL archiving, **RTO 1 h per partition / 24 h full cluster**. RPO is
    the tight one because a record we answered `200` and then lost is unrecoverable —
    Heimdal retries only on a non-2xx.
-3. **The late-arrival policy has engineering agreement but no product signature**
-   (D5b). Skip the write, meter `records_expired_on_arrival`, ACK, and alert when the
-   counter is non-zero. It is a deliberate data-loss-by-design path, so T-026 stays
-   blocked until it is signed.
+3. ~~**The late-arrival policy has engineering agreement but no product signature**~~
+   **CLOSED — D5b was SIGNED on 4 September 2026 (DL-112) and BUILT on 10 September
+   (T-026, DL-133).** Skip the write, meter `records_expired_on_arrival{type}`, ACK.
+   It is still a deliberate data-loss-by-design path — the signature is what makes it a
+   decision rather than a defect — and the *alert* on that counter, which is the half
+   that separates a systemic gateway backlog from a harmless one-off, is **not built**:
+   it is T-050.
 
 The most valuable open question is **Q13b — do gateways report on synchronised
 10-minute boundaries or jitter across them?** We design for the synchronised case

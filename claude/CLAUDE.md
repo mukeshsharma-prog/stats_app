@@ -6,6 +6,54 @@ It is still auto-loaded every session: the repository-root `CLAUDE.md` is a
 pointer file whose only content is an `@claude/CLAUDE.md` import. Edit this file,
 not the pointer.
 
+> **Version 1.11 — 10 September 2026.** No decision in 1.10 changes. What changes is
+> that **a record now leaves again as well as arriving**: retention is built, and so is
+> the late-arrival path it implies. `stats-writer` is feature-complete for `lorastats`.
+> Governing entries: **DL-132, DL-133** (T-025, T-026), plus a renumbering: **DL-131**.
+>
+> **Changed in 1.11 — re-read these:**
+>
+> * **Retention is `DETACH PARTITION … CONCURRENTLY` then `DROP TABLE`, never row
+>   deletion.** One daily maintenance pass per type — pre-create **then** retain, in
+>   that order — behind the same `pg_try_advisory_lock`, staggered by an offset derived
+>   from the stat type. `stats.retention.default-days=90` is finally *read*. DL-132.
+> * **Every run begins by repairing the last one, and this is the finding that shaped
+>   the design.** An *interrupted* `DETACH CONCURRENTLY` leaves the partition pending
+>   detach, and from then on **every** detach on that table fails — while `INSERT` and
+>   pre-creation keep working. Retention stops permanently, ingestion looks perfectly
+>   healthy, and the only symptom is disk. It is now **window 14** in `FLOW.md` §8, and
+>   it is silent. The sweep also reclaims tables an earlier run detached but never
+>   dropped, counted separately as `retention_orphans_dropped{type}` — an ordinary drop
+>   counter would read as retention working.
+> * **A late-arriving record is skipped, metered and ACKed — never dead-lettered.** The
+>   record is *valid*; a dead-letter would sit in a queue that never expires and be
+>   re-rejected on every redrive, because the record can only get **older**.
+>   `RetentionGuard` therefore **returns a decision where `PayloadGate` throws**: this
+>   path has to end in a broker ACK, and an exception cannot produce one. DL-133.
+> * **The guard and the sweep read ONE cutoff.** `RetentionWindow` is the single
+>   definition. Two calculations that drifted by a day would admit a record into a
+>   partition the sweep had just dropped — insert fails, record dead-letters, every
+>   redrive re-derives it forever. The boundary belongs to the **retained** side on
+>   both sides of the comparison, because over-retaining costs a partition and
+>   under-retaining deletes data nobody reports.
+> * **Per-type retention is now `stats.retention.days-by-type.<wire-name>`**, not the
+>   recorded `stats.retention.<type>-days`. The map is validated against
+>   `StatType.wireName()` at startup, so a typo fails the context instead of silently
+>   reverting that type to 90 days. `default-days` has **no default in code**.
+> * **The fixture gate learned a fourth marker.** `writer-skip` marks a record the
+>   catalogue admits, Input publishes, and the Writer deliberately does not store. The
+>   five `<type>-late-arrival.json` fixtures previously said the record is *"DLQ'd
+>   without retry"* — the opposite of the signed policy — and carried **no marker at
+>   all**, so a signed data-loss path had no assertion anywhere. 91 → **96** assertions,
+>   7 → **12** markers, 84 Java parity cases unchanged, no fixture added or moved.
+> * **`claude/DECISIONS.md` had two entries numbered DL-130.** The API-examples entry is
+>   renumbered **DL-131**; every external citation resolved to the other one, so nothing
+>   else changed.
+> * **What to do next:** **T-029/T-030/T-033**, which is what lets the fan-out start at
+>   **`sysstats`**. **T-060 and T-050** are the gap this change leaves: both queues and
+>   both counters are real and **nobody is watching either**. T-051, T-054 and T-055 are
+>   unblocked — they measure what T-025 built.
+>
 > **Version 1.10 — 8 September 2026.** No decision in 1.9 changes. What changes is
 > that **the Writer's failure arm is no longer idle** and **`lorastats` is finished
 > end to end**. Governing entries: **DL-126, DL-127, DL-128** (T-057, T-063, T-064).
@@ -392,7 +440,16 @@ a change would.
 10. **Queues, exchange, and bindings are durable; messages are persistent.**
     They survive a broker restart. *(STA-13, STA-13A)*
 11. **Retention is configurable via `application.properties`, default 90 days,
-    and keys on `ts.device`.** *(STA-23, STA-23A, STA-23B)*
+    and keys on `ts.device`.** The mechanism is `DETACH PARTITION … CONCURRENTLY`
+    followed by `DROP TABLE` — **never row deletion** — once daily per type, behind
+    `pg_try_advisory_lock`. `stats.retention.default-days` has **no default in code**:
+    retention deletes data, so an unconfigured deployment must fail to start rather
+    than adopt a window somebody guessed. A record that arrives already past the window
+    is skipped, metered as `records_expired_on_arrival{type}` and **ACKed — never
+    dead-lettered**, because the record is valid and a redrive re-derives the same
+    verdict forever. The cutoff the sweep drops on and the cutoff the guard enforces are
+    **one function**. *(STA-23, STA-23A, STA-23B, STA-23C; ADR-003 D1/D3/D4;
+    DL-132, DL-133)*
 12. **The API is versioned.** *(STA-38, STA-38A)*
 13. **`uid` is its own PostgreSQL column, covered by a unique constraint.** Not a
     database-generated identifier. On the partitioned design the constraint is
@@ -449,9 +506,36 @@ window loses the message *and* Heimdal will not retry, because it saw success.
 
 **Row-by-row deletion at this volume is a trap.**
 At up to 115.2 million records/day, an unbounded `DELETE` creates table and index
-bloat, long transactions, and lock contention. Evaluate time partitioning first;
-if not partitioning, use bounded, indexed, resumable deletion batches and accept
-the trade-off explicitly.
+bloat, long transactions, and lock contention. Time partitioning was evaluated and
+chosen: since **T-025** retention is `DETACH PARTITION … CONCURRENTLY` then
+`DROP TABLE`, and nothing in this codebase deletes a row for retention. If you find
+yourself writing a bounded batch loop, the design has been misread.
+
+**An interrupted `DETACH CONCURRENTLY` stops retention for good, and nothing looks
+wrong.**
+Cancel one — a rolling deploy, an OOM, a `statement_timeout` — and PostgreSQL leaves
+the partition *pending detach*. From then on **every** `DETACH CONCURRENTLY` on that
+table fails with `partition "…" already pending detach`, **while `INSERT` and partition
+pre-creation carry on working perfectly.** Ingestion is healthy, no queue backs up, no
+counter moves, and the only symptom is that disk stops going down. Every run now begins
+with `DETACH … FINALIZE` (DL-132), so it self-heals on the next cron; the flag to look
+at by hand is `pg_inherits.inhdetachpending`. Two related edges: the statement **cannot
+run inside a transaction block** at all — it is a hard `ERROR`, so anything that wraps
+the sweep in a transaction breaks it outright — and between the detach and the drop the
+table still exists holding its rows, so a crash there leaks a day of storage that
+nothing would reclaim. That is what `retention_orphans_dropped{type}` counts, and why it
+is a separate series from `retention_partitions_dropped{type}`: folded together, a dead
+run would read as retention working.
+
+**The retention cutoff must be computed in exactly one place.**
+The sweep drops a partition wholly older than the window; the guard skips a record
+older than the window. Let those two drift by a day and a record is admitted into a
+partition that has just been dropped — the `INSERT` fails, the record dead-letters, and
+every redrive re-derives the identical verdict forever in a queue that never expires.
+`RetentionWindow` is the one definition and both read it (DL-133). The boundary belongs
+to the **retained** side on both sides of the comparison, deliberately: over-retaining
+by a day costs one partition, under-retaining deletes records still inside the window
+and nothing reports it.
 
 **Modules declaring the same topology can break startup.**
 If two modules declare the same exchange or queue with different arguments,
@@ -581,7 +665,7 @@ into the remaining conversations: `claude/OPEN_QUESTIONS_STATUS_29AUG2026.md`.
 | Q5a | **115.2M records/day across five types** (160k gateways × 6/h × 24h × 5). The internal "around 10 million" is withdrawn. This never blocked freezing the schema: every schema decision is identical at both figures — the delta is hardware, not rework | ADR-003; capacity tables |
 | — | **DLQ retention: no TTL, ever.** A TTL'd DLQ is silent data loss. Alert on depth > 0 and oldest-message age; manual disposition within 14 days; redrive by an authorised ops role only, per type, capped at 2× nominal, root cause first | ADR-002 §12; `amqp-topology-v1.md` §6 |
 | — | **`pg_partman` is never a dependency.** Partition pre-creation is a scheduled task in `stats-writer` behind the D3 advisory lock | ADR-003 D1 |
-| D5b | **Engineering agrees the late-arrival policy** (skip, meter `records_expired_on_arrival`, ACK) and adds an alert when the counter is non-zero. **SIGNED 4 Sep 2026 — DL-112** | ADR-003; **T-026 unblocked** |
+| D5b | **Engineering agrees the late-arrival policy** (skip, meter `records_expired_on_arrival`, ACK) and adds an alert when the counter is non-zero. **SIGNED 4 Sep 2026 — DL-112** | ADR-003; **T-026 built 10 Sep 2026 (DL-133); the alert is still T-050** |
 | **ADR-007** | **The production wire format is the contract.** `clsbox` not `gateway`; `ts.server` not `ts.processor`; no rename layer anywhere. `ts.converter` accepted, preserved, metered — ADR-004's rejection clause withdrawn. Two validation gates: envelope at Input (400), payload at the Writer (dead-letter). ~~One `lorastats` dialect encoded, the rest dead-lettered~~ — **§4 reversed 4 Sep 2026 by DL-105; all three are accepted (see *Decided 4 September 2026*)**. `netstats` interfaces require only `tx`/`rx`. `ltestats` numerics are strings and the field is `access_Technology` | ADR-007; amends ADR-002 §12, ADR-003, ADR-004 |
 
 **The redrive trap to carry into the runbook:** a message that sat in the DLQ long enough
@@ -605,13 +689,13 @@ two signatures that were owed. **Approver:** Naman Vashishtha. Full reasoning:
 | Q13c | **Heimdal agrees the 2× replay cap (2,667/s).** T-049 unblocked. **Not one defence changes** — an agreement is a commitment, not a control | DL-109; T-049, T-052 |
 | Q4b | **No IPv6 "for now."** `netstats` stays IPv4-only and strict, with a **distinct, metered per-field rejection code** whose non-zero count is the reopening trigger — not a calendar review | DL-110 |
 | **D5a** | **SIGNED.** RPO ≤ 5 min via continuous WAL archiving; RTO 1 h per partition, 24 h full cluster. Obliges archiver-lag alerting and a **timed** T-051 | DL-111 ratifies DL-084; **T-051 unblocked** |
-| **D5b** | **SIGNED.** Late arrival: skip, meter `records_expired_on_arrival`, ACK, **alert when non-zero**. Signed now rather than on 29 Aug because DL-106 makes the path real rather than hypothetical | DL-112 ratifies DL-083; **T-026 unblocked** |
+| **D5b** | **SIGNED.** Late arrival: skip, meter `records_expired_on_arrival`, ACK, **alert when non-zero**. Signed now rather than on 29 Aug because DL-106 makes the path real rather than hypothetical | DL-112 ratifies DL-083; **T-026 built 10 Sep 2026 (DL-133)** — the alert half is T-050 |
 
-### Built and decided 5–8 September 2026 — the state the next task starts from
+### Built and decided 5–10 September 2026 — the state the next task starts from
 
 Nothing here reopens a question. It is what exists in the repository now, so that a
 plan is not written against a repository that no longer exists. Full reasoning:
-`claude/DECISIONS.md` DL-113…DL-128.
+`claude/DECISIONS.md` DL-113…DL-133.
 
 | Ref | What is now true | Where |
 |---|---|---|
@@ -628,14 +712,18 @@ plan is not written against a repository that no longer exists. Full reasoning:
 | DL-126 | **The payload gate is live and NOT configurable.** Type-agnostic `PayloadGate`, one parse, `ValidatedRecord` into the writer, `records_payload_rejected{type,reason}` with `reason` closed at `payload_schema`/`type_mismatch`/`unmappable`, and a **constant** failure message so nothing from the record can ever reach a log. **`records_write_failed` means the INSERT was attempted and PostgreSQL refused it** — a payload nobody can map is counted as `unmappable`, because it never reaches the database and sending an operator there is a wasted incident. `intended-scope` is deleted rather than promoted | T-057 |
 | DL-127 | **Three dialects, one row.** Closed `oneOf` of three, structural detection, range-checked coercion *before* conversion, `data_extra` taken from the **normalised** residue. The dialect is the label `records_lorastats_dialect{dialect}`, never a column. A fourth spelling still dead-letters | T-063, T-060, T-062 |
 | DL-128 | **A non-OK upstream `status` is metered at the gate and stored.** Never dead-lettered — a redrive repeats the verdict forever. **Absence is not counted**; the comparison is value-agnostic against the one known-good value | T-064, T-050 |
+| DL-132 | **Retention is detach-and-drop, and every run repairs the last one.** One daily pass per type — pre-create **then** retain — behind the same advisory lock, staggered by an offset derived from the stat type. Each run starts with `DETACH … FINALIZE`, because an interrupted detach wedges every later one while ingestion carries on looking healthy; leftovers from a crash between detach and drop are reclaimed and counted separately. Nothing is dropped whose **name** this module did not produce, whose **catalogue bound** disagrees with that name, or whose day is not wholly outside the window | T-025, T-031, T-051, T-054, T-055 |
+| DL-133 | **A late record is skipped, metered and ACKed — never dead-lettered.** `RetentionGuard` **returns a decision where `PayloadGate` throws**, because this path must end in a broker ACK. It reads the **same cutoff** as the sweep (`RetentionWindow`), so a record cannot be admitted into a partition that has just been dropped. Per-type windows are `stats.retention.days-by-type.<wire-name>`, validated at startup; `default-days` has no default in code | T-026, T-031, T-050, T-052 |
 
 > **What to do next lives in `Stats_App_Tracker.xlsx` → the `Next Up` sheet**, ranked
 > across both owners with the gate on each row. T-063, T-057 and T-064 were done on
-> 8 Sep 2026. In one line: **T-025/T-026/T-031** (retention, late arrival and the
-> boundary tests either side of the window), then **T-029/T-030/T-033**; **T-060 is
-> unblocked** and can now be sized against real dead-letter volume; the fan-out starts
-> at **`sysstats`** — not `ltestats`, which is blocked on D-12 P3 — and starts when
-> **T-033** is green.
+> 8 Sep 2026; **T-025 and T-026 on 10 Sep 2026**, which also covers T-031's boundary
+> assertions on both sides — at the exact second in `RetentionWindowTest`, and through a
+> genuinely dropped partition in `PartitionRetentionIntegrationTest`. In one line:
+> **T-029/T-030/T-033**, which is what lets the fan-out start at **`sysstats`** — not
+> `ltestats`, which is blocked on D-12 P3. **T-060 and T-050 are the gap this leaves**:
+> the DLQ and `records_expired_on_arrival` are both real and **nobody is watching
+> either**. T-051, T-054 and T-055 are unblocked — they measure what T-025 built.
 
 ### Ours to decide — decide deliberately, record as an ADR, do not escalate
 
@@ -732,7 +820,7 @@ wrong.** Reconciled 18 August 2026.
 |---|---|---|---|
 | ADR-001 | JVM and Spring platform baseline | **APPROVED** | Java 21; Spring Boot **pinned** at 3.5.16 (G6) — not provisional, because Q1a closed on 18 Aug 2026. There is no internal reference project, so CI, logging, secrets and deployment conventions are defined by this project (ADR-001, 2B-ANSWERS §1). No residual. |
 | ADR-002 | Per-type AMQP topology and ownership | **APPROVED** | Queue naming and three retry tiers fixed by G1/G4. **Amended 29 Aug 2026:** §11 closes Q3a — only broker-connected modules declare topology and `stats-api` gets no broker connection; §12 decides dead-letter retention — **no TTL, ever** — with alerting, 14-day manual disposition and per-type authorised redrive. No residual. |
-| ADR-003 | PostgreSQL retention, partitioning, indexes | **APPROVED** (24 Aug 2026) | PG17, daily `RANGE (ts_device)` partitions, typed columns, Flyway; key order `(ts_device, uid)` per G2, with STA-21B/STA-25A amended to match and duplicate suppression metered. Secondary index `(tenant, uid)` carries the `uid`-only lookup, which cannot prune partitions. Restore is per-partition (D5). **Amended 29 Aug 2026:** D1 makes partition pre-creation a scheduled task in `stats-writer` behind the D3 advisory lock, with `pg_partman` never a dependency; **D9 closes Q14a** — a `ts.device` beyond the configured skew tolerance is rejected at Input. **Amended 4 Sep 2026:** both rows that were open inside this approved ADR are now **signed** — D5a at RPO ≤ 5 min / RTO 1 h per partition and 24 h full cluster (DL-111), and D5b's late-arrival policy (DL-112). T-051 and T-026 are unblocked, and Q15b (DL-106) confirms the `ts.device` basis those decisions rest on. |
+| ADR-003 | PostgreSQL retention, partitioning, indexes | **APPROVED** (24 Aug 2026) | PG17, daily `RANGE (ts_device)` partitions, typed columns, Flyway; key order `(ts_device, uid)` per G2, with STA-21B/STA-25A amended to match and duplicate suppression metered. Secondary index `(tenant, uid)` carries the `uid`-only lookup, which cannot prune partitions. Restore is per-partition (D5). **Amended 29 Aug 2026:** D1 makes partition pre-creation a scheduled task in `stats-writer` behind the D3 advisory lock, with `pg_partman` never a dependency; **D9 closes Q14a** — a `ts.device` beyond the configured skew tolerance is rejected at Input. **Amended 4 Sep 2026:** both rows that were open inside this approved ADR are now **signed** — D5a at RPO ≤ 5 min / RTO 1 h per partition and 24 h full cluster (DL-111), and D5b's late-arrival policy (DL-112). T-051 and T-026 are unblocked, and Q15b (DL-106) confirms the `ts.device` basis those decisions rest on. **Amended 10 Sep 2026 (DL-132, DL-133):** D1's retention half and D5b's late-arrival policy are **BUILT** (T-025, T-026), and two mechanisms this ADR did not name are added — every run finalises an abandoned `DETACH … CONCURRENTLY` (an interrupted one wedges all later detaches while ingestion looks healthy), and the sweep reclaims tables detached but never dropped. The guard and the sweep read **one** cutoff. |
 | ADR-004 | OMS timestamp normalisation | **ACCEPTED — amended 29 Aug 2026 by ADR-007 §2** | No normalisation; publication is byte-identical to the received record, which is what makes ADR-003's per-partition duplicate suppression work. **Clause 3 is withdrawn:** a record carrying `ts.converter` is **valid** — production sends it on 100% of records. Accepted, preserved, never read, metered. Cite the ARD's different ADR-004 as `ARD-ADR-04`. |
 | ADR-005 | Delivery semantics and idempotency | **ACCEPTED with implementation defaults** | Writer batching amended by G3. Retry/DLQ handoff must be publish-confirmed *before* ACKing the original — ACK-then-publish opens a silent loss window. Duplicate outcome is `ON CONFLICT (ts_device, uid) DO NOTHING`, metered. Replay spikes the duplicate counter by design; do not alert on it. Q13c (2× replay cap) is **agreed by Heimdal since 4 Sep 2026 (DL-109) and still not enforceable by us** — 503 backpressure, bounded prefetch and T-018's rate limit stay exactly as they are. |
 | ADR-007 | The production wire format is the contract | **ACCEPTED** (29 Aug 2026) — **§4 amended 4 Sep 2026, built 8 Sep 2026** | `clsbox`/`ts.server` end to end with no rename layer; `ts.converter` accepted and metered (amends ADR-004); two validation gates with different consequences — **and since T-057 both gates exist in code**, so "invalid" genuinely no longer implies "400" (DL-126). **§4 is reversed by the *Amendment — 4 September 2026*: all three known `lorastats` dialects are accepted and normalised to one row (DL-105 supersedes DL-089), under a closed enumeration with structural detection and range-checked coercion — implemented by T-063 (DL-127).** All four of its open questions (Q15a–Q15d) were answered on 4 Sep 2026 — DL-105…DL-108 — leaving one residual: whether the other dialects are being retired. Also amends ADR-003 (column names); its DLQ-volume warning to ADR-002 §12 is resolved. |

@@ -6,9 +6,8 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
-import java.time.LocalDate;
 import java.time.DateTimeException;
-import java.time.format.DateTimeFormatter;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -19,20 +18,16 @@ import org.springframework.stereotype.Component;
 @Component
 public class PartitionPrecreator {
 
-    private static final String TRY_LOCK_SQL =
-            "SELECT pg_try_advisory_lock(hashtext('stats.retention:' || ?))";
-    private static final String UNLOCK_SQL =
-            "SELECT pg_advisory_unlock(hashtext('stats.retention:' || ?))";
     private static final String PARENT_EXISTS_SQL =
             "SELECT COALESCE((SELECT relkind = 'p' FROM pg_class "
                     + "WHERE oid = to_regclass(?)), false)";
-    private static final DateTimeFormatter PARTITION_DATE =
-            DateTimeFormatter.ofPattern("uuuu_MM_dd");
 
     private final DataSource dataSource;
+    private final PartitionSession session;
 
     public PartitionPrecreator(DataSource dataSource) {
         this.dataSource = Objects.requireNonNull(dataSource, "dataSource");
+        this.session = new PartitionSession(dataSource);
     }
 
     /**
@@ -81,8 +76,10 @@ public class PartitionPrecreator {
      * eight ensured partitions.
      *
      * <p>The session-level advisory lock and every DDL statement deliberately use
-     * the same physical connection. The lock is explicitly released before that
-     * pooled connection is returned, including when partition creation fails.
+     * the same physical connection, and the lock is released before that pooled
+     * connection is returned even when partition creation fails —
+     * {@link PartitionSession} owns both guarantees, and retention holds the same lock
+     * through the same class so the two jobs cannot run concurrently on one type.
      */
     public PartitionPrecreationResult ensurePartitions(
             StatType type, LocalDate firstDay, int preCreateDays) {
@@ -104,123 +101,39 @@ public class PartitionPrecreator {
                     "The requested partition horizon exceeds LocalDate limits", exception);
         }
 
-        try (Connection connection = dataSource.getConnection()) {
-            boolean lockAcquired = tryLock(connection, type);
-            if (!lockAcquired) {
-                return PartitionPrecreationResult.lockNotAcquired();
-            }
+        return session.withLock(
+                        type,
+                        "pre-create partitions for " + type.wireName(),
+                        connection -> {
+                            List<LocalDate> days = new ArrayList<>(preCreateDays + 1);
+                            for (int offset = 0; offset <= preCreateDays; offset++) {
+                                days.add(firstDay.plusDays(offset));
+                            }
 
-            // Everything after the lock is acquired runs inside this try, so no path
-            // can return the connection to the pool still holding the lock. A
-            // session-level advisory lock outlives the borrow -- the pool keeps the
-            // session open -- so a leak here blocks this stat type's maintenance on
-            // every replica until that physical connection is evicted.
-            String previousTimeZone = null;
-            try {
-                // The bound comparison below reads pg_get_expr, which renders
-                // timestamptz in the SESSION time zone. Under any non-UTC session an
-                // existing, correct partition renders as a different literal and is
-                // reported as having wrong bounds -- so this is load-bearing, not
-                // cosmetic. It is restored before the connection goes back to the
-                // pool: a pooled connection carrying a mutated session zone is a
-                // defect for whoever borrows it next, and HikariCP does not reset it.
-                previousTimeZone = currentTimeZone(connection);
-                setTimeZone(connection, "UTC");
+                            // Validate every pre-existing child before creating anything.
+                            // A same-named child with a different range must never be
+                            // accepted.
+                            List<Boolean> existing = new ArrayList<>(days.size());
+                            for (LocalDate day : days) {
+                                existing.add(validateExistingPartition(connection, type, day));
+                            }
 
-                List<LocalDate> days = new ArrayList<>(preCreateDays + 1);
-                for (int offset = 0; offset <= preCreateDays; offset++) {
-                    days.add(firstDay.plusDays(offset));
-                }
-
-                // Validate every pre-existing child before creating anything. A
-                // same-named child with a different range must never be accepted.
-                List<Boolean> existing = new ArrayList<>(days.size());
-                for (LocalDate day : days) {
-                    existing.add(validateExistingPartition(connection, type, day));
-                }
-
-                int ensured = 0;
-                for (int index = 0; index < days.size(); index++) {
-                    if (!existing.get(index)) {
-                        createPartition(connection, type, days.get(index));
-                    }
-                    ensured++;
-                }
-                releaseSession(connection, type, previousTimeZone);
-                return PartitionPrecreationResult.completed(ensured);
-            } catch (RuntimeException | SQLException failure) {
-                // Cleanup is best-effort ONCE we are already failing. Letting it throw
-                // from a finally block would REPLACE the DDL failure with a
-                // lock-bookkeeping message, and ADR-003 D1 requires this failure to be
-                // loud and diagnosable -- it stops ingestion for a whole stat type.
-                try {
-                    releaseSession(connection, type, previousTimeZone);
-                } catch (SQLException cleanupFailure) {
-                    failure.addSuppressed(cleanupFailure);
-                }
-                throw failure;
-            }
-        } catch (SQLException exception) {
-            throw maintenanceFailure("pre-create partitions for " + type.wireName(), exception);
-        }
-    }
-
-    private static boolean tryLock(Connection connection, StatType type) throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement(TRY_LOCK_SQL)) {
-            statement.setString(1, type.wireName());
-            try (ResultSet result = statement.executeQuery()) {
-                return result.next() && result.getBoolean(1);
-            }
-        }
-    }
-
-    private static void unlock(Connection connection, StatType type) throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement(UNLOCK_SQL)) {
-            statement.setString(1, type.wireName());
-            try (ResultSet result = statement.executeQuery()) {
-                if (!result.next() || !result.getBoolean(1)) {
-                    throw new SQLException(
-                            "PostgreSQL advisory lock was not held for " + type.wireName());
-                }
-            }
-        }
-    }
-
-    /**
-     * Restores the borrowed connection's session state and drops the advisory lock, in
-     * that order, so nothing is left behind for the next borrower.
-     */
-    private static void releaseSession(Connection connection, StatType type, String timeZone)
-            throws SQLException {
-        // null means we failed before reading the original zone, so there is nothing
-        // to restore -- but the lock still has to go.
-        if (timeZone != null) {
-            setTimeZone(connection, timeZone);
-        }
-        unlock(connection, type);
-    }
-
-    private static String currentTimeZone(Connection connection) throws SQLException {
-        try (Statement statement = connection.createStatement();
-                ResultSet result = statement.executeQuery("SHOW TimeZone")) {
-            return result.next() ? result.getString(1) : "UTC";
-        }
-    }
-
-    private static void setTimeZone(Connection connection, String timeZone) throws SQLException {
-        // set_config takes the value as a parameter, so the zone name is never
-        // concatenated into SQL.
-        try (PreparedStatement statement =
-                connection.prepareStatement("SELECT set_config('TimeZone', ?, false)")) {
-            statement.setString(1, timeZone);
-            statement.execute();
-        }
+                            int ensured = 0;
+                            for (int index = 0; index < days.size(); index++) {
+                                if (!existing.get(index)) {
+                                    createPartition(connection, type, days.get(index));
+                                }
+                                ensured++;
+                            }
+                            return PartitionPrecreationResult.completed(ensured);
+                        })
+                .orElseGet(PartitionPrecreationResult::lockNotAcquired);
     }
 
     private static boolean validateExistingPartition(
             Connection connection, StatType type, LocalDate day)
             throws SQLException {
-        String partitionName = type.wireName() + "_" + PARTITION_DATE.format(day);
+        String partitionName = PartitionNaming.partitionName(type, day);
         boolean relationExists = false;
         boolean isChildOfExpectedParent = false;
         String actualBound = null;
@@ -250,7 +163,7 @@ public class PartitionPrecreator {
                                 + " is not a partition of "
                                 + type.wireName());
             }
-            String expectedBound = partitionBound(day);
+            String expectedBound = PartitionNaming.partitionBound(day);
             if (!expectedBound.equals(actualBound)) {
                 throw new IllegalStateException(
                         "Existing partition "
@@ -267,32 +180,18 @@ public class PartitionPrecreator {
 
     private static void createPartition(Connection connection, StatType type, LocalDate day)
             throws SQLException {
-        String parent = quotedIdentifier(type.wireName());
-        String child = quotedIdentifier(type.wireName() + "_" + PARTITION_DATE.format(day));
-        String bound = partitionBound(day);
+        String parent = PartitionNaming.quotedIdentifier(type.wireName());
+        String child = PartitionNaming.quotedIdentifier(PartitionNaming.partitionName(type, day));
         String sql =
                 "CREATE TABLE "
                         + child
                         + " PARTITION OF "
                         + parent
                         + " "
-                        + bound;
+                        + PartitionNaming.partitionBound(day);
         try (Statement statement = connection.createStatement()) {
             statement.execute(sql);
         }
-    }
-
-    private static String partitionBound(LocalDate day) {
-        return "FOR VALUES FROM ('"
-                + day
-                + " 00:00:00+00') TO ('"
-                + day.plusDays(1)
-                + " 00:00:00+00')";
-    }
-
-    private static String quotedIdentifier(String identifier) {
-        // Identifiers originate only from the closed StatType enum and a LocalDate.
-        return '"' + identifier.replace("\"", "\"\"") + '"';
     }
 
     private static IllegalStateException maintenanceFailure(String action, SQLException cause) {

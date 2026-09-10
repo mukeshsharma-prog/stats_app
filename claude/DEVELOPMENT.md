@@ -248,21 +248,32 @@ spring.datasource.password=${POSTGRES_PASSWORD:stats}
 
 # Retention — STA-23A/STA-23B. Default 90 days, overridable per type.
 # Keys on ts.device, NOT ts.server. See the caveat below.
+# NO DEFAULT IN CODE: retention deletes data, so an unconfigured deployment must
+# fail to start rather than adopt a window somebody guessed (DL-132).
 stats.retention.default-days=90
-# stats.retention.lorastats-days=90
-# stats.retention.sysstats-days=30
+# Per-type override. Validated against StatType.wireName() at startup, so a typo
+# FAILS THE CONTEXT instead of silently reverting that type to the default. This
+# replaced `stats.retention.<type>-days`, which never bound to anything (DL-132).
+# stats.retention.days-by-type.sysstats=30
+# ADR-003 D3 — stagger the five types rather than firing them together. The offset
+# is derived from the TYPE, so it separates five deployments in production and five
+# passes in `all` mode with one mechanism. PT0S disables it.
+stats.retention.stagger=PT30S
 
-# Partitioning is the retention mechanism — ADR-003. Retention drops one
-# partition per type per day; it does not delete rows.
+# Partitioning is the retention mechanism — ADR-003, built by T-025 (DL-132).
+# DETACH PARTITION ... CONCURRENTLY then DROP TABLE, once daily per type, behind
+# pg_try_advisory_lock. It never deletes a row. One scheduled entry point runs
+# pre-creation and THEN retention, so tomorrow's partition exists before
+# yesterday's is dropped.
 stats.retention.partition-granularity=daily
 stats.retention.pre-create-days=7
 stats.retention.schedule=0 30 3 * * *        # Spring 6-field cron, off-peak
+stats.retention.pre-create-on-startup=true
 
-# Fallback path only, if partitioning is not approved for increment 1
-stats.retention.delete-batch-size=10000
-stats.retention.fallback-schedule=0 */5 * * * *
-stats.retention.max-batches-per-run=50
-stats.retention.max-run-duration=PT2M
+# The four batched-DELETE fallback keys that used to sit here are GONE (DL-130,
+# 8 Sep 2026). They configured the path to take "if partitioning is not approved",
+# and it WAS approved — so they tuned a design the project decided against, read by
+# no code, while still reading as live operational settings.
 
 # Retry tiers and DLQ — STA-12A, rule 5, G1/G4. THREE tiers with fixed delays,
 # all externalised here and NEVER hard-coded. There is no multiplier: the tiers
@@ -744,7 +755,7 @@ pinned, and the conventions it would have supplied are defined in ADR-001.
 | ~~**Q13b**~~ | **ANSWERED 4 Sep 2026 (DL-104): gateways JITTER** across the cycle. Expected steady state ~1,333/s; DL-082's 13,333/s becomes **configured headroom**, and hardware is not sized down until a `ts.server mod 600` histogram over the first 24 h of ingest confirms it. **One reading inverts:** a cyclic queue-depth spike used to be the buffer working — under jitter it is evidence the answer is wrong. |
 | ~~**Q13c**~~ | **ANSWERED 4 Sep 2026 (DL-109):** Heimdal agrees the 2× cap. **Not one defence changes** — an agreement is a commitment, not a control; 503 backpressure, bounded prefetch and T-018's rate limit stay. T-049 unblocked. |
 | ~~**Q4b**~~ | **ANSWERED 4 Sep 2026 (DL-110): no IPv6, for now.** The schema stays IPv4-only and strict; the IPv4 `$def` failure emits a **distinct metered per-field code**, and a non-zero count on it reopens Q4b. |
-| ~~**D5b**~~ | **SIGNED 4 Sep 2026 (DL-112):** skip the write, meter `records_expired_on_arrival`, ACK, **alert when non-zero**. T-026 unblocked. Still a deliberate data-loss-by-design path — the signature is what makes it a decision rather than a defect. |
+| ~~**D5b**~~ | **SIGNED 4 Sep 2026 (DL-112), BUILT 10 Sep 2026 (T-026, DL-133):** skip the write, meter `records_expired_on_arrival{type}`, `WARN`, ACK — **never dead-letter**. Still a deliberate data-loss-by-design path — the signature is what makes it a decision rather than a defect. **`alert when non-zero` is NOT built**: that is T-050, and it is the half that separates a systemic gateway backlog from a one-off. |
 
 ### Decided 29 August 2026 — do not reopen
 
