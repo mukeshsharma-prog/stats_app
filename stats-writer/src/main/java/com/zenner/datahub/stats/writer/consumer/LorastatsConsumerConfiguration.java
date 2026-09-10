@@ -4,6 +4,7 @@ import com.zenner.datahub.stats.common.amqp.AmqpTopology;
 import com.zenner.datahub.stats.common.amqp.AmqpTopology.ExchangeDefinition;
 import com.zenner.datahub.stats.common.amqp.AmqpTopology.QueueDefinition;
 import com.zenner.datahub.stats.writer.retry.FailedDeliveryRouter;
+import io.micrometer.core.instrument.MeterRegistry;
 import com.zenner.datahub.stats.writer.retry.WriterAmqpProperties;
 import org.springframework.amqp.core.AcknowledgeMode;
 import org.springframework.amqp.core.Binding;
@@ -168,7 +169,8 @@ public class LorastatsConsumerConfiguration {
     @Conditional(LorastatsDeploymentCondition.class)
     LorastatsConsumer lorastatsConsumer(
             StatsMessageProcessorAvailability processorAvailability,
-            FailedDeliveryRouter failedDeliveryRouter) {
-        return new LorastatsConsumer(processorAvailability, failedDeliveryRouter);
+            FailedDeliveryRouter failedDeliveryRouter,
+            MeterRegistry registry) {
+        return new LorastatsConsumer(processorAvailability, failedDeliveryRouter, registry);
     }
 }

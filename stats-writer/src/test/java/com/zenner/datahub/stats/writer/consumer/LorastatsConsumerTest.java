@@ -3,6 +3,8 @@ package com.zenner.datahub.stats.writer.consumer;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.assertThat;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -18,6 +20,14 @@ import org.springframework.amqp.core.Message;
 import org.springframework.amqp.core.MessageProperties;
 
 class LorastatsConsumerTest {
+    private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
+
+    private void assertAttemptMetered() {
+        assertThat(registry.get("records_consumed").tag("type", "lorastats").counter().count())
+                .isEqualTo(1);
+        assertThat(registry.get("records_processing_duration").tag("type", "lorastats").timer().count())
+                .isEqualTo(1);
+    }
 
     @Test
     void acknowledgesOnlyAfterTheProcessorReturnsSuccessfully() throws Exception {
@@ -28,7 +38,7 @@ class LorastatsConsumerTest {
         Channel channel = mock(Channel.class);
         Message message = delivery(42L);
         FailedDeliveryRouter router = mock(FailedDeliveryRouter.class);
-        LorastatsConsumer consumer = new LorastatsConsumer(availability, router);
+        LorastatsConsumer consumer = new LorastatsConsumer(availability, router, registry);
 
         consumer.consume(message, channel);
 
@@ -37,6 +47,7 @@ class LorastatsConsumerTest {
         order.verify(channel).basicAck(42L, false);
         order.verifyNoMoreInteractions();
         verifyNoInteractions(router);
+        assertAttemptMetered();
     }
 
     @Test
@@ -55,7 +66,7 @@ class LorastatsConsumerTest {
                 .when(processor)
                 .process(StatType.LORASTATS, message);
         FailedDeliveryRouter router = mock(FailedDeliveryRouter.class);
-        LorastatsConsumer consumer = new LorastatsConsumer(availability, router);
+        LorastatsConsumer consumer = new LorastatsConsumer(availability, router, registry);
 
         consumer.consume(message, channel);
 
@@ -63,6 +74,7 @@ class LorastatsConsumerTest {
         order.verify(router).route(StatType.LORASTATS, message, failure);
         order.verify(channel).basicAck(51L, false);
         order.verifyNoMoreInteractions();
+        assertAttemptMetered();
     }
 
     @Test
@@ -83,19 +95,20 @@ class LorastatsConsumerTest {
         org.mockito.Mockito.doThrow(unconfirmed)
                 .when(router)
                 .route(StatType.LORASTATS, message, failure);
-        LorastatsConsumer consumer = new LorastatsConsumer(availability, router);
+        LorastatsConsumer consumer = new LorastatsConsumer(availability, router, registry);
 
         assertThatThrownBy(() -> consumer.consume(message, channel)).isSameAs(unconfirmed);
 
         // Nothing was acknowledged, so the broker still holds the only copy. A hot
         // redelivery loop is visible and recoverable; a lost record is neither.
         verifyNoInteractions(channel);
+        assertAttemptMetered();
     }
 
     @Test
     void rejectsAMissingProcessorInsteadOfCreatingANoOpConsumer() {
         assertThatNullPointerException()
-                .isThrownBy(() -> new LorastatsConsumer(null, mock(FailedDeliveryRouter.class)))
+                .isThrownBy(() -> new LorastatsConsumer(null, mock(FailedDeliveryRouter.class), registry))
                 .withMessage("processorAvailability");
     }
 
@@ -107,7 +120,7 @@ class LorastatsConsumerTest {
                 .isThrownBy(
                         () ->
                                 new LorastatsConsumer(
-                                        mock(StatsMessageProcessorAvailability.class), null))
+                                        mock(StatsMessageProcessorAvailability.class), null, registry))
                 .withMessage("failedDeliveryRouter");
     }
 

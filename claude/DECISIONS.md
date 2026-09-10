@@ -3876,3 +3876,67 @@ its own init session. Separating a cluster administrator from `stats` would chan
 approved one-name image/Writer setup, credential rotation, migration ownership, and
 existing-volume upgrade procedure; that is a separate platform decision, not silently
 introduced by T-009.
+
+### DL-136 — Meter delivery attempts separately from committed inserts
+
+**10 Sep 2026** · `ENGINEERING` · STA-27A, STA-25A, ADR-005 · T-027
+
+*Written as DL-128, renumbered on merge: `main` had meanwhile assigned DL-128 to the
+upstream-`status` metering (T-064).*
+
+**Decision.** The listener counts `records_consumed{type}` before decoding and times each
+attempt as `records_processing_duration{type}` through processing, any confirmed failure
+hand-off and the ACK attempt — recorded on failure exits too, so a redelivery counts again.
+Persistence increments `records_persisted{type}` only after the transaction returns with
+an inserted row; a duplicate stays its own outcome. `records_postgres_errors{type}`
+separates database-access and transaction failures from the broader
+`records_write_failed{type}` by inspecting only exception *types* in a bounded cause
+chain — no driver message becomes a label. Neither exception messages nor record
+identifiers become metric labels.
+
+The measurement boundaries are recorded in `docs/contracts/writer-metrics-v1.md`.
+
+---
+
+### DL-137 — Broker observations are polled and cached; a scrape performs no I/O
+
+**10 Sep 2026** · `ENGINEERING` · STA-27A, NFR-05, DL-104, DL-132, DL-133 · T-027, T-050, T-060
+
+*Written as DL-129, renumbered on merge: `main` had meanwhile assigned DL-129 to the
+configuration audit.*
+
+**Decision.** `OperationalMetrics` exposes per-type `queue_depth`, `dlq_depth` and
+`consumer_availability` from passive AMQP queue inspection — no management-plugin
+credential, no new dependency — read on `stats.metrics.poll-interval` and cached, so a
+Prometheus scrape reads memory. A failed observation writes NaN, drops
+`broker_metrics_collection_success` and leaves
+`broker_metrics_last_success_timestamp_seconds` where it was: a queue the broker cannot
+report on and an empty queue must never read the same, and an alert has to check freshness
+before treating a zero as healthy. Replica observations describe one shared resource —
+aggregate with `max`, never `sum`. `dlq_depth` is the series T-060 watches.
+`retention_period_days{type}` is read from `RetentionWindow`.
+
+**What the branch built and the merge removed — and why.** T-027 was cut before T-025 and
+T-026 landed, and it carried its own answers to both:
+
+* A second retention cutoff, `RecordRetentionPolicy`: `now − days` as an instant, with the
+  boundary on the *expired* side ("at or before"), reading the retired
+  `stats.retention.<type>-days` keys. DL-133 exists because two cutoffs that drift by a day
+  admit a record into a partition the sweep has just dropped, and this one differed from
+  `RetentionWindow` in both the day and the boundary direction. Dropped;
+  `retention_period_days` reads the one definition instead.
+* A late-arrival skip inside `LorastatsMessageProcessor`, and a `type != expectedType`
+  check beside it. Both already exist on `main` as `RetentionGuard` (DL-133) and the
+  `PayloadGate` `type_mismatch` reason (DL-126), in the order that matters — gate, then
+  guard — so a late record that is *also* malformed dead-letters where it can be
+  diagnosed rather than being discarded as merely late. Dropped as duplicates.
+* `PartitionLagReader` and `retention_lag_seconds`, a catalogue query on a 30-second poll.
+  DL-132 rejected exactly this in favour of the sweep-reported
+  `retention_oldest_partition_age_days`: a polled gauge keeps reporting a healthy number
+  from a replica whose sweep never ran, and it hard-coded the `public` schema. Dropped.
+
+What survives is what T-027 was for: the broker gauges and the delivery/persistence
+counters, which T-050 and T-060 need and which nothing on `main` provided. Main-queue
+depth remains a diagnostic, not the oldest-message-age alert T-050 requires — under
+jitter (DL-104) a cyclic depth spike is evidence the jitter answer is wrong, not the
+buffer working.

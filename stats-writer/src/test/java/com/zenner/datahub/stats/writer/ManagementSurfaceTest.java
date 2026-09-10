@@ -2,9 +2,11 @@ package com.zenner.datahub.stats.writer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.zenner.datahub.stats.common.model.StatType;
 import com.zenner.datahub.stats.testsupport.PostgresSupport;
 import com.zenner.datahub.stats.testsupport.RabbitSupport;
 import com.zenner.datahub.stats.writer.persistence.LorastatsBatchWriter;
+import com.zenner.datahub.stats.writer.retry.WriterFailureMetrics;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -43,9 +45,11 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
  * collision is visible nowhere else (ADR-003, ADR-005). An unexported counter turns
  * that back into silence.</p>
  *
- * <p>A registered Micrometer counter is scraped at 0.0 before it is ever
- * incremented, so asserting on the name alone is enough and this test needs no
- * partition, no message, and no write. (T-022, T-023, T-058, T-027; DL-100)</p>
+ * <p>The persistence counters are registered when their writer bean is created.
+ * Retry and DLQ counters are dynamic because their tier and reason labels exist only
+ * when a failure is routed, so this test exercises that metric component before the
+ * scrape. It still needs no partition, broker message, or database write: dedicated
+ * routing tests prove when the component is called.</p>
  */
 @SpringBootTest(
         classes = StatsWriterApplication.class,
@@ -89,8 +93,17 @@ class ManagementSurfaceTest {
     @Qualifier("requestMappingHandlerMapping")
     private RequestMappingHandlerMapping handlerMapping;
 
+    @Autowired private WriterFailureMetrics failureMetrics;
+
     @Test
     void everyWriterCounterIsActuallyScrapeable() {
+        // Retry and DLQ meters are created on first use because their tier/reason
+        // labels are known only when routing a failure. Exercise the metric component
+        // here; FailedDeliveryRouterTest separately proves the real routing paths call
+        // it only after a confirmed hand-off.
+        failureMetrics.retried(StatType.LORASTATS, 2);
+        failureMetrics.deadLettered(StatType.LORASTATS, "DataIntegrityViolationException");
+
         ResponseEntity<String> scrape =
                 rest.getForEntity("http://localhost:" + port + "/actuator/prometheus", String.class);
 
@@ -104,7 +117,59 @@ class ManagementSurfaceTest {
                 .contains(LorastatsBatchWriter.DUPLICATE_METRIC + "_total")
                 .contains(LorastatsBatchWriter.UNMAPPED_DATA_METRIC + "_total")
                 .contains(LorastatsBatchWriter.WRITE_FAILED_METRIC + "_total")
+                .contains("records_persisted_total{type=\"lorastats\"}")
+                .contains("records_postgres_errors_total{type=\"lorastats\"}")
                 .contains("type=\"lorastats\"");
+
+        String retried = sample(scrape.getBody(), WriterFailureMetrics.RETRIED);
+        assertThat(retried)
+                .contains("type=\"lorastats\"")
+                .contains("tier=\"2\"")
+                .doesNotContain("uid=", "tenant=", "clsbox=")
+                .endsWith(" 1.0");
+
+        String deadLettered = sample(scrape.getBody(), WriterFailureMetrics.DEAD_LETTERED);
+        assertThat(deadLettered)
+                .contains("type=\"lorastats\"")
+                .contains("reason=\"DataIntegrityViolationException\"")
+                .doesNotContain("uid=", "tenant=", "clsbox=")
+                .endsWith(" 1.0");
+    }
+
+    private static String sample(String scrape, String metricName) {
+        String prometheusName = metricName + "_total";
+        return scrape.lines()
+                .filter(line -> line.startsWith(prometheusName))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError(prometheusName + " was not exported"));
+    }
+
+    @Autowired private io.micrometer.core.instrument.MeterRegistry registry;
+
+    @Test
+    void deliveryAttemptMetricsReachTheScrapeEvenForAMalformedBody() throws Exception {
+        // The context deliberately has no live consumer, to avoid stealing other
+        // integration tests' broker messages. Drive the real listener with mocked ports.
+        var processor = org.mockito.Mockito.mock(
+                com.zenner.datahub.stats.writer.consumer.StatsMessageProcessor.class);
+        org.mockito.Mockito.when(processor.statType()).thenReturn(StatType.LORASTATS);
+        var beans = new org.springframework.beans.factory.support.StaticListableBeanFactory();
+        beans.addBean("processor", processor);
+        var availability = new com.zenner.datahub.stats.writer.consumer.StatsMessageProcessorAvailability(
+                beans.getBeanProvider(com.zenner.datahub.stats.writer.consumer.StatsMessageProcessor.class));
+        var router = org.mockito.Mockito.mock(
+                com.zenner.datahub.stats.writer.retry.FailedDeliveryRouter.class);
+        var message = new org.springframework.amqp.core.Message(new byte[] {'{'}, new org.springframework.amqp.core.MessageProperties());
+        org.mockito.Mockito.doThrow(new IllegalArgumentException("malformed body"))
+                .when(processor).process(StatType.LORASTATS, message);
+        var consumer = new com.zenner.datahub.stats.writer.consumer.LorastatsConsumer(availability, router, registry);
+        consumer.consume(message, org.mockito.Mockito.mock(com.rabbitmq.client.Channel.class));
+        var scrape = rest.getForEntity("http://localhost:" + port + "/actuator/prometheus", String.class);
+        assertThat(scrape.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(scrape.getBody())
+                .contains("records_consumed_total{type=\"lorastats\"} 1.0")
+                .contains("records_processing_duration_seconds_count{type=\"lorastats\"} 1")
+                .contains("records_processing_duration_seconds_sum{type=\"lorastats\"}");
     }
 
     @Test
