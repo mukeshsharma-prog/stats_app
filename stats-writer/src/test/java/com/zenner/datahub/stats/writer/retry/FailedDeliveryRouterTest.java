@@ -8,6 +8,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 import com.fasterxml.jackson.core.JsonParseException;
@@ -133,6 +134,31 @@ class FailedDeliveryRouterTest {
                         any(Message.class),
                         any(CorrelationData.class));
         assertThat(deadLetterCount("DataIntegrityViolationException")).isEqualTo(1.0d);
+    }
+
+    @Test
+    @DisplayName("a failed manual redrive returns directly to the DLQ")
+    void failedManualRedriveNeverReceivesAnotherRetryTier() {
+        Message redriven = delivery(1);
+        redriven.getMessageProperties()
+                .setHeader(FailedDeliveryRouter.MANUAL_REDRIVE_HEADER, true);
+
+        router.route(StatType.LORASTATS, redriven, new IllegalStateException("db"));
+
+        verify(rabbitTemplate)
+                .send(
+                        eq(AmqpTopology.DEAD_LETTER_EXCHANGE),
+                        eq(AmqpTopology.deadLetterRoutingKey(StatType.LORASTATS)),
+                        any(Message.class),
+                        any(CorrelationData.class));
+        for (int tier = 1; tier <= AmqpTopology.RETRY_TIERS; tier++) {
+            verify(rabbitTemplate, never())
+                    .send(
+                            eq(""),
+                            eq(AmqpTopology.retryQueue(StatType.LORASTATS, tier)),
+                            any(Message.class),
+                            any(CorrelationData.class));
+        }
     }
 
     @Test

@@ -3940,3 +3940,31 @@ counters, which T-050 and T-060 need and which nothing on `main` provided. Main-
 depth remains a diagnostic, not the oldest-message-age alert T-050 requires — under
 jitter (DL-104) a cyclic depth spike is evidence the jitter answer is wrong, not the
 buffer working.
+
+---
+
+Code comments explain general behavior and purpose; task and ADR traceability stays
+in these project documents, per the user's instruction.
+
+### DL-138 — Manual DLQ redrive gets one processing attempt, never fresh retry tiers
+
+**11 September 2026** · T-052 · STA-12A, ADR-002 §12
+
+A dead-letter queue is inert: no application component consumes or redrives it
+automatically. Records remain available with their original bytes and safe failure
+metadata until an authorised operator explicitly redrives or disposes of them. A
+redrive requires a change identifier, dedicated per-type credentials and an explicit
+assertion that the root cause has been resolved.
+
+The manual copy preserves `x-stats-attempt`, `x-stats-failure` and
+`x-stats-permanent`, adds traceable redrive metadata, and receives one processing
+attempt. `x-stats-manual-redrive=true` makes any repeat failure bypass all retry tiers
+and return directly to the same type's DLQ. This marker is necessary because permanent
+failures can reach the DLQ on attempt one; preserving only the attempt count would let
+a transient repeat failure enter tier two.
+
+The original DLQ delivery is ACKed only after the main-queue copy is publisher-confirmed.
+The operation is bounded, per type and capped at 2,667 records/second. Records at or
+beyond the 90-day device-time retention boundary are refused because their processing
+outcome would be `expired_on_arrival`, not database recovery. The complete access,
+audit, pilot, stop and verification procedure is `docs/runbooks/dlq-redrive.md`.
