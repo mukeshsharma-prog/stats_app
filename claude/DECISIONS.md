@@ -3943,9 +3943,6 @@ buffer working.
 
 ---
 
-Code comments explain general behavior and purpose; task and ADR traceability stays
-in these project documents, per the user's instruction.
-
 ### DL-138 — Manual DLQ redrive gets one processing attempt, never fresh retry tiers
 
 **11 September 2026** · T-052 · STA-12A, ADR-002 §12
