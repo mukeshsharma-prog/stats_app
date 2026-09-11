@@ -78,3 +78,10 @@ sourceSets {
         resources.srcDir(rootProject.file("docs/schemas/fixtures"))
     }
 }
+
+tasks.register<JavaExec>("redriveDlq") {
+    group = "operations"
+    description = "Safely redrive a bounded batch from one stat-type DLQ"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("com.zenner.datahub.stats.writer.redrive.DlqRedriveCommand")
+}

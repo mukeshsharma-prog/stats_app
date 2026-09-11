@@ -66,6 +66,9 @@ public class FailedDeliveryRouter {
     /** Set on a DLQ copy only: whether the failure was classified as permanent. */
     public static final String PERMANENT_HEADER = "x-stats-permanent";
 
+    /** Marks an operator-approved delivery that must never enter the retry tiers again. */
+    public static final String MANUAL_REDRIVE_HEADER = "x-stats-manual-redrive";
+
     private static final Logger log = LoggerFactory.getLogger(FailedDeliveryRouter.class);
 
     private final RabbitTemplate rabbitTemplate;
@@ -97,8 +100,11 @@ public class FailedDeliveryRouter {
         int attempt = previousAttempts(message) + 1;
         boolean permanent = classifier.isPermanent(failure);
         String reason = classifier.reasonLabel(failure);
+        boolean manualRedrive =
+                Boolean.TRUE.equals(
+                        headersOf(message.getMessageProperties()).get(MANUAL_REDRIVE_HEADER));
 
-        if (permanent || attempt > properties.maxRetries()) {
+        if (manualRedrive || permanent || attempt > properties.maxRetries()) {
             deadLetter(statType, message, attempt, reason, permanent, failure);
             return;
         }

@@ -140,6 +140,12 @@ Bounding broker disk is therefore an **alerting and disposition** problem, not a
 problem. Depth above zero is already an actionable signal, so an unbounded DLQ that is
 actually watched cannot grow unnoticed.
 
+The DLQ has no consumer and is never processed automatically. After an authorised
+operator explicitly starts a redrive, the record receives one processing attempt with
+its existing attempt and safe failure metadata preserved. A repeat failure returns
+directly to the same per-type DLQ and does not traverse the three retry tiers again.
+The hand-off must be broker-confirmed before the original DLQ delivery is acknowledged.
+
 > **RESOLVED 4 September 2026 (DL-105, ADR-007 Amendment §A1), BUILT 8 September
 > (T-063, DL-127).** Q15a was answered: all three `lorastats` dialects are accepted
 > and normalised to one row, and the code now does it — so the ~15M messages/day
