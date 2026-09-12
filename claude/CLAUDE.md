@@ -6,6 +6,50 @@ It is still auto-loaded every session: the repository-root `CLAUDE.md` is a
 pointer file whose only content is an `@claude/CLAUDE.md` import. Edit this file,
 not the pointer.
 
+> **Version 1.12 — 12 September 2026.** No decision in 1.11 changes. What changes is
+> that **the four Phase 1/2 rows that were PARTIAL are DONE, the DLQ has a redrive, and the
+> platform's own API guide has been read against this project.** Governing entries:
+> **DL-134…DL-138** (T-005, T-009, T-027, T-052) and **DL-139** (the reconciliation).
+>
+> **Changed in 1.12 — re-read these:**
+>
+> * **`maintenant` is the *original-owner* tenant, not "the managing tenant".** Every
+>   device is born in the shared `uaa` tenant and moved to a customer tenant; `maintenant`
+>   records where it came from (Datahub API guide §1.3). The isolation rule is untouched —
+>   `tenant`, only ever `tenant` — but `tenant=mzc, maintenant=uaa` is now the **routine**
+>   production case, not a sample-data coincidence. §4 and §6 corrected. DL-139.
+> * **Two questions added, none answered.** **Q8a-3:** is the stats push a Heimdal
+>   *ForwardRule* — `{url, type, id, maxRetry}`, "credentials in the URL"? If so, the auth is
+>   HTTP basic, which `stats.input.auth.mode` cannot express, and Heimdal's retry is
+>   **bounded by `maxRetry`**, not indefinite as rule 8 assumes. **D16:** a gateway that
+>   changes tenant keeps its history under the old `tenant`; recommended position is *yes,
+>   that is correct*, to be recorded as an ADR-006 amendment. §7. DL-139.
+> * **Logging is a contract, not a convention (T-005, DL-134).** Input mints a `traceId`,
+>   returns it as `X-Trace-Id` and carries it in AMQP `correlationId`; `uid` rides in
+>   `messageId`; the Writer restores both *before* parsing. `StructuredLoggingContractTest`
+>   requires an `event` key on every application log statement, and the throwable guard
+>   now sees the fluent API too — `log.atError()…setCause(e)` fails the build.
+> * **`stats_ro` cannot write, and PostgreSQL says so (T-009, DL-135).** `INSERT`,
+>   `UPDATE`, `DELETE`, `TRUNCATE`, `CREATE` and sequence access all fail with SQLSTATE
+>   `42501` in `DatabaseRolesIntegrationTest`; Compose blanks the database variables in
+>   `stats-input` and hides each module's identity from the others. Rule 2 is enforced by
+>   the database, not by review.
+> * **The Writer is observable (T-027, DL-136, DL-137).** `records_consumed`,
+>   `records_persisted`, `records_processing_duration`, `records_postgres_errors`, plus
+>   polled-and-cached `queue_depth`, `dlq_depth` and `consumer_availability` with a
+>   success flag and last-success timestamp — a failed poll writes **NaN**, never zero.
+>   Contract: `docs/contracts/writer-metrics-v1.md`. The branch's own retention cutoff and
+>   polled lag gauge were **dropped on merge** because DL-132/DL-133 already decided both.
+> * **The DLQ has a redrive, and a redriven record gets exactly one attempt (T-052,
+>   DL-138).** `./gradlew :stats-writer:redriveDlq` — per type, ≤ 2,667/s, change-id and
+>   `root-cause-resolved=true` required, refuses a record past the retention window, and
+>   the copy is confirmed before the original is ACKed. `x-stats-manual-redrive=true`
+>   sends a repeat failure straight back to the DLQ with no fresh tiers. Runbook:
+>   `docs/runbooks/dlq-redrive.md`.
+> * **What to do next:** **T-060 and T-050** — every counter and both queues are real,
+>   the redrive exists, and nobody is watching. Then **T-029/T-030/T-033**, which is what
+>   lets the fan-out start at **`sysstats`**. T-051, T-054 and T-055 are unblocked.
+>
 > **Version 1.11 — 10 September 2026.** No decision in 1.10 changes. What changes is
 > that **a record now leaves again as well as arriving**: retention is built, and so is
 > the late-arrival path it implies. `stats-writer` is feature-complete for `lorastats`.
@@ -343,7 +387,7 @@ Use these terms exactly. Do not invent synonyms.
 | **Envelope** | The common fields present on every record regardless of type: `uid`, `tenant`, `maintenant`, `clsbox`, `type`, `version`, `ts`, `data`, `status`. |
 | **Payload** | The `data` object — the only part that differs between stat types. |
 | **tenant** | The tenant the gateway is assigned to. **The isolation field.** |
-| **maintenant** | The *managing* tenant. Often identical to `tenant` in sample data — **this is a trap, see §6**. Never used for isolation. |
+| **maintenant** | The **original-owner** tenant — every device is born in the shared `uaa` tenant and moved to its customer tenant, and `maintenant` records where it came from (Datahub API guide §1.3; DL-139). Identical to `tenant` in the sample data and **routinely different in production** — **this is a trap, see §6**. Never used for isolation. |
 | **clsbox** | **The device identifier field.** 12 hexadecimal characters. This is the name on the wire, in the schema, in Java, in the PostgreSQL column, and in API responses (ADR-007 §1). The SRS called it `gateway`; nothing in production ever has. |
 | **gateway** | The *physical device* — used in prose only ("160,000 gateways", "a gateway with a bad clock"). **Never a field name.** Do not mechanically rewrite this word to `clsbox`. |
 | **ts.server** | The canonical **arrival** clock — Heimdal's receipt time. What the SRS called `ts.processor`. Clock skew is measured against it (ADR-007 §3). |
@@ -473,7 +517,11 @@ Things that are easy to get subtly wrong here.
 The SRS examples frequently have the same value in both fields. An implementation
 that filters on the wrong one will pass every test written against those samples
 and leak data in production. Always write fixtures where the two values
-**differ**. This is the single highest-risk item in the project.
+**differ**. This is the single highest-risk item in the project. **Since DL-139 the
+reason is concrete:** `maintenant` is the tenant a device was *born* in — the shared
+`uaa` pool — so `tenant=mzc, maintenant=uaa` is the ordinary production shape, and a
+filter on `maintenant` would not merely leak one customer to another, it would hand
+most of the estate to whoever holds a `uaa` token.
 
 **Head-of-line blocking with a shared queue.**
 If all stat types share one queue, a poison message in one type stalls every
@@ -632,12 +680,14 @@ derived engineering decisions, is `docs/decisions/2B-ANSWERS-18AUG2026.md`. Read
 
 ### Still needs ZC / Hasan
 
-Two items. Everything else on this list was answered on 4 September 2026 — see
-*Decided 4 September 2026* below.
+Three items — two carried since August and one added on 12 September 2026 from the
+Datahub API guide (DL-139). Everything else on this list was answered on 4 September
+2026 — see *Decided 4 September 2026* below.
 
 | Ref | Question | Blocks |
 |---|---|---|
 | Q8a-2 | Heimdal inbound auth, when ZC is ready: mTLS or OAuth2 client credentials; issuer, audience, client identity, rotation. Our position is OAuth2 client credentials, to be sent as *"unless you object by \<date\>, we implement OAuth2"* | Nothing today — deferred by decision. **Must close before any shared deployment**; until then anything that can reach the Input port can write |
+| **Q8a-3** | **Is the stats push a Heimdal ForwardRule?** The Datahub API guide (§9) defines one as `{url, type, id, maxRetry}` with *"credentials in the URL"* over `HTTP\|AMQP\|MQTT\|…`. If so: the inbound auth is HTTP **basic**, which `stats.input.auth.mode=none\|mtls\|oauth2` cannot express, and Heimdal's retry on a non-2xx is **bounded by `maxRetry`** — a sustained 503 burns a budget we cannot see. Ask together with Q8a-2 (DL-139) | Nothing today. Changes the *shape* of the Q8a-2 answer and the reading of rule 8; the guide documents sensor forwarding and does not say gateway stats use the same path |
 | Q8b-2 | Confirmation of the proposed Keycloak realm, client, issuer, audience, role names and tenant claim | Nothing today — the proposal is live and confirmation is a config change |
 
 **Residuals carried inside a closed decision.** Not open questions — none blocks
@@ -647,7 +697,7 @@ anything, and each is recorded so it is not rediscovered as a surprise. Full tab
 | From | Residual |
 |---|---|
 | DL-105 (Q15a) | *Are the other `lorastats` dialects being retired?* Only decides whether a parser can ever be deleted; `records_lorastats_dialect{dialect}` is what will show one going to zero |
-| DL-108 (Q15d) | The vocabulary of non-OK `status` values — the counter is value-agnostic and will enumerate it |
+| DL-108 (Q15d) | The vocabulary of non-OK `status` values — the counter is value-agnostic and will enumerate it. **One more known-good value since DL-139:** measurement documents carry `["ok"]` where stats records carry `["conversion ok"]`; set T-050's threshold after the first 24 h, not at zero |
 | DL-110 (Q4b) | IPv6 is *"for now, no"*. **A non-zero count on the metered IPv4 rejection code reopens it** |
 | DL-104 (Q13b) | Jitter is a statement, not a measurement. Hardware is not sized down until the `ts.server mod 600` histogram confirms it (T-050) |
 | DL-109 (Q13c) | The 2× replay cap is agreed and **unenforceable by us** |
@@ -691,11 +741,11 @@ two signatures that were owed. **Approver:** Naman Vashishtha. Full reasoning:
 | **D5a** | **SIGNED.** RPO ≤ 5 min via continuous WAL archiving; RTO 1 h per partition, 24 h full cluster. Obliges archiver-lag alerting and a **timed** T-051 | DL-111 ratifies DL-084; **T-051 unblocked** |
 | **D5b** | **SIGNED.** Late arrival: skip, meter `records_expired_on_arrival`, ACK, **alert when non-zero**. Signed now rather than on 29 Aug because DL-106 makes the path real rather than hypothetical | DL-112 ratifies DL-083; **T-026 built 10 Sep 2026 (DL-133)** — the alert half is T-050 |
 
-### Built and decided 5–10 September 2026 — the state the next task starts from
+### Built and decided 5–12 September 2026 — the state the next task starts from
 
 Nothing here reopens a question. It is what exists in the repository now, so that a
 plan is not written against a repository that no longer exists. Full reasoning:
-`claude/DECISIONS.md` DL-113…DL-133.
+`claude/DECISIONS.md` DL-113…DL-139.
 
 | Ref | What is now true | Where |
 |---|---|---|
@@ -714,16 +764,21 @@ plan is not written against a repository that no longer exists. Full reasoning:
 | DL-128 | **A non-OK upstream `status` is metered at the gate and stored.** Never dead-lettered — a redrive repeats the verdict forever. **Absence is not counted**; the comparison is value-agnostic against the one known-good value | T-064, T-050 |
 | DL-132 | **Retention is detach-and-drop, and every run repairs the last one.** One daily pass per type — pre-create **then** retain — behind the same advisory lock, staggered by an offset derived from the stat type. Each run starts with `DETACH … FINALIZE`, because an interrupted detach wedges every later one while ingestion carries on looking healthy; leftovers from a crash between detach and drop are reclaimed and counted separately. Nothing is dropped whose **name** this module did not produce, whose **catalogue bound** disagrees with that name, or whose day is not wholly outside the window | T-025, T-031, T-051, T-054, T-055 |
 | DL-133 | **A late record is skipped, metered and ACKed — never dead-lettered.** `RetentionGuard` **returns a decision where `PayloadGate` throws**, because this path must end in a broker ACK. It reads the **same cutoff** as the sweep (`RetentionWindow`), so a record cannot be admitted into a partition that has just been dropped. Per-type windows are `stats.retention.days-by-type.<wire-name>`, validated at startup; `default-days` has no default in code | T-026, T-031, T-050, T-052 |
+| DL-134 | **Correlation rides on standard AMQP properties, and every log statement owns an `event`.** Input mints `traceId` → `X-Trace-Id` + AMQP `correlationId`; `uid` → `messageId`; the Writer restores both before parsing and preserves them on every retry and DLQ copy. `uid`/`statType`/`tenant`/`clsbox`/`errorCode` live in a scoped MDC with the bounded literal `unknown` before validation. `StructuredLoggingContractTest` fails the build without an `event` key; the throwable guard now walks the fluent API too | T-005 |
+| DL-135 | **Database capability is proved by PostgreSQL.** `stats_ro` has `CONNECT`, `USAGE`, `SELECT` — and `DatabaseRolesIntegrationTest` proves `INSERT`/`UPDATE`/`DELETE`/`TRUNCATE`/`CREATE`/sequence access each fail with SQLSTATE `42501` on a table created *after* bootstrap. Compose blanks the database variables in `stats-input` and hides each module's identity from the others. There is no `stats_input` database identity | T-009 |
+| DL-136, DL-137 | **The Writer is observable, and a scrape performs no I/O.** `records_consumed` before decoding, `records_processing_duration` on every exit, `records_persisted` only after a committed insert, `records_postgres_errors` by exception *type*. `queue_depth`, `dlq_depth`, `consumer_availability` are polled on `stats.metrics.poll-interval` and cached; a failed poll writes **NaN** and drops `broker_metrics_collection_success` — a queue the broker cannot report on must never read as empty. Aggregate replicas with `max`, never `sum`. The branch's second retention cutoff and polled lag gauge were dropped on merge. Contract: `docs/contracts/writer-metrics-v1.md` | T-027 |
+| DL-138 | **A manual redrive is one attempt, never fresh tiers.** `DlqRedriveCommand` (`./gradlew :stats-writer:redriveDlq`): per type, ≤ 2,667/s, `--change-id` and `--root-cause-resolved=true` mandatory, refuses a record past the retention window, publishes the original bytes with `x-stats-manual-redrive=true` and ACKs the DLQ original **only after the copy is confirmed**. `FailedDeliveryRouter` sends a repeat failure straight back to the DLQ. Runbook: `docs/runbooks/dlq-redrive.md` | T-052 |
+| DL-139 | **The Datahub API guide is reconciled.** `maintenant` corrected to *original-owner* tenant; Q8a-3 (ForwardRule / `maxRetry` / basic auth) and D16 (tenant-move history) raised, not answered; `["ok"]` added to the DL-108 residual; `clsbox = FFFFFFFFFFFF` means *synthetic / no gateway*. The platform's own `POST /datastore/aggregate/pageable` on `{clsbox, type, ts.device}` is a **parity oracle** for the API tests | — |
 
 > **What to do next lives in `Stats_App_Tracker.xlsx` → the `Next Up` sheet**, ranked
 > across both owners with the gate on each row. T-063, T-057 and T-064 were done on
 > 8 Sep 2026; **T-025 and T-026 on 10 Sep 2026**, which also covers T-031's boundary
-> assertions on both sides — at the exact second in `RetentionWindowTest`, and through a
-> genuinely dropped partition in `PartitionRetentionIntegrationTest`. In one line:
-> **T-029/T-030/T-033**, which is what lets the fan-out start at **`sysstats`** — not
-> `ltestats`, which is blocked on D-12 P3. **T-060 and T-050 are the gap this leaves**:
-> the DLQ and `records_expired_on_arrival` are both real and **nobody is watching
-> either**. T-051, T-054 and T-055 are unblocked — they measure what T-025 built.
+> assertions on both sides; **T-005, T-009 and T-027 merged on 10 Sep and T-052 on
+> 11 Sep 2026** — Phase 1 has no PARTIAL row left. In one line: **T-060 and T-050
+> first** — every counter T-050 alerts on and both queues T-060 watches now exist, the
+> redrive exists, and **nobody is watching any of it**. Then **T-029/T-030/T-033**, which
+> is what lets the fan-out start at **`sysstats`** — not `ltestats`, which is blocked on
+> D-12 P3. T-051, T-054 and T-055 are unblocked — they measure what T-025 built.
 
 ### Ours to decide — decide deliberately, record as an ADR, do not escalate
 
@@ -739,6 +794,7 @@ unwritten ADRs. The recommended position is given, but it is not yet ratified.
 | D1 | Log format | Structured JSON to stdout; `uid` as correlation ID |
 | D14 | Unknown fields *(was mislabelled `D6` — see §8)* | Accept and preserve unknown `data` fields; reject invalid envelope fields |
 | **D14b** | **Where an unknown `data` member is *stored*.** D14 says preserve; ADR-003 D2 gives the four typed types **typed columns only**, which have nowhere to put one. `StatsEnvelope.data` is a `JsonNode` so Input preserves it and republishes it byte-identically (DL-020, DL-050) — the loss was at the **Writer's INSERT**, where an unmapped key was silently dropped. `passthrough` does **not** cover this: ADR-003 scopes it to the five *envelope* members. `netstats` was never affected — its `jsonb` interface map was chosen for exactly this reason | **DECIDED 3 Sep 2026 — DL-095.** Each typed table gains a nullable `data_extra jsonb`; the Writer preserves unmapped `data` members there verbatim and meters `records_unmapped_data_field{type}`. NULL on almost every row, so it does not reintroduce the key-name overhead D2 rejected. **Every new stat-type table must carry the column** — omitting it silently reopens the drop |
+| **D16** | **Tenant-move history.** A gateway is born in `uaa` and moved to a customer tenant (DL-139); its rows written before the move carry the *old* `tenant`, and ADR-006 puts `tenant` in every query, so the new tenant cannot see them | **Recommended: that is correct.** A row's `tenant` is the tenant at measurement time, exactly as Heimdal stamped it — ADR-007 forbids rewriting the record, and re-labelling history on a move would require the Writer to read the inventory service, a dependency this project does not have. Record as an ADR-006 amendment when ratified; until then it is a support question waiting to happen |
 | — | Gradle DSL, package layout, CI shape | **Ours — Q1a closed, there is no reference service to match.** Kotlin DSL, version catalog, `com.zenner.datahub.stats.<module>`, `./gradlew build` plus Testcontainers on every push (ADR-001) |
 
 **Decided in ADR-003:** PostgreSQL 17; daily `RANGE (ts_device)` partitions with
@@ -824,7 +880,7 @@ wrong.** Reconciled 18 August 2026.
 | ADR-004 | OMS timestamp normalisation | **ACCEPTED — amended 29 Aug 2026 by ADR-007 §2** | No normalisation; publication is byte-identical to the received record, which is what makes ADR-003's per-partition duplicate suppression work. **Clause 3 is withdrawn:** a record carrying `ts.converter` is **valid** — production sends it on 100% of records. Accepted, preserved, never read, metered. Cite the ARD's different ADR-004 as `ARD-ADR-04`. |
 | ADR-005 | Delivery semantics and idempotency | **ACCEPTED with implementation defaults** | Writer batching amended by G3. Retry/DLQ handoff must be publish-confirmed *before* ACKing the original — ACK-then-publish opens a silent loss window. Duplicate outcome is `ON CONFLICT (ts_device, uid) DO NOTHING`, metered. Replay spikes the duplicate counter by design; do not alert on it. Q13c (2× replay cap) is **agreed by Heimdal since 4 Sep 2026 (DL-109) and still not enforceable by us** — 503 backpressure, bounded prefetch and T-018's rate limit stay exactly as they are. |
 | ADR-007 | The production wire format is the contract | **ACCEPTED** (29 Aug 2026) — **§4 amended 4 Sep 2026, built 8 Sep 2026** | `clsbox`/`ts.server` end to end with no rename layer; `ts.converter` accepted and metered (amends ADR-004); two validation gates with different consequences — **and since T-057 both gates exist in code**, so "invalid" genuinely no longer implies "400" (DL-126). **§4 is reversed by the *Amendment — 4 September 2026*: all three known `lorastats` dialects are accepted and normalised to one row (DL-105 supersedes DL-089), under a closed enumeration with structural detection and range-checked coercion — implemented by T-063 (DL-127).** All four of its open questions (Q15a–Q15d) were answered on 4 Sep 2026 — DL-105…DL-108 — leaving one residual: whether the other dialects are being retired. Also amends ADR-003 (column names); its DLQ-volume warning to ADR-002 §12 is resolved. |
-| ADR-006 | Tenant isolation and API security | **ACCEPTED** | The isolation decisions are settled and buildable; only ZC's confirmation of the Keycloak values (Q8b-2) is outstanding, and it is a config change. Proposed realm is live in dev — read role is `stats.readOnly`, **not** the bare `readOnly` placeholder. Input auth is deferred by decision (Q8a): `stats.input.auth.mode` has no default in code and `prod` must refuse `none`. |
+| ADR-006 | Tenant isolation and API security | **ACCEPTED** | The isolation decisions are settled and buildable; only ZC's confirmation of the Keycloak values (Q8b-2) is outstanding, and it is a config change. Proposed realm is live in dev — read role is `stats.readOnly`, **not** the bare `readOnly` placeholder. Input auth is deferred by decision (Q8a): `stats.input.auth.mode` has no default in code and `prod` must refuse `none`. **Residual since 12 Sep 2026 (D16, DL-139):** a gateway moved between tenants keeps its pre-move rows under the old `tenant`; recommended reading is *correct as is*, to be recorded as an amendment when ratified. |
 
 ---
 
@@ -899,6 +955,8 @@ only `README.md` (the index) and a `CLAUDE.md` pointer that imports this file.
 | `docs/architecture/Stats_App_Flow.png` | End-to-end flow diagram |
 | `docs/contracts/heimdal-input-contract-v1.md` | Inbound HTTP contract, response matrix, auth |
 | `docs/contracts/amqp-topology-v1.md` | Exchange, per-type queues, retry/DLQ, redrive |
+| `docs/contracts/writer-metrics-v1.md` | **Every Writer metric, its labels and its measurement boundary** — what `records_persisted` does and does not count, why a failed broker poll is NaN, how replicas aggregate (DL-136, DL-137) |
+| `docs/runbooks/dlq-redrive.md` | **The DLQ redrive procedure** — access, one-record pilot, audit line, stop conditions, and the 90-day trap made checkable against `records_expired_on_arrival` (DL-138) |
 | `docs/contracts/openapi.yaml` | **The API contract.** OpenAPI 3.1, GET-only, `/v1/stats/{type}`. Draft pending ZC confirmation; gates Phase 4 |
 | `docs/contracts/openapi-v1-design.md` | Design input for the above. Converted 21 Aug 2026 — the YAML wins where they differ |
 | `docs/schemas/` | JSON Schema catalogue, per-type schemas, the 75-file fixture set (`fixtures/MANIFEST.md`), and `validate-fixtures.py` for CI |

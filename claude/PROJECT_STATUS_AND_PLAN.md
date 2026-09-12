@@ -1,6 +1,6 @@
 2# Stats App — Status and Implementation Plan
 
-**Owner:** Naman (SSE) · **Date:** 18 August 2026, last updated 29 August 2026 · **Status:** working document
+**Owner:** Naman (SSE) · **Date:** 18 August 2026, last updated 12 September 2026 · **Status:** working document
 
 Consolidates `Stats_App_Answers_v1_0.docx`, the Aug 15 v1.2 amendment pack,
 `Stats_App_Internal_Decisions_v1.0.docx`, and the ARD (v1.1) into one picture:
@@ -306,7 +306,23 @@ is a harmless no-op; retention boundary test passes on both sides.
 > window, outage drill — T-033 is Phase 3's entry criterion) and **T-060** (DLQ depth
 > and age alerting, now **unblocked** and sizeable against real dead-letter volume).
 
-### What to pick up next — 8 September 2026
+### What to pick up next — 12 September 2026
+
+Everything the 8 September table put under **Now** is done. T-025/T-026/T-031 landed on
+10 Sep (DL-132, DL-133); T-005, T-009 and T-027 merged the same day (DL-134…DL-137) and
+T-052 on 11 Sep (DL-138). Phase 1 has no PARTIAL row left, and Phase 2's `lorastats`
+slice is complete, observable and operable. What that leaves is the *watching*:
+
+| | Naman | Mukesh |
+|---|---|---|
+| **Now** | T-029/T-030/T-033 — poison isolation, crash window, outage drill. T-033 is Phase 3's entry criterion | **T-060 + T-050** — the DLQ has depth, age and a redrive; `records_expired_on_arrival`, `records_upstream_status_not_ok`, `retention_oldest_partition_age_days` and the broker gauges all exist. Nobody alerts on any of them. T-027's scrape assertions are the contract to alert against |
+| **Then** | T-051 — the timed per-partition restore drill (RTO 1 h, DL-111); real partitions exist since T-025 | T-054, T-055 — advisory-lock contention and `DETACH CONCURRENTLY` latency, both measured against the built sweep |
+| **When T-033 is green** | reviews the first fan-out end to end | T-035 `sysstats` **first**, then T-036, T-034 (D-12 P3), T-037 |
+| **Ask ZC** | **Q8a-3** with Q8a-2: is the stats push a ForwardRule, and what is its `maxRetry`? (DL-139) | — |
+
+The 8 September table is kept below for the record.
+
+### What to pick up next — 8 September 2026 *(superseded 12 Sep)*
 
 The ranked list lives in `Stats_App_Tracker.xlsx` → **`Next Up`**, one row per action
 with the gate that must close first. The summary, by owner:
@@ -362,8 +378,8 @@ tie-breaker, error mapping.
 ### Phase 5 — Operational readiness
 
 Load test at 1,333/s sustained plus the burst profile; DB and broker outage drills;
-graceful shutdown and redelivery; DLQ redrive rehearsal; backup/restore; dashboards,
-alerts, runbook.
+graceful shutdown and redelivery; ~~DLQ redrive rehearsal~~ **done 11 Sep 2026 (T-052,
+DL-138 — `docs/runbooks/dlq-redrive.md`)**; backup/restore; dashboards, alerts, runbook.
 
 ---
 

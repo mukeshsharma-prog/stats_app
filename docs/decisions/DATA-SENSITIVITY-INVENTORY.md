@@ -77,7 +77,7 @@ narrowed field by field.
 |---|---|---|---|---|---|---|
 | `uid` | Record identifier. Also **the log correlation ID** (D1), so it is on every log line by design | ✅ | — | ✅ | ✅ **always** | ✅ |
 | `tenant` | **Customer identifier.** The isolation field; reveals which Zenner customer a record belongs to | ✅ | — | ✅ | ✅ **always** | ✅ |
-| `maintenant` | **Customer identifier** — the managing tenant. Never used for isolation (trap 1) | ✅ | — | ✅ | — | ✅ |
+| `maintenant` | **Customer identifier** — the original-owner tenant, usually the shared `uaa` pool (DL-139). Never used for isolation (trap 1) | ✅ | — | ✅ | — | ✅ |
 | `clsbox` | **Device identifier** — 12 hex, the physical gateway. Stable for the life of the device | ✅ | — | ✅ | ✅ **always** | ✅ |
 | `type` | Operational only | ✅ | — | ✅ | ✅ | ✅ |
 | `version` | Operational only | ✅ `record_version` | — | ✅ | — | ✅ |

@@ -72,7 +72,7 @@ All record types use the common envelope:
 {
   "uid": "<unique record id>",
   "tenant": "<assigned tenant>",
-  "maintenant": "<managing tenant>",
+  "maintenant": "<original-owner tenant — usually uaa; never the isolation field>",
   "clsbox": "<12-character hexadecimal gateway MAC>",
   "type": "<stat type>",
   "ts": { "server": 0, "device": 0 },

@@ -4,8 +4,8 @@ A **Datahub Core** add-on at Zenner. It receives statistics pushed from the
 **Heimdal Core**, buffers them through RabbitMQ, persists them per statistics type
 in **PostgreSQL**, and exposes them through a read-only, tenant-scoped REST API.
 
-**Status (5 September 2026):** Phase 2 — the `lorastats` vertical slice, in
-progress. Requirements and architecture are settled and ADRs 001–007 are approved
+**Status (12 September 2026):** Phase 1 complete; Phase 2 — the `lorastats` vertical
+slice — built, observable and operable, with the alerting still to come. Requirements and architecture are settled and ADRs 001–007 are approved
 or accepted. The Gradle multi-project builds: five modules (`stats-common`,
 `stats-testsupport` and the three applications), three deployable images, a Docker
 Compose stack with PostgreSQL 17, RabbitMQ and Keycloak, and 79 JSON schema fixture
@@ -24,10 +24,16 @@ before the original is acknowledged (T-014 … T-018, T-024, T-032). Since
 **10 September 2026 the record also leaves again**: retention detaches and drops each
 daily partition past the window — never row deletion — and a record that arrives already
 past it is skipped, metered as `records_expired_on_arrival{type}` and acknowledged rather
-than dead-lettered (T-025, T-026; DL-132, DL-133). What is still missing before Phase 2
-closes is the **watching**: DLQ depth and age alerting (T-060), and the alert on
-`records_expired_on_arrival` (T-050). Both queues and both counters are real, and nobody
-is looking at either. `stats-api` is a
+than dead-lettered (T-025, T-026; DL-132, DL-133). Since **10–11 September 2026 the path
+is observable and operable**: every delivery carries a `traceId` from the HTTP response
+header to the DLQ copy (T-005), the read-only role is proved read-only *by PostgreSQL*
+(T-009), the Writer exports its counters and the broker depths through a scrape that
+performs no I/O (T-027), and a dead-lettered record can be brought back under a guarded,
+per-type, rate-capped redrive that gives it exactly one more attempt (T-052;
+`docs/runbooks/dlq-redrive.md`). What is still missing before Phase 2 closes is the
+**watching**: DLQ depth and age alerting (T-060), and the alerts on
+`records_expired_on_arrival` and the retention gauge (T-050). Every counter is real, and
+nobody is looking at any of them. `stats-api` is a
 stub awaiting the OpenAPI confirmation (D-09). See `claude/PROJECT_STATUS_AND_PLAN.md`
 and `claude/FLOW.md` for what is BUILT versus SPECIFIED, and **`Stats_App_Tracker.xlsx`
 → the `Next Up` sheet** for the ranked answer to *what do I pick up now*.
@@ -235,7 +241,8 @@ Every working document lives in `claude/`. The repository root holds only this
 | `docs/decisions/` | `ANSWER_RECONCILIATION.md` (what ZC answered), `2B-ANSWERS-18AUG2026.md` (the seven §2b answers and every decision derived from them), and the PostgreSQL baseline |
 | `docs/architecture/adr/` | ADR-001 … **ADR-007**. **`ADR-nnn` always means one of these.** The ARD carries its own ADR-001…010 with different meanings — cite those as `ARD-ADR-nn`. **Start with ADR-007** if you have not read this repository since 29 Aug 2026: it rebuilt the envelope on the production wire format and amends ADR-002, ADR-003 and ADR-004. |
 | `docs/architecture/Stats_App_Flow.png` | End-to-end flow diagram |
-| `docs/contracts/` | Heimdal inbound HTTP contract, AMQP topology, and **`openapi.yaml`** — the API contract, OpenAPI 3.1, GET-only, draft pending ZC confirmation |
+| `docs/contracts/` | Heimdal inbound HTTP contract, AMQP topology, **`writer-metrics-v1.md`** (every Writer metric and its measurement boundary), and **`openapi.yaml`** — the API contract, OpenAPI 3.1, GET-only, draft pending ZC confirmation |
+| `docs/runbooks/` | **`dlq-redrive.md`** — the guarded per-type DLQ redrive: access, pilot, audit, stop conditions, and the 90-day trap made checkable |
 | `docs/schemas/` | JSON Schema catalogue, per-type schemas, and fixtures |
 | `docs/prompts/` | Prompt templates for working on this repo |
 | `docs/setup/` | Local IDE setup and `keycloak-realm-statsapp.json`, the importable dev realm whose four users are each a specific test |

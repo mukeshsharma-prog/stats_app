@@ -117,6 +117,8 @@ Three guardrails, because "we'll add auth later" is how endpoints ship unauthent
 
 **Q8a-2, still open with ZC:** whether it is mTLS (certificate identity, trust chain, rotation, revocation) or OAuth2 client credentials (issuer, audience, client identity, scopes, rotation). The `401`/`403` rows in the response matrix above apply once a mode other than `none` is selected.
 
+**Q8a-3, added 12 September 2026 (DL-139), to be asked together with Q8a-2:** the Datahub API guide describes Heimdal as the platform's *forwarding* service, delivering to a **ForwardRule** — `{url, type, id, maxRetry}`, transports `AMQP | HTTP | AMQP+ELEMENT | MSSQL | OCHP | MQTT`, with *credentials in the URL*. If the stats push is a ForwardRule, the inbound auth is HTTP **basic** — a mode the property above does not offer — and `maxRetry` means Heimdal's retry on a non-2xx is **bounded**, not the indefinite retry §5 assumes. The guide documents sensor forwarding; whether gateway statistics use the same path is the question.
+
 Credentials, tokens, private keys, and secrets are never stored in the repository or logged.
 
 ## 4. Validation contract
@@ -135,7 +137,7 @@ Invalid responses use the approved RFC 9457-compatible Problem Details shape. Th
 
 ## 5. Delivery/replay behavior
 
-The Input Module is stateless and does not buffer locally. If RabbitMQ cannot accept/confirm the message, Input returns non-2xx and Heimdal owns dead-letter/retry handling.
+The Input Module is stateless and does not buffer locally. If RabbitMQ cannot accept/confirm the message, Input returns non-2xx and Heimdal owns dead-letter/retry handling. **How many times Heimdal retries is not known** — if the push is a ForwardRule its `maxRetry` bounds it (Q8a-3, DL-139), in which case a sustained 503 exhausts a budget on Heimdal's side that this contract cannot see.
 
 PostgreSQL retains a uniqueness defence even though Heimdal states duplicates are not intentionally delivered: `PRIMARY KEY (ts_device, uid)` scoped per partition, with `ON CONFLICT DO NOTHING` and a `records_duplicate_suppressed{type}` counter (ADR-003, ADR-005). A replayed record carries its original `ts_device`, so it lands in the same partition and is absorbed.
 

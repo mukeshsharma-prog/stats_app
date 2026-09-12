@@ -363,6 +363,24 @@ credential boundary.
 ./gradlew :stats-api:test --tests "*TenantIsolation*"
 ```
 
+### The one operations command in the build
+
+```bash
+# Bring records back from ONE type's dead-letter queue — T-052, DL-138.
+# Dedicated broker credentials are mandatory; so are a change id and the
+# explicit root-cause assertion. Refuses a record already past the retention
+# window, caps the rate at 2,667/s, and ACKs the DLQ original only after the
+# copy is publisher-confirmed. The copy carries x-stats-manual-redrive=true,
+# so if it fails again it goes straight back to the DLQ — no fresh retry tiers.
+export RABBITMQ_REDRIVE_USER=… RABBITMQ_REDRIVE_PASSWORD=…
+./gradlew -q :stats-writer:redriveDlq \
+  --args="--type=lorastats --max-messages=1 --rate-per-second=10 --retention-days=90 \
+          --change-id=INC-123 --root-cause-resolved=true"
+```
+
+Do not run it from memory: the procedure — least-privilege user, one-record pilot,
+audit line, what to watch while it runs, when to stop — is `docs/runbooks/dlq-redrive.md`.
+
 ### Test layers
 
 | Layer | Scope | Infrastructure |

@@ -22,7 +22,7 @@ flow, because a specified flow and a running one are not the same claim.
 | **`SPECIFIED`** | Decided and contracted; not yet implemented |
 | **`BLOCKED`** | Cannot be built — an open question owns it |
 
-### What exists today (10 September 2026)
+### What exists today (12 September 2026)
 
 `stats-common` is complete, `stats-writer` and `stats-input` are substantially
 built, and `stats-api` is still a stub.
@@ -48,6 +48,10 @@ built, and `stats-api` is still a stub.
 | `stats-writer` — a non-OK upstream `status` metered and stored | **`BUILT`** (T-064; DL-128). `records_upstream_status_not_ok{type}`, `WARN`, never a dead-letter. An *absent* status is not counted |
 | `stats-writer` — retention: `DETACH PARTITION … CONCURRENTLY` then `DROP TABLE` | **`BUILT`** (T-025; DL-132). Never row deletion. One daily maintenance pass — pre-create, *then* retain — per type, staggered, behind the same advisory lock. **Every run finalises a detach an earlier run left pending**, because an interrupted detach wedges every later one while ingestion carries on looking healthy |
 | `stats-writer` — late arrival: skip, meter, ACK | **`BUILT`** (T-026; DL-133). `RetentionGuard` reads the **same cutoff** as the sweep, so a record can never be admitted into a partition retention has just dropped. `records_expired_on_arrival{type}` + `WARN`. **Never dead-lettered.** The *alert* on that counter is still T-050 |
+| `stats-writer`, `stats-input` — structured logging with correlation | **`BUILT`** (T-005; DL-134). `traceId` minted at Input → `X-Trace-Id` + AMQP `correlationId`; `uid` → `messageId`; Writer restores both *before* parsing. Every application log statement carries an `event` key or the build fails |
+| Database roles proved, not declared | **`BUILT`** (T-009; DL-135). `stats_ro` cannot `INSERT`/`UPDATE`/`DELETE`/`TRUNCATE`/`CREATE` — SQLSTATE `42501`, asserted against PostgreSQL 17 on a table created *after* bootstrap. Compose blanks the database variables in `stats-input` |
+| `stats-writer` — operational metrics | **`BUILT`** (T-027; DL-136, DL-137). `records_consumed`, `records_persisted`, `records_processing_duration`, `records_postgres_errors`; `queue_depth`, `dlq_depth`, `consumer_availability` polled and cached, NaN on a failed poll. Contract: `docs/contracts/writer-metrics-v1.md` |
+| DLQ redrive — guarded, per type, one attempt | **`BUILT`** (T-052; DL-138). `DlqRedriveCommand` confirms the copy before ACKing the original; `x-stats-manual-redrive` sends a repeat failure straight back to the DLQ. Runbook `docs/runbooks/dlq-redrive.md` |
 | Cross-module topology declaration agreement | **`BUILT`** (T-032; DL-123). One set of definitions in `stats-common`, one assertion in `stats-testsupport` called by both modules, and `stats-api` asserts it has no AMQP client at all |
 | Liveness/readiness groups per module | **`BUILT`** (T-006, DL-103) |
 | `stats-api` | `@SpringBootApplication` **stub only** — Phase 4, gated on D-09 |
@@ -61,9 +65,13 @@ accepted and normalised to one row (T-063), and a non-OK upstream `status` is me
 rather than passing unremarked (T-064). Since **10 Sep 2026** the record also *leaves*
 again on a schedule: retention detaches and drops each partition past the window
 (T-025), and a record that arrives already past it is skipped, metered and ACKed rather
-than dead-lettered (T-026). **What is still missing** is the *watching*: T-060's DLQ
-depth and age alerting, and T-050's alert on `records_expired_on_arrival` — both queues
-and both counters are real, and nobody is looking at either. The ranked order is
+than dead-lettered (T-026). Since **10–11 Sep 2026** the path is *observable* and
+*operable*: every delivery is correlated end to end (T-005), the read-only role is
+proved read-only by the database (T-009), the Writer exports its counters and the broker
+depths (T-027), and a record can be brought back from the DLQ under a guarded procedure
+(T-052). **What is still missing** is the *watching*: T-060's DLQ depth and age alerting,
+and T-050's alert on `records_expired_on_arrival` — both queues, every counter and the
+redrive are real, and nobody is looking at any of it. The ranked order is
 `Stats_App_Tracker.xlsx` → `Next Up`. Phase 2 finishes it
 end to end for `lorastats` first (DL-030 rationale; see
 `CODE_START_CHECKLIST.md` §B).
@@ -327,6 +335,7 @@ unrepresentable, not merely documented (DL-034).
 | Redrive scope | explicit, per stat type — never blanket |
 | Redrive rate | ≤ 2× nominal (2,667/s) |
 | Precondition | root cause identified and resolved first |
+| Mechanism | **`BUILT` (T-052, DL-138):** `./gradlew :stats-writer:redriveDlq --args="--type=… --max-messages=… --rate-per-second=… --retention-days=… --change-id=… --root-cause-resolved=true"`. Dedicated per-type broker credentials; the copy is publisher-confirmed before the DLQ original is ACKed; a record past the window is refused; the copy carries `x-stats-manual-redrive=true`, so a repeat failure goes **straight back to the DLQ** — no fresh tiers. `docs/runbooks/dlq-redrive.md` |
 
 > **Runbook trap.** A message that sat in the DLQ long enough becomes
 > `expired_on_arrival` the moment it is redriven, because its `ts.device`
@@ -711,7 +720,7 @@ what happens if the control is removed.
 | 8 | Counter wider than `BIGINT` | Range-check before conversion | Silent value corruption, no error anywhere |
 | 9 | In-flight transformation of any kind | **Byte-identical publication** | Per-partition duplicate suppression stops working, silently |
 | 10 | Unsorted pagination | Fixed `(ts_device DESC, uid DESC)` | A row returned twice or skipped entirely, with no error |
-| 11 | Redrive after ~90 days | Runbook note (T-052) — the counter it increments is real since T-026 | A no-op that increments a counter — and looks like a successful recovery |
+| 11 | Redrive after ~90 days | `DlqRedriveCommand` **refuses** a record past the window (T-052, DL-138), and the runbook says to watch `records_expired_on_arrival` while redriving | A no-op that increments a counter — and looks like a successful recovery |
 | 12 | **Payload validated at Input instead of the Writer** | Two gates: `validateEnvelope()` at Input, `validate()` at the Writer (ADR-007 §5) | A dialect mismatch becomes a 400. Heimdal retries only on a non-2xx, so the record is **destroyed** where a dead-letter would have been redrivable. The one loud window on this list — and loud does not mean recoverable |
 | 13 | **DLQ depth alert drowned by routine dialect volume** — *closed 8 Sep 2026 (DL-127)* | Per-type DLQ thresholds (ADR-002 §12). **All three `lorastats` dialects are now accepted**, so the routine volume is gone and T-060 can be sized against real failure | ~15M lorastats messages/day used to sit permanently above a uniform threshold, so a genuine dead-letter in another type was never noticed. **Closed by the build, not by the decision** — DL-105 decided it on 4 Sep and it stayed live for four more days. Any future decision that dead-letters a type by design reintroduces it whole |
 | 14 | **A retention run killed mid-detach** — *closed 10 Sep 2026 (DL-132)* | Every run begins with `ALTER TABLE … DETACH PARTITION … FINALIZE` | This is not a loss of a record; it is a loss of the *mechanism*. An interrupted `DETACH CONCURRENTLY` leaves the partition pending detach, and from then on every detach on that parent fails — **while `INSERT` and pre-creation keep working perfectly.** Retention stops, ingestion looks healthy, and the only symptom is disk. The gap between detach and drop is the same shape: a crash there leaks a day of rows nothing would reclaim, which is why `retention_orphans_dropped{type}` is its own series |

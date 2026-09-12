@@ -17,7 +17,10 @@ those samples and leaks data in production. Isolation is on `tenant`. Always.
 ## Decision
 
 1. The isolation field is **`tenant`**, never `maintenant`. `maintenant` is the
-   managing tenant and has no security meaning.
+   tenant the device was *born* in — the shared `uaa` pool on the Datahub, from which
+   devices are moved to a customer tenant (Datahub API guide §1.3; DL-139) — and has no
+   security meaning. *(Corrected 12 Sep 2026: earlier wording called it "the managing
+   tenant", which was a guess from the SRS.)*
 2. Every request derives its effective tenant **only** from a validated Keycloak
    token claim. A tenant value supplied by the caller is never trusted.
 3. The tenant predicate is applied in the **database query** — every query, count,
@@ -192,3 +195,15 @@ merely accompanying it.
 | Privileged cross-tenant access | Out of scope until separately specified | **DECIDED** |
 | Row-level security (`SET LOCAL app.tenant_id`) | **Not adopted for V1.** `SET LOCAL` on a pooled connection fails open and silently; the mandatory query predicate is the control | **DECIDED 24 Aug 2026** |
 | Database roles | `stats` (write) for the Writer, `stats_ro` (SELECT only) for the API, **none** for Input | **DECIDED 24 Aug 2026** |
+
+## Residual — 12 September 2026 (D16, DL-139)
+
+A gateway is moved between tenants over its life (the Datahub `tenant/change` call
+appends to the object's `moved` audit array). Rows this system wrote *before* the move
+carry the old `tenant`, and decision 3 puts `tenant` in every query — so the new
+tenant's token cannot see the gateway's pre-move history, and the old tenant's still
+can. **Recommended reading: that is correct.** A row's `tenant` is the tenant at
+measurement time, exactly as Heimdal stamped it; ADR-007 forbids rewriting the record,
+and re-labelling history on a move would require the Writer to consult the inventory
+service, a dependency this project does not have. Not yet ratified — recorded here so
+the question is answered by an amendment, not by a support ticket.

@@ -4,6 +4,9 @@ Reusable, repeatable procedures for the Stats App. Each skill is a checklist
 for a task that will be done more than once — the point is that the *second*
 time it is done, it is done the same way as the first.
 
+> **Version 1.4 — 12 September 2026.** Skill 4 now points at the built redrive
+> (T-052, DL-138) and the built gauges (T-027, DL-137) instead of describing them.
+>
 > **Version 1.3 — 5 September 2026.** Skill 1 and Skill 3 rebuilt against the
 > reference slice **as it now exists in the repository**, and against the two changes
 > that make the old wording wrong: the **two validation gates** (ADR-007 §5 — an
@@ -232,7 +235,11 @@ being written.
 
 1. **Which queue?** Per-type queues mean the affected type localises the fault.
 2. **Is the consumer alive?** Check process health and consumer count on the queue.
-   Zero consumers on a growing queue is the answer.
+   Zero consumers on a growing queue is the answer. **Since T-027 (DL-137) the Writer
+   exports this:** `consumer_availability{type}`, `queue_depth{type}` and
+   `dlq_depth{type}` on `/actuator/prometheus`, polled every 30 s and cached. **Read
+   `broker_metrics_collection_success` first** — a failed poll writes NaN, not zero,
+   and an alert that treats a stale zero as "empty" is the outage that looks quiet.
 3. **Is the database reachable?** Connection pool exhaustion looks like a slow
    consumer, not an outage.
 4. **Is the DLQ growing too?** DLQ growth means messages are being processed
@@ -250,6 +257,13 @@ being written.
 - [ ] Redrive DLQ messages once the root cause is fixed — an authorised operations
       role only, explicit, traceable, scoped per type, and rate-limited to 2× nominal
       (2,667/s). Blind automatic replay is not permitted. *(ADR-002 §12)*
+      **The command exists since T-052 (DL-138):** `./gradlew :stats-writer:redriveDlq`
+      with `--type`, `--max-messages`, `--rate-per-second`, `--retention-days`,
+      `--change-id` and `--root-cause-resolved=true`, under dedicated per-type broker
+      credentials. It refuses a record past the window, confirms the copy before ACKing
+      the original, and marks the copy `x-stats-manual-redrive=true` so a repeat failure
+      goes straight back to the DLQ. **Follow `docs/runbooks/dlq-redrive.md`** — one-record
+      pilot first, evidence file, stop conditions — rather than running it from memory.
 - [ ] Check the age of what you are about to redrive. **A message that has sat in the
       DLQ for ~90 days is past the retention window: redriving it produces
       `expired_on_arrival`, not a recovery.** The counter goes up and the row never

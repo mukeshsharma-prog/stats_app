@@ -1618,7 +1618,9 @@ aggregate. Never filter across tenants in application memory.
 the wrong implementation *passes every test*. The supplied samples very often set
 `tenant` and `maintenant` to the same value, so code filtering on `maintenant`
 is green in CI and leaks in production. `maintenant` is the *managing* tenant and
-has no security meaning.
+has no security meaning. *(Corrected by DL-139: it is the **original-owner** tenant —
+the `uaa` pool a device is born in — which makes the two values differ routinely in
+production. The security meaning is unchanged: none.)*
 
 In-memory filtering fails differently and just as badly: it means the database
 returned another tenant's rows, so pagination counts, cursors and limits are all
@@ -2574,12 +2576,15 @@ open-questions sheet.
 ## 12. What is deliberately still open
 
 Not decisions — the absence of them. **Nine items closed on 4 September 2026**
-(DL-104…DL-112); what is left is below. Historical status as at 29 Aug:
+(DL-104…DL-112) and **two were added on 12 September 2026** (DL-139, from the Datahub API
+guide); what is left is below. Historical status as at 29 Aug:
 `claude/OPEN_QUESTIONS_STATUS_29AUG2026.md`.
 
 | Ref | Open question | Owner | Blocks |
 |---|---|---|---|
 | Q8a-2 | Heimdal inbound auth — mTLS or OAuth2; issuer, audience, identity, rotation. Our position: OAuth2 client credentials, sent as *"unless you object by \<date\>"* | ZC / security | Nothing today (DL-063). **Must close before any shared deployment** — until then anything that reaches the Input port can write |
+| **Q8a-3** | Is the stats push a Heimdal **ForwardRule** (`{url, type, id, maxRetry}`, credentials in the URL)? If so the auth mode is HTTP basic — not in `stats.input.auth.mode` — and Heimdal's retry is **bounded by `maxRetry`**, not indefinite (DL-139) | ZC, with Q8a-2 | Nothing today. Changes the *shape* of the Q8a-2 answer and the reading of rule 8 |
+| **D16** | A gateway that changes tenant keeps its pre-move rows under the old `tenant`; the new tenant cannot see them. Intended? Recommended: **yes** — `tenant` is the value at measurement time (DL-139) | Engineering — ADR-006 amendment when decided | Nothing. A support question, not a build gate |
 | Q8b-2 | Confirmation of the proposed Keycloak realm values | ZC | Nothing — a config change (DL-064) |
 | **D-09** | ZC confirmation of `docs/contracts/openapi.yaml` | ZC | **Phase 4 — the one item that genuinely gates work.** T-038 directly, T-039…T-046 transitively |
 | — | API consumer catalogue: who calls this, with what filters, to what SLO? BRD §3 lists four, all pending | Product | Index-design justification and Phase 4 scope. No operation or index should exist without tracing to a consumer |
@@ -2595,7 +2600,7 @@ recorded so it is not rediscovered as a surprise.
 | From | Residual | Why it does not block |
 |---|---|---|
 | DL-105 (Q15a) | *Are the `lorastats` dialects being retired?* Only the first half of Q15a was answered | All three are accepted. This only decides whether a parser can ever be deleted — and `records_lorastats_dialect{dialect}` is what will show one going to zero |
-| DL-108 (Q15d) | The vocabulary of non-OK `status` values | The counter is value-agnostic by design and will enumerate the real values itself |
+| DL-108 (Q15d) | The vocabulary of non-OK `status` values — **one more known-good value since DL-139:** measurement documents carry `["ok"]` where stats records carry `["conversion ok"]` | The counter is value-agnostic by design and will enumerate the real values itself; T-050's threshold should be set after the first 24 h, not at zero |
 | DL-110 (Q4b) | IPv6, *"for now consider no"* | Provisional by its own wording. The metered per-field rejection code is the reopening trigger — a non-zero count reopens Q4b |
 | DL-104 (Q13b) | Jitter is a statement, not a measurement | Hardware is not cut until the `ts.server mod 600` histogram over the first 24 h of ingest confirms it (T-050) |
 | DL-109 (Q13c) | The 2× replay cap is agreed and **unenforceable by us** | 503 backpressure, bounded prefetch and T-018's rate limit are the controls we own, and they stay regardless |
@@ -3965,3 +3970,56 @@ The operation is bounded, per type and capped at 2,667 records/second. Records a
 beyond the 90-day device-time retention boundary are refused because their processing
 outcome would be `expired_on_arrival`, not database recovery. The complete access,
 audit, pilot, stop and verification procedure is `docs/runbooks/dlq-redrive.md`.
+
+---
+
+### DL-139 — The Datahub API guide is reconciled against this project: one glossary correction, four questions raised, nothing reopened
+
+**12 Sep 2026** · `ENGINEERING` · ADR-006, ADR-007, DL-106, DL-108, Q8a-2 · T-034, T-038, T-050
+
+**What was read.** `ZENNER_Datahub_API_Guide` v4.0 (11 Sep 2026, Naman Vashishtha) — the
+consolidated reference for the platform the Stats App plugs into, cross-checked against the
+Datahub OpenAPI spec and live instances. It is kept outside this repository
+(`~/Desktop/work/Naman/Work/Documentation/APIs/`) because it describes ZC's platform, not
+ours. Every field name it shows for `lorastats` and `ltestats` matches the schemas in
+`docs/schemas/`; the envelope's `ts` object already accepts the extra members the platform
+carries on measurement documents (`lns`, `parser`, `lnsnano`). **No schema, column, or
+contract changes.** What follows is what did change, and what is now a question.
+
+**Decision 1 — `maintenant` is the *original-owner* tenant, and the glossary said
+otherwise.** Guide §1.3: every inventory object is born in the shared `uaa` tenant and
+moved into a customer tenant with the tenant-change call; `maintenant` records where it
+came from, and each move is appended to the object's `moved` audit array. `claude/CLAUDE.md`
+§4 called it "the *managing* tenant", which is a guess from the SRS. Corrected in this
+change. The isolation rule does not move an inch — `tenant` is still the only isolation
+field (ADR-006) — but the trap gets sharper: in production `tenant=mzc, maintenant=uaa`
+will be the *routine* case, not the exception. The existing fixture rule (the two values
+must differ) already covers it; the reason is now the real one.
+
+**Decision 2 — four questions are recorded, and none is answered here.** Each was
+derived from the guide, not from ZC, and the guide's §9 documents *sensor* forwarding —
+whether gateway statistics use the same path is not stated. So they are questions.
+
+| Ref | Question | Why it matters | Owner |
+|---|---|---|---|
+| **Q8a-3** | Is the stats push to Input a Heimdal **ForwardRule**? Guide §9: a ForwardRule is `{url, type, id, maxRetry}`, transports `AMQP \| HTTP \| AMQP+ELEMENT \| MSSQL \| OCHP \| MQTT`, and *"credentials go in the URL"* | Two of our assumptions rest on the answer. **Auth:** credentials-in-URL is HTTP basic, which `stats.input.auth.mode=none\|mtls\|oauth2` (DL-120) cannot express — Q8a-2's "OAuth2 unless you object" may be proposing a mode Heimdal does not have. **Retry:** rule 8 says Heimdal retries every non-2xx; `maxRetry` says it retries a *bounded* number of times, so a sustained 503 burns a budget and the loss is on their side, invisible to us | ZC (with Q8a-2) |
+| **D16** | A gateway that changes tenant keeps its pre-move rows under the *old* `tenant`. The new tenant's token cannot see them (ADR-006 puts `tenant` in every query). Is that the intended reading? | Ours to decide. Recommended position: **yes** — a row's `tenant` is the tenant at measurement time, exactly as Heimdal stamped it (ADR-007: no rename layer, no rewriting). The alternative, re-labelling history on a move, would require the Writer to read the inventory service, which is a dependency this project does not have and should not acquire. Record as an ADR-006 amendment when decided; until then it is a support question waiting to happen | Engineering |
+| — | `status` vocabulary: measurement documents carry `["ok"]` (guide §1.8); stats records carry `["conversion ok"]` | Adds one known-good value to the DL-108 residual. If a stats record ever carries `["ok"]`, `records_upstream_status_not_ok{type}` lights on ordinary traffic. The counter will show it; T-050's alert threshold should not be zero until the first 24 h of ingest have enumerated the real values | Engineering (T-050) |
+| — | `clsbox = FFFFFFFFFFFF` means *synthetic / no gateway* (guide §1.8) | Nothing to build: the `CHECK (clsbox ~ '^[0-9A-F]{12}$')` accepts it and it is a valid device identifier as far as this system is concerned. Recorded so an operator who sees it in a `WARN` does not open an incident | — |
+
+**Two things the guide confirms rather than changes.** The platform already serves
+`sysstats`/`lorastats`/`ltestats` through `POST /datastore/aggregate/pageable` with
+`$match {clsbox, type, ts.device range}` and `$sort ts.device` (guide §7.3) — the same
+query the `(tenant, clsbox, ts_device DESC, uid DESC)` index was designed for, and a
+**parity oracle** for T-041/T-043: the same gateway and window fetched from both sides
+must agree. And `/statistics/statisticevents` (guide §7.6) uses the field name `gateway`
+and **milliseconds** — which is almost certainly where the SRS's wrong vocabulary came
+from (ADR-007 §1, trap "the SRS field names are not the wire field names"). Consistency
+across documents was never evidence; here is the document they were consistent with.
+
+**One data point for D-12, not an answer.** The guide's `ltestats` example (§7.3) returns
+`imsi`, `lac` and `cid` in the clear to any holder of the `datastore.read` scope. That is
+the platform's current posture, and D-12 P3 is the question of whether ours should match
+it. It is recorded here so the D-12 conversation starts from what the platform does today
+rather than from a blank page.
+
