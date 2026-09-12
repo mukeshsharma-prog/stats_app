@@ -1618,9 +1618,9 @@ aggregate. Never filter across tenants in application memory.
 the wrong implementation *passes every test*. The supplied samples very often set
 `tenant` and `maintenant` to the same value, so code filtering on `maintenant`
 is green in CI and leaks in production. `maintenant` is the *managing* tenant and
-has no security meaning. *(Corrected by DL-139: it is the **original-owner** tenant —
-the `uaa` pool a device is born in — which makes the two values differ routinely in
-production. The security meaning is unchanged: none.)*
+has no security meaning. *(Sharpened by DL-139: on a tenant change **both** fields take
+the new name, so they are equal in production too — no real record can reveal a wrong
+filter, only a fixture built to differ can. The security meaning is unchanged: none.)*
 
 In-memory filtering fails differently and just as badly: it means the database
 returned another tenant's rows, so pagination counts, cursors and limits are all
@@ -3986,15 +3986,25 @@ ours. Every field name it shows for `lorastats` and `ltestats` matches the schem
 carries on measurement documents (`lns`, `parser`, `lnsnano`). **No schema, column, or
 contract changes.** What follows is what did change, and what is now a question.
 
-**Decision 1 — `maintenant` is the *original-owner* tenant, and the glossary said
-otherwise.** Guide §1.3: every inventory object is born in the shared `uaa` tenant and
-moved into a customer tenant with the tenant-change call; `maintenant` records where it
-came from, and each move is appended to the object's `moved` audit array. `claude/CLAUDE.md`
-§4 called it "the *managing* tenant", which is a guess from the SRS. Corrected in this
-change. The isolation rule does not move an inch — `tenant` is still the only isolation
-field (ADR-006) — but the trap gets sharper: in production `tenant=mzc, maintenant=uaa`
-will be the *routine* case, not the exception. The existing fixture rule (the two values
-must differ) already covers it; the reason is now the real one.
+**Decision 1 — `maintenant` moves with `tenant` and equals it, and the trap is
+sharper for that, not softer.** Guide §1.3 describes `maintenant` as "the tenant that
+originally owned" an object, and a first reading of this entry took that to mean the two
+fields differ after a tenant move. **That reading was wrong and was corrected the same
+day by Naman from live behaviour:** when a device is moved to another tenant with the
+tenant-change call, *both* `tenant` and `maintenant` are set to the new tenant name.
+They are equal — on the 29 Aug production sample, on the `/statistics` example in guide
+§7.6 (`tenant: brunata, maintenant: brunata`), and on every record this system will
+receive. `claude/CLAUDE.md` §4 had called it "the *managing* tenant"; it now says what
+it is: the maintaining tenant, set to the same value as `tenant` and moved with it.
+
+The isolation rule does not move an inch — `tenant` is the only isolation field
+(ADR-006). What changes is the *reason* the trap is the highest-risk item in the project:
+since the two values are equal on every real record, **no production data can ever
+reveal a filter on the wrong field.** A query on `maintenant` returns the right rows
+today, tomorrow, and on the day the platform changes what `maintenant` means. The only
+thing that can catch it is a fixture in which the two values were made to differ on
+purpose — which is why `valid/<type>-tenant-isolation-pair.json` exists and why that
+rule in §6 is not a suggestion.
 
 **Decision 2 — four questions are recorded, and none is answered here.** Each was
 derived from the guide, not from ZC, and the guide's §9 documents *sensor* forwarding —

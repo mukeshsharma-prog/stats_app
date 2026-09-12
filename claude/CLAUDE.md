@@ -13,11 +13,13 @@ not the pointer.
 >
 > **Changed in 1.12 — re-read these:**
 >
-> * **`maintenant` is the *original-owner* tenant, not "the managing tenant".** Every
->   device is born in the shared `uaa` tenant and moved to a customer tenant; `maintenant`
->   records where it came from (Datahub API guide §1.3). The isolation rule is untouched —
->   `tenant`, only ever `tenant` — but `tenant=mzc, maintenant=uaa` is now the **routine**
->   production case, not a sample-data coincidence. §4 and §6 corrected. DL-139.
+> * **`maintenant` moves with `tenant` and equals it.** When a device changes tenant on
+>   the Datahub, *both* fields are set to the new tenant name (Naman, 12 Sep 2026, from
+>   live behaviour). So they are equal in production, not only in the sample data — which
+>   is exactly why the trap is dangerous: **no real record can distinguish a filter on the
+>   wrong field from a filter on the right one.** The isolation rule is untouched —
+>   `tenant`, only ever `tenant` — and the fixture rule (make them differ) is the *only*
+>   test that can catch the mistake. §4 and §6 corrected. DL-139.
 > * **Two questions added, none answered.** **Q8a-3:** is the stats push a Heimdal
 >   *ForwardRule* — `{url, type, id, maxRetry}`, "credentials in the URL"? If so, the auth is
 >   HTTP basic, which `stats.input.auth.mode` cannot express, and Heimdal's retry is
@@ -387,7 +389,7 @@ Use these terms exactly. Do not invent synonyms.
 | **Envelope** | The common fields present on every record regardless of type: `uid`, `tenant`, `maintenant`, `clsbox`, `type`, `version`, `ts`, `data`, `status`. |
 | **Payload** | The `data` object — the only part that differs between stat types. |
 | **tenant** | The tenant the gateway is assigned to. **The isolation field.** |
-| **maintenant** | The **original-owner** tenant — every device is born in the shared `uaa` tenant and moved to its customer tenant, and `maintenant` records where it came from (Datahub API guide §1.3; DL-139). Identical to `tenant` in the sample data and **routinely different in production** — **this is a trap, see §6**. Never used for isolation. |
+| **maintenant** | The *maintaining* tenant. **Set to the same value as `tenant`, and moved with it:** when a device changes tenant on the Datahub, both fields take the new tenant name (DL-139). Equal in the sample data **and in production** — **this is a trap, see §6**. Never used for isolation. |
 | **clsbox** | **The device identifier field.** 12 hexadecimal characters. This is the name on the wire, in the schema, in Java, in the PostgreSQL column, and in API responses (ADR-007 §1). The SRS called it `gateway`; nothing in production ever has. |
 | **gateway** | The *physical device* — used in prose only ("160,000 gateways", "a gateway with a bad clock"). **Never a field name.** Do not mechanically rewrite this word to `clsbox`. |
 | **ts.server** | The canonical **arrival** clock — Heimdal's receipt time. What the SRS called `ts.processor`. Clock skew is measured against it (ADR-007 §3). |
@@ -517,11 +519,12 @@ Things that are easy to get subtly wrong here.
 The SRS examples frequently have the same value in both fields. An implementation
 that filters on the wrong one will pass every test written against those samples
 and leak data in production. Always write fixtures where the two values
-**differ**. This is the single highest-risk item in the project. **Since DL-139 the
-reason is concrete:** `maintenant` is the tenant a device was *born* in — the shared
-`uaa` pool — so `tenant=mzc, maintenant=uaa` is the ordinary production shape, and a
-filter on `maintenant` would not merely leak one customer to another, it would hand
-most of the estate to whoever holds a `uaa` token.
+**differ**. This is the single highest-risk item in the project. **DL-139 made the
+reason precise:** on the Datahub a tenant change sets *both* fields to the new name, so
+they are equal on every real record, in production as in the samples. That means **no
+production record can ever reveal a filter on the wrong field** — the only place the
+two values differ is a fixture we wrote on purpose, which is why that fixture rule is
+not optional.
 
 **Head-of-line blocking with a shared queue.**
 If all stat types share one queue, a poison message in one type stalls every
@@ -768,7 +771,7 @@ plan is not written against a repository that no longer exists. Full reasoning:
 | DL-135 | **Database capability is proved by PostgreSQL.** `stats_ro` has `CONNECT`, `USAGE`, `SELECT` — and `DatabaseRolesIntegrationTest` proves `INSERT`/`UPDATE`/`DELETE`/`TRUNCATE`/`CREATE`/sequence access each fail with SQLSTATE `42501` on a table created *after* bootstrap. Compose blanks the database variables in `stats-input` and hides each module's identity from the others. There is no `stats_input` database identity | T-009 |
 | DL-136, DL-137 | **The Writer is observable, and a scrape performs no I/O.** `records_consumed` before decoding, `records_processing_duration` on every exit, `records_persisted` only after a committed insert, `records_postgres_errors` by exception *type*. `queue_depth`, `dlq_depth`, `consumer_availability` are polled on `stats.metrics.poll-interval` and cached; a failed poll writes **NaN** and drops `broker_metrics_collection_success` — a queue the broker cannot report on must never read as empty. Aggregate replicas with `max`, never `sum`. The branch's second retention cutoff and polled lag gauge were dropped on merge. Contract: `docs/contracts/writer-metrics-v1.md` | T-027 |
 | DL-138 | **A manual redrive is one attempt, never fresh tiers.** `DlqRedriveCommand` (`./gradlew :stats-writer:redriveDlq`): per type, ≤ 2,667/s, `--change-id` and `--root-cause-resolved=true` mandatory, refuses a record past the retention window, publishes the original bytes with `x-stats-manual-redrive=true` and ACKs the DLQ original **only after the copy is confirmed**. `FailedDeliveryRouter` sends a repeat failure straight back to the DLQ. Runbook: `docs/runbooks/dlq-redrive.md` | T-052 |
-| DL-139 | **The Datahub API guide is reconciled.** `maintenant` corrected to *original-owner* tenant; Q8a-3 (ForwardRule / `maxRetry` / basic auth) and D16 (tenant-move history) raised, not answered; `["ok"]` added to the DL-108 residual; `clsbox = FFFFFFFFFFFF` means *synthetic / no gateway*. The platform's own `POST /datastore/aggregate/pageable` on `{clsbox, type, ts.device}` is a **parity oracle** for the API tests | — |
+| DL-139 | **The Datahub API guide is reconciled.** `maintenant` pinned down — it moves with `tenant` and equals it, so only a deliberate fixture can ever catch a wrong filter; Q8a-3 (ForwardRule / `maxRetry` / basic auth) and D16 (tenant-move history) raised, not answered; `["ok"]` added to the DL-108 residual; `clsbox = FFFFFFFFFFFF` means *synthetic / no gateway*. The platform's own `POST /datastore/aggregate/pageable` on `{clsbox, type, ts.device}` is a **parity oracle** for the API tests | — |
 
 > **What to do next lives in `Stats_App_Tracker.xlsx` → the `Next Up` sheet**, ranked
 > across both owners with the gate on each row. T-063, T-057 and T-064 were done on
@@ -794,7 +797,7 @@ unwritten ADRs. The recommended position is given, but it is not yet ratified.
 | D1 | Log format | Structured JSON to stdout; `uid` as correlation ID |
 | D14 | Unknown fields *(was mislabelled `D6` — see §8)* | Accept and preserve unknown `data` fields; reject invalid envelope fields |
 | **D14b** | **Where an unknown `data` member is *stored*.** D14 says preserve; ADR-003 D2 gives the four typed types **typed columns only**, which have nowhere to put one. `StatsEnvelope.data` is a `JsonNode` so Input preserves it and republishes it byte-identically (DL-020, DL-050) — the loss was at the **Writer's INSERT**, where an unmapped key was silently dropped. `passthrough` does **not** cover this: ADR-003 scopes it to the five *envelope* members. `netstats` was never affected — its `jsonb` interface map was chosen for exactly this reason | **DECIDED 3 Sep 2026 — DL-095.** Each typed table gains a nullable `data_extra jsonb`; the Writer preserves unmapped `data` members there verbatim and meters `records_unmapped_data_field{type}`. NULL on almost every row, so it does not reintroduce the key-name overhead D2 rejected. **Every new stat-type table must carry the column** — omitting it silently reopens the drop |
-| **D16** | **Tenant-move history.** A gateway is born in `uaa` and moved to a customer tenant (DL-139); its rows written before the move carry the *old* `tenant`, and ADR-006 puts `tenant` in every query, so the new tenant cannot see them | **Recommended: that is correct.** A row's `tenant` is the tenant at measurement time, exactly as Heimdal stamped it — ADR-007 forbids rewriting the record, and re-labelling history on a move would require the Writer to read the inventory service, a dependency this project does not have. Record as an ADR-006 amendment when ratified; until then it is a support question waiting to happen |
+| **D16** | **Tenant-move history.** When a gateway is moved to another tenant on the Datahub, new records arrive with the new name in both `tenant` and `maintenant` — but the rows this system wrote *before* the move still carry the old `tenant`, and ADR-006 puts `tenant` in every query, so the new tenant cannot see them (DL-139) | **Recommended: that is correct.** A row's `tenant` is the tenant at measurement time, exactly as Heimdal stamped it — ADR-007 forbids rewriting the record, and re-labelling history on a move would require the Writer to read the inventory service, a dependency this project does not have. Record as an ADR-006 amendment when ratified; until then it is a support question waiting to happen |
 | — | Gradle DSL, package layout, CI shape | **Ours — Q1a closed, there is no reference service to match.** Kotlin DSL, version catalog, `com.zenner.datahub.stats.<module>`, `./gradlew build` plus Testcontainers on every push (ADR-001) |
 
 **Decided in ADR-003:** PostgreSQL 17; daily `RANGE (ts_device)` partitions with

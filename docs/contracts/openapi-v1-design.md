@@ -71,7 +71,7 @@ The repository query must use both the token-derived `tenant` and the `uid`. A r
     {
       "uid": "2deb420f-56c8-452e-bdfd-53c9d455a9f9",
       "tenant": "<caller-visible tenant>",
-      "maintenant": "<original-owner tenant — usually uaa; never the isolation field>",
+      "maintenant": "<same value as tenant; never the isolation field>",
       "clsbox": "04B648102511",
       "type": "lorastats",
       "ts": {

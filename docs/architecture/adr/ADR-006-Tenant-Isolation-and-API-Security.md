@@ -17,10 +17,11 @@ those samples and leaks data in production. Isolation is on `tenant`. Always.
 ## Decision
 
 1. The isolation field is **`tenant`**, never `maintenant`. `maintenant` is the
-   tenant the device was *born* in — the shared `uaa` pool on the Datahub, from which
-   devices are moved to a customer tenant (Datahub API guide §1.3; DL-139) — and has no
-   security meaning. *(Corrected 12 Sep 2026: earlier wording called it "the managing
-   tenant", which was a guess from the SRS.)*
+   maintaining tenant: it is set to the same value as `tenant` and, when a device is
+   moved on the Datahub, both fields take the new tenant name (DL-139). It has no
+   security meaning. *(Clarified 12 Sep 2026: because the two are equal on every real
+   record, a filter on the wrong one is invisible to production data — only the
+   deliberately-differing fixtures can catch it.)*
 2. Every request derives its effective tenant **only** from a validated Keycloak
    token claim. A tenant value supplied by the caller is never trusted.
 3. The tenant predicate is applied in the **database query** — every query, count,
@@ -199,10 +200,11 @@ merely accompanying it.
 ## Residual — 12 September 2026 (D16, DL-139)
 
 A gateway is moved between tenants over its life (the Datahub `tenant/change` call
-appends to the object's `moved` audit array). Rows this system wrote *before* the move
-carry the old `tenant`, and decision 3 puts `tenant` in every query — so the new
-tenant's token cannot see the gateway's pre-move history, and the old tenant's still
-can. **Recommended reading: that is correct.** A row's `tenant` is the tenant at
+sets both `tenant` and `maintenant` to the new name and appends to the object's `moved`
+audit array). Records arriving after the move carry the new tenant; rows this system
+wrote *before* the move carry the old one, and decision 3 puts `tenant` in every query —
+so the new tenant's token cannot see the gateway's pre-move history, and the old
+tenant's still can. **Recommended reading: that is correct.** A row's `tenant` is the tenant at
 measurement time, exactly as Heimdal stamped it; ADR-007 forbids rewriting the record,
 and re-labelling history on a move would require the Writer to consult the inventory
 service, a dependency this project does not have. Not yet ratified — recorded here so
