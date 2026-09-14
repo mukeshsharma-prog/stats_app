@@ -106,6 +106,32 @@ class LorastatsConsumerTest {
     }
 
     @Test
+    void shutdownInterruptionLeavesTheOriginalUnacknowledgedWithoutCreatingARetry() throws Exception {
+        StatsMessageProcessor processor = mock(StatsMessageProcessor.class);
+        StatsMessageProcessorAvailability availability =
+                mock(StatsMessageProcessorAvailability.class);
+        when(availability.requiredProcessor(StatType.LORASTATS)).thenReturn(processor);
+        Message message = delivery(91L);
+        InterruptedException shutdown = new InterruptedException("listener is stopping");
+        org.mockito.Mockito.doThrow(shutdown)
+                .when(processor)
+                .process(StatType.LORASTATS, message);
+        Channel channel = mock(Channel.class);
+        FailedDeliveryRouter router = mock(FailedDeliveryRouter.class);
+        LorastatsConsumer consumer = new LorastatsConsumer(availability, router, registry);
+
+        try {
+            assertThatThrownBy(() -> consumer.consume(message, channel)).isSameAs(shutdown);
+            assertThat(Thread.currentThread().isInterrupted()).isTrue();
+        } finally {
+            Thread.interrupted();
+        }
+
+        verifyNoInteractions(router, channel);
+        assertAttemptMetered();
+    }
+
+    @Test
     void rejectsAMissingProcessorInsteadOfCreatingANoOpConsumer() {
         assertThatNullPointerException()
                 .isThrownBy(() -> new LorastatsConsumer(null, mock(FailedDeliveryRouter.class), registry))

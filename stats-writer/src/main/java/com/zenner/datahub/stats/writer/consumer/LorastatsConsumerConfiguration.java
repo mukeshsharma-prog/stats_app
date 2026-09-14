@@ -151,6 +151,12 @@ public class LorastatsConsumerConfiguration {
         factory.setConcurrentConsumers(properties.concurrency());
         factory.setMaxConcurrentConsumers(properties.concurrency());
         factory.setPrefetchCount(properties.prefetch());
+        // Finish only the deliveries already executing. Anything merely prefetched is
+        // returned to RabbitMQ instead of extending shutdown by an entire prefetch window.
+        factory.setForceStop(true);
+        factory.setContainerCustomizer(
+                container ->
+                        container.setShutdownTimeout(properties.shutdownTimeout().toMillis()));
         return factory;
     }
 

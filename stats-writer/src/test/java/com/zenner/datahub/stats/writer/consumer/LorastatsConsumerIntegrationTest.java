@@ -16,6 +16,7 @@ import com.zenner.datahub.stats.testsupport.PostgresSupport;
 import com.zenner.datahub.stats.testsupport.RabbitSupport;
 import com.zenner.datahub.stats.writer.StatsWriterApplication;
 import java.util.Properties;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -42,7 +43,8 @@ import org.springframework.test.util.ReflectionTestUtils;
         properties = {
             "stats.writer.stat-type=lorastats",
             "stats.consumer.lorastats.concurrency=1",
-            "stats.consumer.lorastats.prefetch=1",
+            "stats.consumer.lorastats.prefetch=2",
+            "stats.consumer.lorastats.shutdown-timeout=1s",
             "stats.retention.schedule=-",
             // These tests create and drop their own partitions on fixed far-future
             // days. The startup pre-creation is exercised by
@@ -62,6 +64,7 @@ class LorastatsConsumerIntegrationTest {
     private final CountDownLatch processingStarted = new CountDownLatch(1);
     private final CountDownLatch allowCompletion = new CountDownLatch(1);
     private final CountDownLatch processingCompleted = new CountDownLatch(1);
+    private final CountDownLatch processingInterrupted = new CountDownLatch(1);
     private final AtomicBoolean processorReturned = new AtomicBoolean();
 
     @Autowired
@@ -105,7 +108,58 @@ class LorastatsConsumerIntegrationTest {
         assertThat(container).isNotNull();
         assertThat(container.getQueueNames()).containsExactly(QUEUE);
         assertThat(container.getAcknowledgeMode()).isEqualTo(AcknowledgeMode.MANUAL);
-        assertThat(ReflectionTestUtils.getField(container, "prefetchCount")).isEqualTo(1);
+        assertThat(ReflectionTestUtils.getField(container, "prefetchCount")).isEqualTo(2);
+        assertThat(ReflectionTestUtils.getField(container, "forceStop")).isEqualTo(true);
+        assertThat(ReflectionTestUtils.getField(container, "shutdownTimeout")).isEqualTo(1_000L);
+    }
+
+    @Test
+    void shutdownFinishesTheCurrentDeliveryAndReturnsPrefetchedWork() throws Exception {
+        blockInsideProcessor();
+        container.start();
+
+        rabbitTemplate.convertAndSend(
+                AmqpTopology.INPUT_EXCHANGE, AmqpTopology.routingKey(StatType.LORASTATS), BODY);
+        assertThat(processingStarted.await(10, TimeUnit.SECONDS)).isTrue();
+
+        byte[] waiting = "{\"uid\":\"prefetched-during-shutdown\"}".getBytes(UTF_8);
+        rabbitTemplate.convertAndSend(
+                AmqpTopology.INPUT_EXCHANGE, AmqpTopology.routingKey(StatType.LORASTATS), waiting);
+        await().atMost(ofSeconds(10)).untilAsserted(() -> assertThat(readyMessages()).isZero());
+
+        CompletableFuture<Void> stopped = CompletableFuture.runAsync(container::stop);
+        allowCompletion.countDown();
+
+        assertThat(processingCompleted.await(10, TimeUnit.SECONDS)).isTrue();
+        stopped.get(10, TimeUnit.SECONDS);
+        await().atMost(ofSeconds(10)).untilAsserted(() -> assertThat(readyMessages()).isOne());
+
+        Message returned = rabbitTemplate.receive(QUEUE, 2_000);
+        assertThat(returned).isNotNull();
+        assertThat(returned.getBody()).isEqualTo(waiting);
+    }
+
+    @Test
+    void shutdownTimeoutReturnsAnUnacknowledgedCurrentDelivery() throws Exception {
+        blockInsideProcessor();
+        container.start();
+
+        rabbitTemplate.convertAndSend(
+                AmqpTopology.INPUT_EXCHANGE, AmqpTopology.routingKey(StatType.LORASTATS), BODY);
+        assertThat(processingStarted.await(10, TimeUnit.SECONDS)).isTrue();
+
+        container.stop();
+
+        assertThat(processorReturned).isFalse();
+        await().atMost(ofSeconds(10)).untilAsserted(() -> assertThat(readyMessages()).isOne());
+        assertThat(processingInterrupted.await(10, TimeUnit.SECONDS)).isTrue();
+        await().during(java.time.Duration.ofMillis(300))
+                .atMost(ofSeconds(5))
+                .untilAsserted(
+                        () -> {
+                            assertThat(readyMessages()).isOne();
+                            assertThat(readyMessages(RETRY_TIER_1)).isZero();
+                        });
     }
 
     /**
@@ -188,7 +242,12 @@ class LorastatsConsumerIntegrationTest {
                     assertThat(new String(invocation.getArgument(1, Message.class).getBody(), UTF_8))
                             .isEqualTo(new String(BODY, UTF_8));
                     processingStarted.countDown();
-                    assertThat(allowCompletion.await(10, TimeUnit.SECONDS)).isTrue();
+                    try {
+                        assertThat(allowCompletion.await(10, TimeUnit.SECONDS)).isTrue();
+                    } catch (InterruptedException shutdown) {
+                        processingInterrupted.countDown();
+                        throw shutdown;
+                    }
                     processorReturned.set(true);
                     processingCompleted.countDown();
                     return null;
