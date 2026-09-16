@@ -1,0 +1,41 @@
+groups:
+  - name: stats-app-dlq
+    rules:
+      - alert: StatsAppDlqContainsMessages
+        expr: max by (type) (dlq_depth) > 0
+        for: 0m
+        labels:
+          severity: info
+        annotations:
+          summary: "Stats App {{ $labels.type }} DLQ contains messages"
+          description: >-
+            The {{ $labels.type }} dead-letter queue contains messages that require
+            operator investigation and explicit disposition. The queue has no TTL and
+            is never processed automatically.
+          runbook: docs/runbooks/dlq-redrive.md
+
+      - alert: StatsAppDlqUndisposedWarning
+        expr: max by (type) (dlq_depth) > 0
+        for: 7d
+        labels:
+          severity: warning
+        annotations:
+          summary: "Stats App {{ $labels.type }} DLQ has remained nonempty for 7 days"
+          description: >-
+            The {{ $labels.type }} dead-letter queue has remained continuously nonempty
+            for half of the 14-day manual-disposition window. Investigate and plan an
+            approved redrive or disposition before the deadline.
+          runbook: docs/runbooks/dlq-redrive.md
+
+      - alert: StatsAppDlqUndisposedCritical
+        expr: max by (type) (dlq_depth) > 0
+        for: 12d
+        labels:
+          severity: critical
+        annotations:
+          summary: "Stats App {{ $labels.type }} DLQ has remained nonempty for 12 days"
+          description: >-
+            The {{ $labels.type }} dead-letter queue has remained continuously nonempty
+            and is approaching the 14-day manual-disposition deadline. Complete an
+            approved redrive or disposition immediately.
+          runbook: docs/runbooks/dlq-redrive.md

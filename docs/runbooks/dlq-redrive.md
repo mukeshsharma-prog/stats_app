@@ -59,8 +59,9 @@ before the pilot makes authentication impossible.
    with a new valid record before touching the DLQ.
 4. Confirm the Writer is ready, its consumer is available, PostgreSQL is healthy, and
    main queue depth is stable.
-5. Capture DLQ depth and oldest-message age. Investigate every record approaching the
-   90-day device-time boundary; the command will refuse an expired record.
+5. Capture DLQ depth and the duration alerts from Prometheus/Grafana. Monitoring never
+   inspects or requeues a DLQ message. Investigate every record approaching the 90-day
+   device-time boundary; the command will refuse an expired record.
 6. Select a rate no greater than 2,667 records/second (twice nominal). Begin with a
    single-record pilot and a low rate.
 7. Create a protected evidence directory. It may contain operational identifiers and

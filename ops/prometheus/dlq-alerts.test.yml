@@ -1,0 +1,104 @@
+rule_files:
+  - dlq-alerts.yml
+
+evaluation_interval: 1d
+
+tests:
+  - name: empty DLQ does not alert
+    interval: 1d
+    input_series:
+      - series: 'dlq_depth{type="lorastats",instance="writer-a"}'
+        values: '0x13'
+    alert_rule_test:
+      - eval_time: 12d
+        alertname: StatsAppDlqContainsMessages
+        exp_alerts: []
+      - eval_time: 12d
+        alertname: StatsAppDlqUndisposedWarning
+        exp_alerts: []
+      - eval_time: 12d
+        alertname: StatsAppDlqUndisposedCritical
+        exp_alerts: []
+
+  - name: one immediate alert per affected type across replicas
+    interval: 1m
+    input_series:
+      - series: 'dlq_depth{type="lorastats",instance="writer-a"}'
+        values: '1 1'
+      - series: 'dlq_depth{type="lorastats",instance="writer-b"}'
+        values: '2 2'
+      - series: 'dlq_depth{type="sysstats",instance="writer-a"}'
+        values: '0 0'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: StatsAppDlqContainsMessages
+        exp_alerts:
+          - exp_labels:
+              severity: info
+              type: lorastats
+            exp_annotations:
+              summary: Stats App lorastats DLQ contains messages
+              description: >-
+                The lorastats dead-letter queue contains messages that require operator
+                investigation and explicit disposition. The queue has no TTL and is
+                never processed automatically.
+              runbook: docs/runbooks/dlq-redrive.md
+
+  - name: warning fires after seven continuous days
+    interval: 1d
+    input_series:
+      - series: 'dlq_depth{type="lorastats",instance="writer-a"}'
+        values: '1x9'
+    alert_rule_test:
+      - eval_time: 6d
+        alertname: StatsAppDlqUndisposedWarning
+        exp_alerts: []
+      - eval_time: 7d
+        alertname: StatsAppDlqUndisposedWarning
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              type: lorastats
+            exp_annotations:
+              summary: Stats App lorastats DLQ has remained nonempty for 7 days
+              description: >-
+                The lorastats dead-letter queue has remained continuously nonempty for
+                half of the 14-day manual-disposition window. Investigate and plan an
+                approved redrive or disposition before the deadline.
+              runbook: docs/runbooks/dlq-redrive.md
+
+  - name: critical fires after twelve continuous days
+    interval: 1d
+    input_series:
+      - series: 'dlq_depth{type="lorastats",instance="writer-a"}'
+        values: '1x14'
+    alert_rule_test:
+      - eval_time: 11d
+        alertname: StatsAppDlqUndisposedCritical
+        exp_alerts: []
+      - eval_time: 12d
+        alertname: StatsAppDlqUndisposedCritical
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              type: lorastats
+            exp_annotations:
+              summary: Stats App lorastats DLQ has remained nonempty for 12 days
+              description: >-
+                The lorastats dead-letter queue has remained continuously nonempty and
+                is approaching the 14-day manual-disposition deadline. Complete an
+                approved redrive or disposition immediately.
+              runbook: docs/runbooks/dlq-redrive.md
+
+  - name: clearing the DLQ resets pending warning and critical alerts
+    interval: 1d
+    input_series:
+      - series: 'dlq_depth{type="lorastats",instance="writer-a"}'
+        values: '1x6 0 1x7'
+    alert_rule_test:
+      - eval_time: 12d
+        alertname: StatsAppDlqUndisposedWarning
+        exp_alerts: []
+      - eval_time: 12d
+        alertname: StatsAppDlqUndisposedCritical
+        exp_alerts: []

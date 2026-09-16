@@ -48,6 +48,11 @@ with `max`, not `sum`, across replicas. Main-queue depth is a diagnostic, not th
 oldest-message-age alert T-050 requires — under jitter (DL-104) a cyclic depth spike is
 evidence, not the buffer working.
 
+Prometheus evaluates `ops/prometheus/dlq-alerts.yml` against `dlq_depth`. The rules
+aggregate replicas with `max by (type)` and alert immediately, after 7 continuous days,
+and after 12 continuous days. A nonempty-duration rule resets when the queue becomes
+empty; it never inspects, consumes or requeues a DLQ message.
+
 Retention health is **not** polled from here. The sweep reports
 `retention_oldest_partition_age_days{type}` after each run, alongside
 `retention_partitions_dropped{type}` and `retention_orphans_dropped{type}` (T-025,

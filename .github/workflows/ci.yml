@@ -44,6 +44,21 @@ jobs:
       - name: Validate JSON Schema fixtures
         run: python docs/schemas/validate-fixtures.py
 
+      - name: Validate DLQ alert rules
+        run: |
+          docker run --rm \
+            --entrypoint promtool \
+            --volume "$PWD/ops/prometheus:/work:ro" \
+            --workdir /work \
+            prom/prometheus:v3.5.0 \
+            check rules dlq-alerts.yml
+          docker run --rm \
+            --entrypoint promtool \
+            --volume "$PWD/ops/prometheus:/work:ro" \
+            --workdir /work \
+            prom/prometheus:v3.5.0 \
+            test rules dlq-alerts.test.yml
+
       # DL-117. Catches OpenAPI defects a YAML parse cannot see — an unquoted
       # description containing a comma silently becomes an extra schema key.
       # Version pinned: an unpinned linter can start failing CI on a release we
