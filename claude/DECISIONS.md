@@ -4033,3 +4033,51 @@ the platform's current posture, and D-12 P3 is the question of whether ours shou
 it. It is recorded here so the D-12 conversation starts from what the platform does today
 rather than from a blank page.
 
+### DL-141 — The Compose stack starts for the first time and finds two latent defects: the images carried no schema catalogue, and the API's healthcheck could never pass
+
+**17 Sep 2026** · `ENGINEERING` · DL-120, ADR-006, D13, D-10 · T-038
+
+**What happened.** The three application images had never been built before this date —
+every earlier run of `docker compose` used the infrastructure profile only. The first
+`--profile apps up` produced two failures that were not in any test because both live
+in the seam between the Gradle build and the container, which no test exercises.
+
+**Defect 1 — the jars shipped without `docs/schemas`.** `stats-common`'s
+`processResources` copies `docs/schemas/*.schema.json` into the jar as `schemas/`; that
+is how `StatsSchemaValidator` finds the catalogue. `.dockerignore` excluded `docs` and
+`docker/Dockerfile` never `COPY`'d it, and Gradle's `from()` on an absent directory copies
+nothing **and says nothing**. Every image built and every image failed at the first
+validator bean — `Missing bundled schema resource: schemas/envelope-v1.schema.json` — in
+the Writer, and would have in Input the moment it got its port. The fix is one `COPY` of
+the six schema files and a `!docs/schemas/*.schema.json` exception in `.dockerignore`.
+Fixtures and prose stay out of the context; the build runs `-x test` and does not need
+them. The general lesson is recorded in the Dockerfile comment: a resource copy that
+tolerates its source being absent is a build that cannot fail where the mistake is.
+
+**Defect 2 — `stats-api` answered 401 to its own readiness probe.** The module carries
+`spring-boot-starter-security` and the OAuth2 resource server ahead of T-038, with the
+issuer URI already bound. Boot's fallback chain for that combination requires a bearer
+token on every request, `/actuator/health/readiness` included — the exact endpoint
+`docker-compose.yml` health-checks. The container started, ran, and stayed *unhealthy*
+forever. **DL-120 predicted precisely this** and kept the starter out of `stats-input`
+for that reason; in the API the starter is wanted, so the posture has to be written
+down rather than inherited.
+
+`ApiSecurityConfiguration` is the smallest thing that is honestly a posture: the health
+endpoint (`EndpointRequest.to(HealthEndpoint.class)` — both probe groups, nothing else
+under `/actuator`) is `permitAll`; every other path is `authenticated()` behind the JWT
+resource server; no form login, no HTTP basic, stateless sessions. `/actuator/prometheus`
+and `/actuator/info` **stay behind the token** — scrape access is a T-038 decision, not a
+side effect of making a healthcheck green. `HealthProbesAreUnauthenticatedTest` asserts
+both halves, and the second half is the one that matters: a carve-out of `/actuator/**`
+or `/**` would pass a test that only checked the probes.
+
+**What T-038 still owes.** The `stats.readOnly` role, the `tenant` claim, the 403 rules
+in `application.properties`, an issuer health indicator, and the CSRF/405 posture for
+non-GET verbs (STA-32A). None of that is touched here; the chain is a placeholder with a
+correct default, not the resource server.
+
+**A local-environment note, not a decision.** `stats-input` binds host port 8081, which
+on the development machine is also OpenProject's. They cannot run at the same time; the
+port is hard-coded in `docker-compose.yml` and was left so, because the collision is
+with a tool on one laptop and not with anything this project deploys.

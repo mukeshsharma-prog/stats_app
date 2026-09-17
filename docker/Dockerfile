@@ -42,6 +42,14 @@ COPY stats-input       ./stats-input
 COPY stats-writer      ./stats-writer
 COPY stats-api         ./stats-api
 
+# docs/schemas is the single source of truth for the JSON Schema catalogue and
+# stats-common's processResources copies it into the jar (schemas/*.schema.json).
+# Gradle's `from()` on an absent directory copies nothing and says nothing, so an
+# image built without this line starts and then fails at the first
+# StatsSchemaValidator bean with "Missing bundled schema resource". Only the
+# schemas themselves are needed; fixtures and prose stay out of the context.
+COPY docs/schemas/*.schema.json ./docs/schemas/
+
 # Declared after the COPYs so a change of MODULE does not invalidate them.
 ARG MODULE
 RUN test -n "$MODULE" || (echo "ERROR: --build-arg MODULE=<stats-input|stats-writer|stats-api> is required" >&2; exit 1)

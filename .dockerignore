@@ -16,7 +16,10 @@ build
 *.env
 
 # Documentation is not needed to compile. The realm JSON is MOUNTED into Keycloak
-# at runtime by compose, not baked into any image.
+# at runtime by compose, not baked into any image. The ONE exception is the JSON
+# Schema catalogue: stats-common bundles docs/schemas/*.schema.json into its jar,
+# and without it every module that validates fails at startup.
 docs
+!docs/schemas/*.schema.json
 claude
 *.md
