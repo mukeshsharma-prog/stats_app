@@ -4171,3 +4171,76 @@ nothing is rewritten, and ADR-006 gains an amendment that says so.
 the decisions register gains a row; `claude/CLAUDE.md` §7 moves D16 from *Ours to decide*
 to decided and the ADR-006 status row drops its residual; the tracker moves D16 from
 *Open Questions* to *Decisions*. `docs/architecture/adr/ADR-006` is the record.
+
+
+### DL-143 — Consumer shutdown finishes the delivery in hand and returns the rest to the broker; an interrupt is lifecycle, never a failed record
+
+**14 Sep 2026 (built) · 17 Sep 2026 (merged, recorded)** · `ENGINEERING` · ADR-005, NFR-06, DL-122 · T-053
+
+**Decision.** The `lorastats` listener container is configured `forceStop=true` with a
+validated, externally configured `stats.consumer.lorastats.shutdown-timeout` (5 s locally,
+no zero or negative value accepted). On stop, the delivery currently executing is allowed
+to finish inside that grace; every merely *prefetched* delivery is returned to RabbitMQ
+unacknowledged when the channel closes. The Compose writer container gets
+`stop_grace_period: 10s` — longer than the listener's grace — so Spring can close the
+channel before the runtime sends SIGKILL.
+
+**The rule that matters.** `LorastatsConsumer` catches `InterruptedException` *before* the
+general `Exception` arm, re-sets the interrupt flag and rethrows. An interrupt during
+shutdown is not a failed record: it must not be routed to a retry tier (which would spend
+an attempt on a record that did nothing wrong) and it must not be ACKed (which would
+discard the broker's only copy). Leaving the original unacknowledged is what makes the
+broker requeue it. ADR-005's ordering is preserved — persistence precedes ACK, and an
+unconfirmed hand-off is never followed by an ACK.
+
+**Why `forceStop`.** Without it the container drains its whole prefetch window (500
+records at 1 consumer) before stopping, which turns every rolling deploy into a wait of
+one prefetch window per replica and, under a `stop_grace_period` shorter than that, into a
+SIGKILL mid-batch — the crash window T-030 rehearses, taken on purpose on every deploy.
+
+**Proved.** `LorastatsConsumerIntegrationTest` against a real broker: work completed inside
+the grace is ACKed while prefetched work is requeued; work exceeding the timeout returns to
+the main queue and never enters retry tier one. Unit, activation and configuration tests
+cover the interrupt contract and the property validation.
+
+**Consequence, recorded on merge.** The branch shipped without a decision entry; this is
+it. The `catch (InterruptedException)` arm is the one place in the consumer where an
+exception escapes without a retry or a DLQ copy — that is intentional and it is
+shutdown-only. If a future change introduces a *non*-shutdown interrupt, the delivery it
+was handling stays unacknowledged until the channel closes; that is the trade accepted
+here, and it is the safe direction.
+
+
+### DL-144 — DLQ alerting is three Prometheus rules on `dlq_depth`, and "continuously non-empty for N days" stands in for oldest-message age
+
+**16 Sep 2026 (built) · 17 Sep 2026 (merged, recorded)** · `ENGINEERING` · ADR-002 §12, DL-137, DL-138 · T-060, T-050
+
+**Decision.** `ops/prometheus/dlq-alerts.yml` evaluates `max by (type) (dlq_depth)`:
+`StatsAppDlqContainsMessages` (info, immediately on `> 0`),
+`StatsAppDlqUndisposedWarning` (`for: 7d`) and `StatsAppDlqUndisposedCritical`
+(`for: 12d`) — half of and two days before the 14-day manual-disposition window ADR-002
+§12 sets. Replicas aggregate with `max`, never `sum`, per DL-137. Monitoring is passive:
+no Writer code inspects, consumes or requeues a DLQ message, and there is no application
+property that pretends to configure an external evaluator. `promtool check rules` and
+`promtool test rules` (pinned `prom/prometheus:v3.5.0`) run in CI over a behaviour suite
+covering empty, immediate, per-type, multi-replica, warning, critical and reset states.
+
+**What this substitutes, and why it is recorded.** ADR-002 §12 says *"alert on depth > 0
+and oldest-message age."* The Writer exposes no oldest-message-age gauge for the DLQ
+(DL-137 built `dlq_depth`, and a polled age would need a broker-side timestamp on every
+dead-lettered message), so T-060 alerts on **how long the queue has been continuously
+non-empty** instead. The two agree whenever the DLQ is only ever drained by a redrive
+that empties it — which is the runbook's procedure — and disagree when an operator
+redrives *some* records and leaves others: the duration timer keeps running from the
+oldest surviving record's arrival, which is the conservative direction. The residual is
+that the `for:` clock lives in Prometheus, not in the data: a Prometheus restart restores
+`for` state from `ALERTS_FOR_STATE` only within its lookback, so a 12-day timer can be
+shortened by an evaluator outage. **Oldest-message age remains the better signal and stays
+owed** — it is the same gauge T-050 needs for the main queues, and when T-050 builds it the
+DLQ gets it for free. ADR-002 §12's wording is left as the target, not amended down to
+what was built.
+
+**What T-060 does not cover.** The main-queue oldest-message-age alert (T-050) — under
+jitter (DL-104) depth is a diagnostic, not the alert. `records_expired_on_arrival` non-zero
+(D5b, DL-112) and `records_upstream_status_not_ok` after the first 24 h (DL-128 residual)
+are T-050's too. This entry closes the DLQ half of "nobody is watching".

@@ -49,9 +49,13 @@ not the pointer.
 >   the copy is confirmed before the original is ACKed. `x-stats-manual-redrive=true`
 >   sends a repeat failure straight back to the DLQ with no fresh tiers. Runbook:
 >   `docs/runbooks/dlq-redrive.md`.
-> * **What to do next:** **T-060 and T-050** — every counter and both queues are real,
+> * **What to do next:** ~~**T-060 and T-050** — every counter and both queues are real,
 >   the redrive exists, and nobody is watching. Then **T-029/T-030/T-033**, which is what
->   lets the fan-out start at **`sysstats`**. T-051, T-054 and T-055 are unblocked.
+>   lets the fan-out start at **`sysstats`**.~~ **Merged 17 Sep 2026: T-029, T-030, T-033
+>   (the three drills), T-047 (DL-140), T-053 (DL-143) and T-060
+>   (DL-144).** T-033 is green, so the fan-out can start at **`sysstats`** (T-035).
+>   **T-050** is now the only "nobody is watching" gap — oldest-message age on the main
+>   queues, late-arrival and upstream-status alerts. T-051, T-054 and T-055 are unblocked.
 >
 > **Version 1.11 — 10 September 2026.** No decision in 1.10 changes. What changes is
 > that **a record now leaves again as well as arriving**: retention is built, and so is
@@ -783,10 +787,11 @@ plan is not written against a repository that no longer exists. Full reasoning:
 > across both owners with the gate on each row. T-063, T-057 and T-064 were done on
 > 8 Sep 2026; **T-025 and T-026 on 10 Sep 2026**, which also covers T-031's boundary
 > assertions on both sides; **T-005, T-009 and T-027 merged on 10 Sep and T-052 on
-> 11 Sep 2026** — Phase 1 has no PARTIAL row left. In one line: **T-060 and T-050
-> first** — every counter T-050 alerts on and both queues T-060 watches now exist, the
-> redrive exists, and **nobody is watching any of it**. Then **T-029/T-030/T-033**, which
-> is what lets the fan-out start at **`sysstats`** — not `ltestats`, which is blocked on
+> 11 Sep 2026** — Phase 1 has no PARTIAL row left. **On 17 Sep 2026 six
+> branches merged: T-029, T-030, T-033 (the poison-isolation, crash-window and
+> outage-recovery drills), T-047 (DL-140), T-053 (DL-143) and T-060 (DL-144).** In one
+> line: **T-050 first** — the DLQ is watched, the main queues are not — then **T-035
+> `sysstats`**, which T-033 being green now permits — not `ltestats`, which is blocked on
 > D-12 P3. T-051, T-054 and T-055 are unblocked — they measure what T-025 built.
 
 ### Ours to decide — decide deliberately, record as an ADR, do not escalate
