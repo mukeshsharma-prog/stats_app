@@ -1,6 +1,6 @@
 # ADR-006 — Tenant Isolation and API Security
 
-**Status:** `ACCEPTED`
+**Status:** `ACCEPTED` — amended 17 September 2026 (D16, DL-142)
 **Decision owner:** Security owner / API owner / Product owner
 **Requirements:** STA-05A, STA-31A, STA-32A, STA-34A, STA-34B, STA-35A, STA-35B
 
@@ -194,18 +194,35 @@ merely accompanying it.
 | Realm / clients / roles / audience | `statsapp`; `stats-api`, `stats-input`, `stats-dev-cli`; `stats.readOnly`, `stats.ingest` | **PROPOSED (Q8b)** — awaiting Q8b-2 |
 | Input authentication | Config-selected filter, no default, `prod` refuses `none` | **DEFERRED BY DECISION (Q8a)** — Q8a-2 must close before shared deployment |
 | Privileged cross-tenant access | Out of scope until separately specified | **DECIDED** |
+| Tenant-move history (D16) | A row's `tenant` is the tenant at measurement time, as Heimdal stamped it. Pre-move rows stay under the old tenant; the new tenant sees the gateway from the move onward. No re-labelling, no inventory dependency | **DECIDED 17 Sep 2026 (DL-142)** |
 | Row-level security (`SET LOCAL app.tenant_id`) | **Not adopted for V1.** `SET LOCAL` on a pooled connection fails open and silently; the mandatory query predicate is the control | **DECIDED 24 Aug 2026** |
 | Database roles | `stats` (write) for the Writer, `stats_ro` (SELECT only) for the API, **none** for Input | **DECIDED 24 Aug 2026** |
 
-## Residual — 12 September 2026 (D16, DL-139)
+## Amendment — 17 September 2026 (D16, DL-142)
 
-A gateway is moved between tenants over its life (the Datahub `tenant/change` call
-sets both `tenant` and `maintenant` to the new name and appends to the object's `moved`
-audit array). Records arriving after the move carry the new tenant; rows this system
-wrote *before* the move carry the old one, and decision 3 puts `tenant` in every query —
-so the new tenant's token cannot see the gateway's pre-move history, and the old
-tenant's still can. **Recommended reading: that is correct.** A row's `tenant` is the tenant at
-measurement time, exactly as Heimdal stamped it; ADR-007 forbids rewriting the record,
-and re-labelling history on a move would require the Writer to consult the inventory
-service, a dependency this project does not have. Not yet ratified — recorded here so
-the question is answered by an amendment, not by a support ticket.
+**Context.** A gateway can be moved between tenants over its life: the Datahub
+`tenant/change` call sets both `tenant` and `maintenant` to the new name and appends to
+the object's `moved` audit array. Records arriving after the move carry the new tenant;
+rows this system wrote *before* the move carry the old one, and decision 3 puts `tenant`
+in every query — so the new tenant's token cannot see the gateway's pre-move history, and
+the old tenant's still can. Raised as D16 on 12 September 2026 (DL-139).
+
+**Decision — ratified 17 September 2026 by Naman Vashishtha: that is the intended
+reading.** A row's `tenant` is the tenant at measurement time, exactly as Heimdal stamped
+it. The new tenant sees the gateway from the moment of the move onward; the old tenant
+keeps what was measured while the gateway was theirs. A new tenant requesting a `clsbox`
+that has only pre-move rows receives **404**, indistinguishable from not-found (STA-35B).
+
+**Why.** ADR-007 forbids rewriting the record, and `tenant` is the isolation field — the
+last column this system should ever alter. Re-labelling history on a move would require
+the Writer, or a maintenance job, to read the inventory service's `moved` array: a second
+upstream and an `UPDATE` of the isolation column across live partitions, neither of which
+this project has or should acquire. And it would leak in the other direction — the *new*
+tenant would receive data measured while the gateway belonged to someone else, which is
+the exposure this ADR exists to prevent.
+
+**Consequences.** No code change. `maintenant` is not an escape hatch — it moves with
+`tenant` (DL-139) and carries no pre-move information. Privileged cross-tenant access
+remains out of scope, as the register says; this amendment does not reopen it. The
+support answer to "the gateway moved to us and its history is missing" is *by design*,
+and the Datahub's `moved` array — not this system — is the record of the move.

@@ -2576,15 +2576,15 @@ open-questions sheet.
 ## 12. What is deliberately still open
 
 Not decisions — the absence of them. **Nine items closed on 4 September 2026**
-(DL-104…DL-112) and **two were added on 12 September 2026** (DL-139, from the Datahub API
-guide); what is left is below. Historical status as at 29 Aug:
+(DL-104…DL-112); **two were added on 12 September 2026** (DL-139, from the Datahub API
+guide) and one of them, D16, **closed on 17 September 2026** (DL-142); what is left is
+below. Historical status as at 29 Aug:
 `claude/OPEN_QUESTIONS_STATUS_29AUG2026.md`.
 
 | Ref | Open question | Owner | Blocks |
 |---|---|---|---|
 | Q8a-2 | Heimdal inbound auth — mTLS or OAuth2; issuer, audience, identity, rotation. Our position: OAuth2 client credentials, sent as *"unless you object by \<date\>"* | ZC / security | Nothing today (DL-063). **Must close before any shared deployment** — until then anything that reaches the Input port can write |
 | **Q8a-3** | Is the stats push a Heimdal **ForwardRule** (`{url, type, id, maxRetry}`, credentials in the URL)? If so the auth mode is HTTP basic — not in `stats.input.auth.mode` — and Heimdal's retry is **bounded by `maxRetry`**, not indefinite (DL-139) | ZC, with Q8a-2 | Nothing today. Changes the *shape* of the Q8a-2 answer and the reading of rule 8 |
-| **D16** | A gateway that changes tenant keeps its pre-move rows under the old `tenant`; the new tenant cannot see them. Intended? Recommended: **yes** — `tenant` is the value at measurement time (DL-139) | Engineering — ADR-006 amendment when decided | Nothing. A support question, not a build gate |
 | Q8b-2 | Confirmation of the proposed Keycloak realm values | ZC | Nothing — a config change (DL-064) |
 | **D-09** | ZC confirmation of `docs/contracts/openapi.yaml` | ZC | **Phase 4 — the one item that genuinely gates work.** T-038 directly, T-039…T-046 transitively |
 | — | API consumer catalogue: who calls this, with what filters, to what SLO? BRD §3 lists four, all pending | Product | Index-design justification and Phase 4 scope. No operation or index should exist without tracing to a consumer |
@@ -4013,7 +4013,7 @@ whether gateway statistics use the same path is not stated. So they are question
 | Ref | Question | Why it matters | Owner |
 |---|---|---|---|
 | **Q8a-3** | Is the stats push to Input a Heimdal **ForwardRule**? Guide §9: a ForwardRule is `{url, type, id, maxRetry}`, transports `AMQP \| HTTP \| AMQP+ELEMENT \| MSSQL \| OCHP \| MQTT`, and *"credentials go in the URL"* | Two of our assumptions rest on the answer. **Auth:** credentials-in-URL is HTTP basic, which `stats.input.auth.mode=none\|mtls\|oauth2` (DL-120) cannot express — Q8a-2's "OAuth2 unless you object" may be proposing a mode Heimdal does not have. **Retry:** rule 8 says Heimdal retries every non-2xx; `maxRetry` says it retries a *bounded* number of times, so a sustained 503 burns a budget and the loss is on their side, invisible to us | ZC (with Q8a-2) |
-| **D16** | A gateway that changes tenant keeps its pre-move rows under the *old* `tenant`. The new tenant's token cannot see them (ADR-006 puts `tenant` in every query). Is that the intended reading? | Ours to decide. Recommended position: **yes** — a row's `tenant` is the tenant at measurement time, exactly as Heimdal stamped it (ADR-007: no rename layer, no rewriting). The alternative, re-labelling history on a move, would require the Writer to read the inventory service, which is a dependency this project does not have and should not acquire. Record as an ADR-006 amendment when decided; until then it is a support question waiting to happen | Engineering |
+| **D16** | A gateway that changes tenant keeps its pre-move rows under the *old* `tenant`. The new tenant's token cannot see them (ADR-006 puts `tenant` in every query). Is that the intended reading? | Ours to decide. Recommended position: **yes** — a row's `tenant` is the tenant at measurement time, exactly as Heimdal stamped it (ADR-007: no rename layer, no rewriting). The alternative, re-labelling history on a move, would require the Writer to read the inventory service, which is a dependency this project does not have and should not acquire. Record as an ADR-006 amendment when decided; until then it is a support question waiting to happen. **Ratified 17 Sep 2026 — DL-142; ADR-006 amended** | Engineering |
 | — | `status` vocabulary: measurement documents carry `["ok"]` (guide §1.8); stats records carry `["conversion ok"]` | Adds one known-good value to the DL-108 residual. If a stats record ever carries `["ok"]`, `records_upstream_status_not_ok{type}` lights on ordinary traffic. The counter will show it; T-050's alert threshold should not be zero until the first 24 h of ingest have enumerated the real values | Engineering (T-050) |
 | — | `clsbox = FFFFFFFFFFFF` means *synthetic / no gateway* (guide §1.8) | Nothing to build: the `CHECK (clsbox ~ '^[0-9A-F]{12}$')` accepts it and it is a valid device identifier as far as this system is concerned. Recorded so an operator who sees it in a `WARN` does not open an incident | — |
 
@@ -4032,6 +4032,7 @@ across documents was never evidence; here is the document they were consistent w
 the platform's current posture, and D-12 P3 is the question of whether ours should match
 it. It is recorded here so the D-12 conversation starts from what the platform does today
 rather than from a blank page.
+
 
 ### DL-141 — The Compose stack starts for the first time and finds two latent defects: the images carried no schema catalogue, and the API's healthcheck could never pass
 
@@ -4081,3 +4082,61 @@ correct default, not the resource server.
 on the development machine is also OpenProject's. They cannot run at the same time; the
 port is hard-coded in `docker-compose.yml` and was left so, because the collision is
 with a tool on one laptop and not with anything this project deploys.
+
+
+### DL-142 — D16 is ratified: a row's `tenant` is the tenant at measurement time, and a moved gateway's history stays where Heimdal stamped it
+
+**17 Sep 2026** · `ENGINEERING` · ADR-006 (amended), ADR-007, DL-139 · T-034, T-040
+
+**The question.** On the Datahub a gateway can be moved to another tenant
+(`PUT /inventory/generic/tenant/change`). The move sets both `tenant` and `maintenant` to
+the new name and appends to the object's `moved` audit array. Records arriving after the
+move carry the new tenant; rows this system wrote *before* the move carry the old one,
+and ADR-006 puts `tenant` in every query — so the new tenant's token cannot see the
+gateway's pre-move history, and the old tenant's still can. DL-139 raised this as D16 with
+a recommended position and left it unratified.
+
+**Decision.** **Yes — that is the intended reading, and it is closed.** Ratified by Naman
+Vashishtha, 17 Sep 2026. A row's `tenant` is the tenant at measurement time, exactly as
+Heimdal stamped it. The new tenant sees the gateway from the moment of the move onward;
+the old tenant keeps what was measured while the gateway was theirs. Nothing is built,
+nothing is rewritten, and ADR-006 gains an amendment that says so.
+
+**Why this and not re-labelling.** Three reasons, in the order they decide it.
+
+1. **ADR-007 forbids rewriting the record.** Publication is byte-identical (DL-020,
+   DL-050) and the stored row is the wire record plus typed columns. Changing `tenant` on
+   historical rows would be the first place this system alters what Heimdal sent, and it
+   would do so on the *isolation* field.
+2. **Re-labelling needs a dependency this project does not have and should not
+   acquire.** To know a gateway moved, the Writer — or a maintenance job — would have to
+   read the inventory service's `moved` array. That is a second upstream, a second failure
+   mode, and a job that `UPDATE`s the isolation column across partitions under retention.
+   Every one of those is a new way to lose or leak a record.
+3. **The alternative leaks in the other direction.** Re-labelling history to the new
+   tenant would hand the *new* tenant data measured while the gateway belonged to someone
+   else — the exact cross-tenant exposure ADR-006 exists to prevent. "The old tenant can
+   still see their own past" is correct; "the new tenant can see the old tenant's past"
+   would be a security defect.
+
+**What it does and does not change.**
+
+* **No code change.** The query predicate, the index, the cursor and the 404 behaviour are
+  untouched. A new tenant asking for a `clsbox` that only has pre-move rows gets **404**,
+  indistinguishable from not-found — which is the STA-35B contract working as written.
+* **One support answer, written down.** When a tenant reports "the gateway moved to us
+  and its history is missing", the answer is *by design*: the history belongs to the
+  tenant it was measured for. The Datahub's own `moved` array is where the move itself is
+  recorded; this system does not duplicate it.
+* **`maintenant` is not an escape hatch.** It moves with `tenant` (DL-139), so it carries
+  no pre-move information either. The rule "isolation on `tenant`, only ever `tenant`"
+  stands with no exception for this case.
+* **Out of scope, explicitly.** A privileged cross-tenant read (an operator following a
+  gateway across tenants) is the "privileged cross-tenant access" row of ADR-006's
+  register — *out of scope until separately specified* — and this decision does not
+  reopen it.
+
+**Where it lands.** ADR-006 *Amendment — 17 September 2026* replaces the 12 Sep residual;
+the decisions register gains a row; `claude/CLAUDE.md` §7 moves D16 from *Ours to decide*
+to decided and the ADR-006 status row drops its residual; the tracker moves D16 from
+*Open Questions* to *Decisions*. `docs/architecture/adr/ADR-006` is the record.
