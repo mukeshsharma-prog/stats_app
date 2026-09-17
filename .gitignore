@@ -16,6 +16,8 @@ bin/
 
 # Local Python tooling environment. Java/Gradle still use the repository wrapper.
 .venv/
+__pycache__/
+*.py[cod]
 
 # Secrets never belong in the repository — they come from the environment.
 # (claude/DEVELOPMENT.md §4)

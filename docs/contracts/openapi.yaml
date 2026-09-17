@@ -20,12 +20,13 @@
 # Q1a answered that no internal reference repo exists, so there is no platform
 # convention to follow, and inventing one is not our call.
 #
-# KNOWN OBLIGATION — schema drift. The per-type `data` schemas below are inlined
+# SCHEMA DRIFT GATE. The per-type `data` schemas below are inlined
 # rather than $ref'd out to docs/schemas/*.schema.json, so this file stays a single
 # self-contained artifact when it is circulated. That creates a drift risk between
 # two sources of truth. The JSON Schema catalogue REMAINS AUTHORITATIVE for
-# validation; this file is authoritative for the HTTP contract. A CI check
-# asserting the two agree is owed before the contract is frozen.
+# validation; this file is authoritative for the HTTP contract. CI runs
+# `docs/contracts/check_schema_drift.py` and fails when their validation-relevant
+# shapes disagree.
 
 openapi: 3.1.0
 
@@ -667,7 +668,8 @@ components:
     #
     # Mirrors of docs/schemas/<type>-v1.schema.json. That catalogue is the
     # authoritative validation contract; these exist so this document can be
-    # circulated on its own. See "KNOWN OBLIGATION" in the file header.
+    # circulated on its own. The drift gate described in the file header checks
+    # these projections against the validation catalogue on every CI run.
     #
     # `additionalProperties: true` on every `data` object is deliberate (D14):
     # unknown members inside `data` are accepted at ingest, preserved, and returned
@@ -866,6 +868,7 @@ components:
 
     NetstatsData:
       type: object
+      x-interface-name-pattern: '^(?!timespan$)[A-Za-z][A-Za-z0-9_.:-]{0,14}$'
       description: |
         Per-interface network counters and addressing.
 

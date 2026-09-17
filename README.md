@@ -42,7 +42,9 @@ The same day also landed the work that is easy to miss because it is not on the 
 path: `clsbox` is now stored in one canonical case with a `CHECK` **every new stat-type
 table must carry** (DL-115), two guards fail the build rather than asking politely — no
 main source may branch on `version` (DL-113) and no throwable may reach a `stats-writer`
-log line (DL-124) — and `redocly lint` gates the API contract in CI (DL-117).
+log line (DL-124) — `redocly lint` gates the API contract structure (DL-117), and a
+separate parity gate resolves and compares all five inlined data schemas with the
+authoritative validation catalogue (DL-140).
 
 ```
 Heimdal Core ──POST──> stats-input ──AMQP──> RabbitMQ ──> stats-writer ──> PostgreSQL

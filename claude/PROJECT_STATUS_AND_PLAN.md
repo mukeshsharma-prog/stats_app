@@ -329,7 +329,7 @@ with the gate that must close first. The summary, by owner:
 
 | | Naman | Mukesh |
 |---|---|---|
-| **Now** | T-025/T-026/T-031 (retention, late arrival, boundary — both signatures landed on 4 Sep, so nothing gates them) | T-009 (prove `stats_ro` cannot write), T-027 (finish the metrics, assert the *scrape* — it now has three new counters to cover, and two of them are multi-series: `records_payload_rejected{type,reason}` (three reasons), `records_lorastats_dialect{dialect}` (three, all registered at startup) and `records_upstream_status_not_ok{type}`), T-005 (logging discipline), T-047 (the OpenAPI **drift** check — DL-117 landed only the lint half) |
+| **Now** | T-025/T-026/T-031 (retention, late arrival, boundary — both signatures landed on 4 Sep, so nothing gates them) | T-009 (prove `stats_ro` cannot write), T-027 (finish the metrics, assert the *scrape* — it now has three new counters to cover, and two of them are multi-series: `records_payload_rejected{type,reason}` (three reasons), `records_lorastats_dialect{dialect}` (three, all registered at startup) and `records_upstream_status_not_ok{type}`), T-005 (logging discipline). **T-047 is built (DL-140):** OpenAPI lint and schema parity are now separate CI gates |
 | **Then** | T-029/T-030/T-033 | T-060 — **unblocked since T-063**, and now sizeable: what reaches the lorastats DLQ from 8 Sep is real failure, not routine dialect disagreement |
 | **When T-033 is green** | reviews the first fan-out end to end | T-035 `sysstats` **first** — not `ltestats`, which is blocked on D-12 P3 — then T-036 `omsstats`, then T-034 `ltestats`, then T-037 `netstats` |
 | **Held** | T-039, T-042, T-045, T-046 | T-038, T-040, T-041, T-043, T-044 — all gated on ZC confirming `openapi.yaml` (D-09) |

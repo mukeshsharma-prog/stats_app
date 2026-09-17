@@ -4033,6 +4033,37 @@ the platform's current posture, and D-12 P3 is the question of whether ours shou
 it. It is recorded here so the D-12 conversation starts from what the platform does today
 rather than from a blank page.
 
+---
+
+### DL-140 — OpenAPI schema parity is a separate CI gate from OpenAPI lint
+
+**16 September 2026** · `ENGINEERING` · T-047, STA-30A, DL-117
+
+**Decision.** CI resolves and compares every inlined per-type OpenAPI data component
+against the authoritative validation schema in `docs/schemas`. Documentation-only
+annotations and OpenAPI integer formats do not define ingest validity and are excluded;
+required fields, property names, types, patterns, bounds, arrays and
+`additionalProperties` remain part of the comparison.
+
+The two non-direct mappings are explicit code, not exceptions hidden in prose.
+Lorastats' three accepted wire dialects must continue to project to one identical
+canonical property and required-field set before that canonical shape is compared with
+`LorastatsData`. Netstats' JSON Schema `patternProperties` rule is represented in
+OpenAPI by the additional-interface schema, while `x-interface-name-pattern` carries
+the exact authoritative interface-name expression and is compared byte-for-byte.
+
+**Failure proof.** The regression suite mutates every one of the five OpenAPI data
+components and asserts the gate reports drift. Separate mutations prove a change to the
+authoritative Ltestats validation pattern, divergence between Lorastats dialects and a
+Netstats interface-pattern change also fail. CI runs these mutation tests and then the
+real repository comparison before Redocly and Gradle.
+
+**Consequence.** DL-117 and this gate cover different defects. Redocly answers “is this
+valid OpenAPI?”; schema parity answers “does this still describe what validation admits
+and what the API projects?” Passing one is never evidence that the other passed. The
+known obligation in the OpenAPI header is closed, and the contract can no longer drift
+from the validation catalogue without a failing push and pull request check.
+
 
 ### DL-141 — The Compose stack starts for the first time and finds two latent defects: the images carried no schema catalogue, and the API's healthcheck could never pass
 

@@ -175,6 +175,11 @@ not the pointer.
 >   "type and message, never `DETAIL`" cannot be built.
 > * **The API contract is linted in CI**, not merely parsed: `redocly lint` pinned at
 >   2.51.2, before the Gradle build. DL-117.
+> * **The inlined OpenAPI data schemas are checked against the validation catalogue.**
+>   The gate resolves local references, compares validation-relevant keywords for all
+>   five types, and explicitly verifies the Lorastats canonical projection and the
+>   Netstats interface-pattern adaptation. Its mutation tests prove drift fails CI.
+>   DL-140.
 > * **The non-Markdown files caught up.** Seven artifacts still stated the reversed
 >   ADR-007 §4 — a live properties file, the schema catalogue, the fixture manifest and
 >   the API contract among them. DL-116. Note what that decision preserves: **DL-105
