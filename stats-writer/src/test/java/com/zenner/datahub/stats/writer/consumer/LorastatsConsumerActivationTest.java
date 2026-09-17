@@ -43,7 +43,8 @@ class LorastatsConsumerActivationTest {
             .withBean(FailedDeliveryRouter.class, () -> mock(FailedDeliveryRouter.class))
             .withPropertyValues(
                     "stats.consumer.lorastats.concurrency=1",
-                    "stats.consumer.lorastats.prefetch=500");
+                    "stats.consumer.lorastats.prefetch=500",
+                    "stats.consumer.lorastats.shutdown-timeout=5s");
 
     @Test
     void doesNotStartANoOpConsumerBeforeTheProcessingPipelineExists() {

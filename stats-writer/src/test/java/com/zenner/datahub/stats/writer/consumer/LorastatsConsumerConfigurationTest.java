@@ -8,6 +8,7 @@ import com.zenner.datahub.stats.common.amqp.AmqpTopology;
 import com.zenner.datahub.stats.common.model.StatType;
 import jakarta.validation.Validation;
 import java.lang.reflect.Method;
+import java.time.Duration;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.springframework.amqp.core.AcknowledgeMode;
@@ -52,7 +53,8 @@ class LorastatsConsumerConfigurationTest {
         SimpleRabbitListenerContainerFactoryConfigurer configurer =
                 mock(SimpleRabbitListenerContainerFactoryConfigurer.class);
         ConnectionFactory connectionFactory = mock(ConnectionFactory.class);
-        LorastatsConsumerProperties properties = new LorastatsConsumerProperties(3, 321);
+        LorastatsConsumerProperties properties =
+                new LorastatsConsumerProperties(3, 321, Duration.ofSeconds(17));
 
         SimpleRabbitListenerContainerFactory factory =
                 configuration.lorastatsRabbitListenerContainerFactory(
@@ -70,6 +72,8 @@ class LorastatsConsumerConfigurationTest {
         assertThat(ReflectionTestUtils.getField(container, "concurrentConsumers")).isEqualTo(3);
         assertThat(ReflectionTestUtils.getField(container, "maxConcurrentConsumers")).isEqualTo(3);
         assertThat(ReflectionTestUtils.getField(container, "prefetchCount")).isEqualTo(321);
+        assertThat(ReflectionTestUtils.getField(container, "forceStop")).isEqualTo(true);
+        assertThat(ReflectionTestUtils.getField(container, "shutdownTimeout")).isEqualTo(17_000L);
     }
 
     @Test
@@ -96,11 +100,22 @@ class LorastatsConsumerConfigurationTest {
         try (var validatorFactory = Validation.buildDefaultValidatorFactory()) {
             var validator = validatorFactory.getValidator();
 
-            assertThat(validator.validate(new LorastatsConsumerProperties(1, 500))).isEmpty();
+            assertThat(validator.validate(
+                            new LorastatsConsumerProperties(1, 500, Duration.ofSeconds(5))))
+                    .isEmpty();
             assertThat(propertyNames(
-                            validator.validate(new LorastatsConsumerProperties(0, -1))))
+                            validator.validate(
+                                    new LorastatsConsumerProperties(
+                                            0, -1, Duration.ofSeconds(5)))))
                     .containsExactlyInAnyOrder("concurrency", "prefetch");
         }
+    }
+
+    @Test
+    void rejectsANonPositiveShutdownTimeout() {
+        org.assertj.core.api.Assertions.assertThatIllegalArgumentException()
+                .isThrownBy(() -> new LorastatsConsumerProperties(1, 500, Duration.ZERO))
+                .withMessage("stats.consumer.lorastats.shutdown-timeout must be positive");
     }
 
     private static Set<String> propertyNames(

@@ -152,6 +152,9 @@ services:
     image: stats-app/stats-writer:dev
     container_name: stats-writer
     restart: unless-stopped
+    # Longer than the listener's five-second grace, leaving time for Spring and the JVM
+    # to close after RabbitMQ has requeued any delivery that could not finish safely.
+    stop_grace_period: 10s
     env_file: ../.env
     environment:
       # Writer receives only its write-capable database identity, never the API

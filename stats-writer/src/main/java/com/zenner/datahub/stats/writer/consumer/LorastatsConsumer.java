@@ -73,6 +73,13 @@ public final class LorastatsConsumer {
                 processorAvailability
                         .requiredProcessor(LorastatsConsumerDescriptor.TYPE)
                         .process(LorastatsConsumerDescriptor.TYPE, message);
+            } catch (InterruptedException shutdown) {
+                // Container shutdown uses interruption after its grace period. This is
+                // not a failed record and must not spend a retry attempt: preserving the
+                // interrupt and returning exceptionally leaves the original unacknowledged,
+                // so closing the channel returns it to its main queue.
+                Thread.currentThread().interrupt();
+                throw shutdown;
             } catch (Exception failure) {
                 failedDeliveryRouter.route(LorastatsConsumerDescriptor.TYPE, message, failure);
                 channel.basicAck(message.getMessageProperties().getDeliveryTag(), false);
