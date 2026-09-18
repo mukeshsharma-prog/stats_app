@@ -46,7 +46,10 @@ import org.springframework.stereotype.Component;
  * is read from {@link RetentionWindow} — the one definition the guard and the sweep share
  * (DL-133) — so this class cannot advertise a window different from the one in force.
  * Main-queue depth is a diagnostic, not the oldest-message-age alert T-050 requires:
- * under jitter (DL-104) a cyclic depth spike is evidence, not a buffer working.</p>
+ * under jitter (DL-104) a cyclic depth spike is evidence, not a buffer working. That
+ * alert reads {@link QueueAgeMetrics}, which is sampled at delivery; this class registers
+ * its gauge for every served type and resets it whenever a poll finds the queue empty
+ * (DL-147).</p>
  */
 @Component
 public final class OperationalMetrics {
@@ -61,6 +64,7 @@ public final class OperationalMetrics {
     private static final Logger LOGGER = LoggerFactory.getLogger(OperationalMetrics.class);
 
     private final AmqpAdmin admin;
+    private final QueueAgeMetrics queueAge;
     private final Map<StatType, AtomicReference<BrokerSample>> broker =
             new EnumMap<>(StatType.class);
 
@@ -68,9 +72,11 @@ public final class OperationalMetrics {
             AmqpAdmin admin,
             RetentionWindow retention,
             MeterRegistry registry,
+            QueueAgeMetrics queueAge,
             List<Queue> queues,
             @Value("${stats.writer.stat-type:all}") String selectedType) {
         this.admin = Objects.requireNonNull(admin, "admin");
+        this.queueAge = Objects.requireNonNull(queueAge, "queueAge");
         Objects.requireNonNull(retention, "retention");
         Objects.requireNonNull(registry, "registry");
         Objects.requireNonNull(queues, "queues");
@@ -91,6 +97,7 @@ public final class OperationalMetrics {
             }
             AtomicReference<BrokerSample> sample = new AtomicReference<>(BrokerSample.UNKNOWN);
             broker.put(type, sample);
+            queueAge.register(type);
             gauge(registry, QUEUE_DEPTH,
                     "Ready messages on the main queue; excludes unacknowledged deliveries",
                     type, sample, BrokerSample::ready);
@@ -149,6 +156,11 @@ public final class OperationalMetrics {
                             main.getConsumerCount(),
                             1,
                             Instant.now().getEpochSecond()));
+            if (main.getMessageCount() == 0) {
+                // No ready message means no oldest message. Without this the age gauge
+                // would keep the last backlog value through a quiet hour (DL-147).
+                queueAge.observedEmpty(type);
+            }
         } catch (RuntimeException failure) {
             sample.set(BrokerSample.failed(sample.get()));
             // The cause is described, never passed (guard P2): an AMQP exception carries

@@ -12,6 +12,8 @@ import static org.mockito.Mockito.when;
 
 import com.rabbitmq.client.Channel;
 import com.zenner.datahub.stats.common.model.StatType;
+import com.zenner.datahub.stats.writer.metrics.QueueAgeMetrics;
+import java.time.Clock;
 import com.zenner.datahub.stats.writer.retry.FailedDeliveryRouter;
 import com.zenner.datahub.stats.writer.retry.UnconfirmedHandoffException;
 import org.junit.jupiter.api.Test;
@@ -21,6 +23,7 @@ import org.springframework.amqp.core.MessageProperties;
 
 class LorastatsConsumerTest {
     private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    private final QueueAgeMetrics queueAge = new QueueAgeMetrics(registry, Clock.systemUTC());
 
     private void assertAttemptMetered() {
         assertThat(registry.get("records_consumed").tag("type", "lorastats").counter().count())
@@ -38,7 +41,7 @@ class LorastatsConsumerTest {
         Channel channel = mock(Channel.class);
         Message message = delivery(42L);
         FailedDeliveryRouter router = mock(FailedDeliveryRouter.class);
-        LorastatsConsumer consumer = new LorastatsConsumer(availability, router, registry);
+        LorastatsConsumer consumer = new LorastatsConsumer(availability, router, registry, queueAge);
 
         consumer.consume(message, channel);
 
@@ -66,7 +69,7 @@ class LorastatsConsumerTest {
                 .when(processor)
                 .process(StatType.LORASTATS, message);
         FailedDeliveryRouter router = mock(FailedDeliveryRouter.class);
-        LorastatsConsumer consumer = new LorastatsConsumer(availability, router, registry);
+        LorastatsConsumer consumer = new LorastatsConsumer(availability, router, registry, queueAge);
 
         consumer.consume(message, channel);
 
@@ -95,7 +98,7 @@ class LorastatsConsumerTest {
         org.mockito.Mockito.doThrow(unconfirmed)
                 .when(router)
                 .route(StatType.LORASTATS, message, failure);
-        LorastatsConsumer consumer = new LorastatsConsumer(availability, router, registry);
+        LorastatsConsumer consumer = new LorastatsConsumer(availability, router, registry, queueAge);
 
         assertThatThrownBy(() -> consumer.consume(message, channel)).isSameAs(unconfirmed);
 
@@ -118,7 +121,7 @@ class LorastatsConsumerTest {
                 .process(StatType.LORASTATS, message);
         Channel channel = mock(Channel.class);
         FailedDeliveryRouter router = mock(FailedDeliveryRouter.class);
-        LorastatsConsumer consumer = new LorastatsConsumer(availability, router, registry);
+        LorastatsConsumer consumer = new LorastatsConsumer(availability, router, registry, queueAge);
 
         try {
             assertThatThrownBy(() -> consumer.consume(message, channel)).isSameAs(shutdown);
@@ -131,10 +134,33 @@ class LorastatsConsumerTest {
         assertAttemptMetered();
     }
 
+    /** T-050 / DL-147: the age is sampled at entry, before the processor runs. */
+    @Test
+    void samplesTheDeliverysAgeBeforeProcessingIt() throws Exception {
+        StatsMessageProcessor processor = mock(StatsMessageProcessor.class);
+        StatsMessageProcessorAvailability availability =
+                mock(StatsMessageProcessorAvailability.class);
+        when(availability.requiredProcessor(StatType.LORASTATS)).thenReturn(processor);
+        Message message = delivery(7L);
+        message.getMessageProperties()
+                .setTimestamp(new java.util.Date(System.currentTimeMillis() - 45_000L));
+        LorastatsConsumer consumer =
+                new LorastatsConsumer(availability, mock(FailedDeliveryRouter.class), registry, queueAge);
+
+        consumer.consume(message, mock(Channel.class));
+
+        assertThat(
+                        registry.get(com.zenner.datahub.stats.writer.metrics.QueueAgeMetrics.OLDEST_MESSAGE_AGE)
+                                .tag("type", "lorastats")
+                                .gauge()
+                                .value())
+                .isBetween(44.0d, 47.0d);
+    }
+
     @Test
     void rejectsAMissingProcessorInsteadOfCreatingANoOpConsumer() {
         assertThatNullPointerException()
-                .isThrownBy(() -> new LorastatsConsumer(null, mock(FailedDeliveryRouter.class), registry))
+                .isThrownBy(() -> new LorastatsConsumer(null, mock(FailedDeliveryRouter.class), registry, queueAge))
                 .withMessage("processorAvailability");
     }
 
@@ -146,7 +172,10 @@ class LorastatsConsumerTest {
                 .isThrownBy(
                         () ->
                                 new LorastatsConsumer(
-                                        mock(StatsMessageProcessorAvailability.class), null, registry))
+                                        mock(StatsMessageProcessorAvailability.class),
+                                        null,
+                                        registry,
+                                        queueAge))
                 .withMessage("failedDeliveryRouter");
     }
 

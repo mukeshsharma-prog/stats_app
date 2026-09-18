@@ -250,6 +250,11 @@ public class FailedDeliveryRouter {
         properties.setDeliveryMode(MessageDeliveryMode.PERSISTENT);
         properties.setCorrelationId(source.getCorrelationId());
         properties.setMessageId(source.getMessageId());
+        // Input's publish time travels with the copy (DL-147). The age gauge ignores a
+        // retry re-entry by its attempt header, so this changes nothing it measures; it
+        // is what a broker-side reader of DLQ age would need, which DL-144 recorded as
+        // the missing precondition for the DLQ half of "oldest-message age".
+        properties.setTimestamp(source.getTimestamp());
 
         return new Message(message.getBody(), properties);
     }

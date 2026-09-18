@@ -4440,3 +4440,104 @@ the next person does not rediscover that a `$group` 502s. The working documents
 `IMPLEMENTATION_RULES.md`, `CODE_START_CHECKLIST.md`, `README.md`) and the
 Developer Guide outside the repo (68 pages, reprinted 18 Sep 2026) were updated in
 the same change.
+
+---
+
+### DL-147 — The main queues are watched: oldest-message age is sampled at delivery from an Input-stamped timestamp, and the Q13b histogram lives in Input
+
+**19 September 2026** · `ENGINEERING` · ADR-002 §12, ADR-003 D5b, DL-104, DL-112, DL-128, DL-137, DL-144 · STA-27A, NFR-05 · T-050
+
+**Trigger.** T-060 closed the DLQ half of "nobody is watching" (DL-144) and recorded the
+other half as owed: the main queues, `records_expired_on_arrival` (D5b's signed
+obligation), `records_upstream_status_not_ok` (the DL-128 residual), and the
+`ts.server mod 600` histogram DL-104 made the precondition for sizing hardware down.
+The task brief said every series T-050 reads was built by T-027. **Three of the four
+were; the fourth was not**, and `writer-metrics-v1.md` said so in as many words: main-queue
+depth "is a diagnostic, not the oldest-message-age alert T-050 requires". DL-144 named
+the missing precondition — "a broker-side timestamp on every message". So T-050 is one
+new series, one histogram, two counters and seven Prometheus rules, not a rules-only task.
+
+**Decision 1 — Input stamps the standard AMQP `timestamp` property on every publish,
+and the retry/DLQ copy carries it forward.** A property, not a header: it rides with the
+copies the way `correlationId` does (DL-134), and the body stays byte-identical (ADR-004).
+`FailedDeliveryRouter.copyWithHeaders` now preserves it — one line, and the half of
+DL-144's precondition that makes a broker-side DLQ age reader possible later without a
+second change to what is published.
+
+**Decision 2 — `queue_oldest_message_age_seconds{type}` is sampled at delivery, and the
+poll zeroes it on an empty queue.** `app_statsstore.<type>` is FIFO, so the delivery the
+Writer is about to process *was* the oldest ready message when the broker handed it over;
+its age at listener entry is the queue's oldest-message age at that moment.
+`QueueAgeMetrics` records it; `OperationalMetrics` registers the gauge for every served
+type (NaN until observed, for DL-137's reason) and sets it to zero whenever a poll finds no
+ready message — an empty queue has no oldest message, and without the reset the gauge
+would hold the last backlog value through a quiet hour. Two exclusions, both deliberate:
+a delivery carrying `x-stats-attempt` is a retry re-entry whose age *is* the tier delay
+by design, and counting it would make every transient database failure look like the
+Writer falling behind; a delivery with no timestamp — published by something other than
+Input, or by an Input from before this change — is skipped rather than guessed at.
+Negative ages (host clock skew) clamp to zero.
+
+*Rejected: reading `head_message_timestamp` from the management API.* It is the truer
+measurement — it moves while the consumer is absent — and it needs a management
+credential and an HTTP client in the Writer, which DL-137 chose not to take on. The
+stamp is the part of that design that costs nothing and is needed either way; the reader
+can be added later against the same stamp, and the DLQ would then get its age from it.
+*Rejected: scraping RabbitMQ's own Prometheus plugin.* A second scrape target with
+per-object metrics, outside this repository's contract, whose behaviour for paged-out
+messages nobody here could verify.
+
+**Decision 3 — the gauge's blind spot is covered by rules, not by inventing a value.** A
+gauge sampled at delivery stops moving when deliveries stop — the objection DL-137
+raised against a polled retention gauge applies here too. `ops/prometheus/writer-alerts.yml`
+therefore reads the age together with what the poll *does* know:
+`StatsAppMainQueueAging` (warning, `> 300 s` for 5 m — a fresh record has waited longer
+than tier 2's delay) and `StatsAppMainQueueAgingCritical` (`> 1800 s`, longer than the
+longest tier) for the running-but-behind case; `StatsAppMainQueueNoConsumer`
+(`consumer_availability == 0` **and** the poll succeeded, 2 m, critical) for the absent
+consumer; `StatsAppConsumerStalled` (`queue_depth > 0` and no `records_consumed` increase
+in 10 m, critical) for the registered-but-wedged one; and `StatsAppBrokerObservationStale`
+(collection success 0 for 5 m) because a NaN compares false to everything and the other
+four go *quiet* rather than wrong when the poll fails. The three rules on the gauge are
+one alert; the README says to read them together. Thresholds are engineering defaults,
+recorded as such.
+
+**Decision 4 — late arrival alerts on the hourly increase; upstream status on a
+PROVISIONAL ratio.** D5b says "alert when non-zero"; a counter is non-zero forever once
+it has moved, so `StatsAppLateArrival` fires on
+`increase(records_expired_on_arrival_total[1h]) > 0` — one late record is one alert, a
+fleet doing it every cycle keeps it firing — and its annotation names the ~90-day redrive
+trap (DL-138). `StatsAppUpstreamStatusNotOk` is a one-hour ratio of not-OK to consumed
+above **1 %**, sustained for an hour, and the 1 % is written as provisional in the rule,
+the test and the README: DL-139 found `["ok"]` on documents the value-agnostic counter
+would count, so the baseline may be non-zero and the number is set from the first 24 h
+of ingest, per the DL-128 residual. It is *not* set at zero, and it is not left unbuilt
+waiting for the number.
+
+**Decision 5 — the `ts.server mod 600` histogram is Input's, not the Writer's.**
+`records_ts_server_cycle_offset_seconds{type}`: twenty cumulative 30-second buckets
+across the cycle, recorded on *acceptance* (after the publisher confirm, so a 503-then-
+resend counts once). Input because it sees every type from day one, while the Writer is
+deployed per type (ADR-003 D8) and today serves two of five — five partial views to sum
+would answer the wrong question about hardware. Under jitter each bucket holds ~5 %; a
+synchronised fleet fills one or two. The README gives the query. In the same place,
+`records_ts_device_corrected{type}` counts DL-146's `meta.tsDeviceCorrected` flag —
+the number to put beside Q15f — and `GateResult.Accepted` carries `tsServer` and the
+flag out of the gate so nothing re-parses the body.
+
+**What changed in the lorastats slice, and why it is allowed.** `LorastatsConsumer`
+takes `QueueAgeMetrics` and calls it once at entry. That is T-050 adding a cross-cutting
+observation to the consumption path, which the reference slice defines; every sibling
+copies the line. It is not the T-035 smell (DL-148), which is a *new type* editing an
+existing one.
+
+**Verification.** `promtool check rules` and `test rules` (pinned `prom/prometheus:v3.5.0`)
+over eleven scenarios: healthy, warning-not-critical, critical-and-warning, replica `max`,
+NaN-never-fires plus stale-observation, no-consumer, stalled-versus-quiet, late-arrival
+fires-then-clears, ratio breach after the pending hour, and baseline-below-threshold with
+zero-traffic not dividing to an alert. `QueueAgeMetricsTest`, the poll-reset case in
+`OperationalMetricsTest`, delivery sampling in both consumer unit tests, the scrape in
+`ManagementSurfaceTest`, `IngestMetricsTest` for the bucket edges, and the publisher,
+gate and controller tests for the stamp and the two Input observations. CI runs both
+rule files.
+

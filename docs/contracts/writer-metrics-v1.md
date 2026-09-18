@@ -1,9 +1,11 @@
 # Writer metrics contract — T-027
 
 Requirement: STA-27A. Delivery and persistence semantics follow ADR-005 and STA-25A.
-Decisions: DL-136, DL-137. All metrics below carry only `type`, taken from the consumer
-descriptor, never from the untrusted payload. Prometheus counters add `_total`; timer
-exports use seconds.
+Decisions: DL-136, DL-137, DL-147 (oldest-message age), DL-148 (every series below is
+registered per served type — since T-035 that is `lorastats` and `sysstats`, each writer
+registering its own `type` label unconditionally so the series export at zero from
+startup). All metrics below carry only `type`, taken from the consumer descriptor, never
+from the untrusted payload. Prometheus counters add `_total`; timer exports use seconds.
 
 ## Delivery and persistence counters
 
@@ -39,19 +41,32 @@ reads cached observations and performs no broker I/O.
 | `broker_metrics_collection_success` | 1 if the latest observation succeeded, otherwise 0. |
 | `broker_metrics_last_success_timestamp_seconds` | Unix time of the last successful observation; 0 until there has been one. |
 | `retention_period_days` | The configured `ts.device` retention window for the type, read from `RetentionWindow` — the single definition the sweep and the guard use (DL-133). |
+| `queue_oldest_message_age_seconds` | **The series T-050 alerts on (DL-147).** Age of the oldest ready message on the main queue: sampled at each delivery's listener entry as receive time minus the AMQP `timestamp` Input stamps at publish — on a FIFO queue the delivery in hand *was* the oldest ready message when the broker handed it over — and **set to zero by the poll whenever it finds the queue empty**. NaN until the first observation. A retry re-entry (`x-stats-attempt` present) and a delivery with no timestamp are **not** sampled; a negative age (host clock skew) clamps to zero. Resolution is one second (AMQP timestamps are whole seconds). |
 
 A missing queue or a broker fault produces NaN on the depth and consumer gauges, a zero
 collection-success gauge and a safe `WARN`; the last-success timestamp is unchanged.
 Consumers of these metrics must check success and freshness before treating a zero as
 healthy. Replica-level broker observations describe the same shared resource: aggregate
-with `max`, not `sum`, across replicas. Main-queue depth is a diagnostic, not the
-oldest-message-age alert T-050 requires — under jitter (DL-104) a cyclic depth spike is
-evidence, not the buffer working.
+with `max`, not `sum`, across replicas. Main-queue depth is a diagnostic, not the alert —
+under jitter (DL-104) a cyclic depth spike is evidence, not the buffer working; the alert
+is on `queue_oldest_message_age_seconds`.
 
-Prometheus evaluates `ops/prometheus/dlq-alerts.yml` against `dlq_depth`. The rules
+**The age gauge has a blind spot, and it is covered by rules, not by a guess.** Sampled at
+delivery, it stops moving when deliveries stop — an absent or wedged consumer leaves the
+last value on the scrape. `ops/prometheus/writer-alerts.yml` therefore reads it together
+with what the poll *does* know: `consumer_availability == 0` on a successful poll, and
+`queue_depth > 0` with no `records_consumed` increase for ten minutes. The three are one
+alert; `ops/prometheus/README.md` says how to read them. A failed poll leaves the gauge
+alone, exactly as it leaves the others NaN.
+
+Prometheus evaluates `ops/prometheus/dlq-alerts.yml` against `dlq_depth` (T-060) and
+`ops/prometheus/writer-alerts.yml` against the age gauge, the consumer gauges,
+`records_expired_on_arrival` and `records_upstream_status_not_ok` (T-050). The DLQ rules
 aggregate replicas with `max by (type)` and alert immediately, after 7 continuous days,
-and after 12 continuous days. A nonempty-duration rule resets when the queue becomes
-empty; it never inspects, consumes or requeues a DLQ message.
+and after 12 continuous days; a nonempty-duration rule resets when the queue becomes
+empty, and nothing inspects, consumes or requeues a DLQ message. The DLQ's own
+oldest-message age is still owed (DL-144): the publish timestamp now travels with every
+retry and DLQ copy, so a broker-side reader can be added later against it.
 
 Retention health is **not** polled from here. The sweep reports
 `retention_oldest_partition_age_days{type}` after each run, alongside
@@ -59,7 +74,20 @@ Retention health is **not** polled from here. The sweep reports
 DL-132); a gauge sampled on a timer would keep reporting a healthy number from a replica
 whose sweep never ran.
 
+## Not here: the Q13b histogram
+
+`records_ts_server_cycle_offset_seconds{type}` — `ts.server mod 600` in twenty
+30-second buckets, the measurement DL-104 requires before hardware is sized down — is
+an **Input** metric (DL-147): Input sees every type from the first day, while the Writer
+is deployed per type. It and `records_ts_device_corrected{type}` are described in
+`ops/prometheus/README.md` and `heimdal-input-contract-v1.md`.
+
 ## Verification
+
+`QueueAgeMetricsTest` covers NaN-until-observed, the sample, the clamp, both exclusions
+and the empty-queue reset; `OperationalMetricsTest` proves the poll registers the gauge
+and zeroes it on an empty queue only; both consumer unit tests prove the sample is taken
+at entry; `ManagementSurfaceTest` proves the series reaches the scrape.
 
 `OperationalMetricsIntegrationTest` uses dedicated PostgreSQL and RabbitMQ containers —
 it stops the listener to build a visible backlog, which on the shared broker another

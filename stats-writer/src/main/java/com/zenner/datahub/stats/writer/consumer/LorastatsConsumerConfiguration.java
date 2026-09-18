@@ -3,6 +3,7 @@ package com.zenner.datahub.stats.writer.consumer;
 import com.zenner.datahub.stats.common.amqp.AmqpTopology;
 import com.zenner.datahub.stats.common.amqp.AmqpTopology.ExchangeDefinition;
 import com.zenner.datahub.stats.common.amqp.AmqpTopology.QueueDefinition;
+import com.zenner.datahub.stats.writer.metrics.QueueAgeMetrics;
 import com.zenner.datahub.stats.writer.retry.FailedDeliveryRouter;
 import io.micrometer.core.instrument.MeterRegistry;
 import com.zenner.datahub.stats.writer.retry.WriterAmqpProperties;
@@ -176,7 +177,9 @@ public class LorastatsConsumerConfiguration {
     LorastatsConsumer lorastatsConsumer(
             StatsMessageProcessorAvailability processorAvailability,
             FailedDeliveryRouter failedDeliveryRouter,
-            MeterRegistry registry) {
-        return new LorastatsConsumer(processorAvailability, failedDeliveryRouter, registry);
+            MeterRegistry registry,
+            QueueAgeMetrics queueAge) {
+        return new LorastatsConsumer(
+                processorAvailability, failedDeliveryRouter, registry, queueAge);
     }
 }

@@ -166,6 +166,25 @@ PostgreSQL retains a uniqueness defence even though Heimdal states duplicates ar
 
 **Replay rate — agreed by Heimdal on 4 September 2026 (Q13c, DL-109).** A 6-hour Heimdal outage is roughly 28.8M messages. Heimdal caps replay at **2× nominal (2,667/s)**, which bounds catch-up to about 3 hours while normal ingest continues, holding total ingest near 4,000/s. We cannot enforce this — an agreement is a commitment, not a control — so nothing is relaxed: the per-instance 429 limit, bounded Writer prefetch and 503 backpressure all stay, and a 503 under replay is the channel working as designed, not an incident. A replayed `uid` is absorbed by the primary key below.
 
+## 5a. What Input observes on acceptance
+
+Beyond the per-type counters in §2 (`records_accepted`, `records_validation_failed`,
+`records_clock_skew_rejected`, `records_converter_ts_present`, `records_publish_failed`,
+`records_unroutable`), two observations are metered **on acceptance** — after the publisher
+confirm, so a record Heimdal resends after a 503 is counted once (T-050, DL-147):
+
+| Metric | Meaning |
+|---|---|
+| `records_ts_server_cycle_offset_seconds{type}` | `ts.server mod 600` per accepted record, as a histogram with twenty cumulative 30-second buckets. The Q13b measurement (DL-104): jitter fills the twenty slots evenly, a synchronised fleet fills one or two. Hardware is not sized down until 24 h of this say jitter. Query in `ops/prometheus/README.md` |
+| `records_ts_device_corrected{type}` | Records carrying `meta.tsDeviceCorrected: true` — Heimdal rewrote `ts.device` to `ts.server` (DL-146). Read to be counted and for nothing else; the number to put beside Q15f |
+
+Both live in Input rather than the Writer because Input sees every type from the first
+day, while the Writer is deployed per type (ADR-003 D8). Neither is alerted on.
+
+Every published message also carries the publish time as the AMQP `timestamp` property
+(`amqp-topology-v1.md` §1), which is how the Writer measures the age of the oldest waiting
+record. Nothing about the body changes.
+
 ## 6. Contract tests
 
 The integration suite must verify valid and invalid samples for each type, response status and body, no publish on 400/auth failure, publisher-confirm timing, broker outage returning non-2xx, same `uid` correlation, and safe handling of a replay/redelivery.

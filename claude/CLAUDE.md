@@ -6,6 +6,27 @@ It is still auto-loaded every session: the repository-root `CLAUDE.md` is a
 pointer file whose only content is an `@claude/CLAUDE.md` import. Edit this file,
 not the pointer.
 
+> **Version 1.15 — 19 September 2026.** No decision in 1.14 changes. What changes is
+> that **the main queues are watched**. Governing entry: **DL-147** (T-050).
+>
+> * **T-050 was not a rules-only task.** The brief said every series it reads was built by
+>   T-027; three of four were. The oldest-message-age gauge did not exist — DL-144 had
+>   recorded it as owed — so it is built: Input stamps the AMQP `timestamp` on every
+>   publish, the retry/DLQ copy carries it, and `queue_oldest_message_age_seconds{type}`
+>   is **sampled at delivery** (a FIFO head is the oldest message) and **zeroed by the
+>   poll on an empty queue**. It stops moving when deliveries stop, so
+>   `ops/prometheus/writer-alerts.yml` reads it together with *no consumer* and
+>   *consumer stalled* rules from what the poll does know — three rules, one alert.
+>   `StatsAppLateArrival` is on the hourly *increase* of `records_expired_on_arrival`
+>   (D5b); `StatsAppUpstreamStatusNotOk` is a one-hour ratio above a **provisional 1 %**,
+>   to be set from the first 24 h (DL-128 residual). The `ts.server mod 600` histogram is
+>   **Input's** (`records_ts_server_cycle_offset_seconds`) — Input sees all five types,
+>   the Writer serves two — with `records_ts_device_corrected` beside it for Q15f.
+> * **Gates:** unchanged — 103 fixture assertions, 90 parity cases; `promtool` over both
+>   rule files in CI.
+> * **What to do next:** **T-035 `sysstats`**, which T-033 being green permits. Set the
+>   upstream-status threshold after the first 24 h.
+>
 > **Version 1.14 — 18 September 2026 (later the same day).** No decision in 1.13
 > changes. What changes is that **the documents have now met live data** — Hasan opened
 > the Datahub's `datastore-stats` aggregate endpoint, 1,200 records were run through the
@@ -856,6 +877,7 @@ plan is not written against a repository that no longer exists. Full reasoning:
 | DL-138 | **A manual redrive is one attempt, never fresh tiers.** `DlqRedriveCommand` (`./gradlew :stats-writer:redriveDlq`): per type, ≤ 2,667/s, `--change-id` and `--root-cause-resolved=true` mandatory, refuses a record past the retention window, publishes the original bytes with `x-stats-manual-redrive=true` and ACKs the DLQ original **only after the copy is confirmed**. `FailedDeliveryRouter` sends a repeat failure straight back to the DLQ. Runbook: `docs/runbooks/dlq-redrive.md` | T-052 |
 | DL-139 | **The Datahub API guide is reconciled.** `maintenant` pinned down — it moves with `tenant` and equals it *(on every tenant but minol — corrected by DL-146)*, so only a deliberate fixture can ever catch a wrong filter; Q8a-3 (ForwardRule / `maxRetry` / basic auth) and D16 (tenant-move history) raised, not answered — **D16 since ratified, DL-142**; `["ok"]` added to the DL-108 residual; `clsbox = FFFFFFFFFFFF` means *synthetic / no gateway*. The platform's own `POST /datastore/aggregate/pageable` on `{clsbox, type, ts.device}` is a **parity oracle** for the API tests | — |
 | DL-146 | **Live data met the documents.** `ltestats` `data` is a closed `oneOf` — `measured` (`rsrp`/`rsrq` optional) and `unknown-technology` (`etxt` only) — after 2% of live traffic was found dead-lettering. `ts.expiresOn` accepted as string or `{"$date": …}`; `meta` and `ts.deviceOrig` preserved as passthrough. `maintenant ≠ tenant` on minol only. `netstats` absent from the datastore. Three questions raised (Q15e–Q15g), none answered. Gates 96 → 103, 84 → 90 | T-035, T-050 |
+| DL-147 | **The main queues are watched.** Input stamps the AMQP `timestamp`; `queue_oldest_message_age_seconds{type}` is sampled at delivery and zeroed by the poll on an empty queue; a retry re-entry is not sampled. `ops/prometheus/writer-alerts.yml`: aging (warning 300 s / critical 1,800 s, both `for: 5m`), **no consumer** and **consumer stalled** as the gauge's companions, stale-observation, `StatsAppLateArrival` on the hourly increase of `records_expired_on_arrival` (D5b), and `StatsAppUpstreamStatusNotOk` on a **provisional** 1 % ratio. The Q13b histogram `records_ts_server_cycle_offset_seconds{type}` and `records_ts_device_corrected{type}` are Input's. The management-API head timestamp was rejected for now (a credential and a client DL-137 declined); the stamp makes it addable later, and the DLQ's age with it | T-050 |
 
 > **What to do next lives in `Stats_App_Tracker.xlsx` → the `Next Up` sheet**, ranked
 > across both owners with the gate on each row. T-063, T-057 and T-064 were done on
@@ -864,9 +886,10 @@ plan is not written against a repository that no longer exists. Full reasoning:
 > 11 Sep 2026** — Phase 1 has no PARTIAL row left. **On 17 Sep 2026 six
 > branches merged: T-029, T-030, T-033 (the poison-isolation, crash-window and
 > outage-recovery drills), T-047 (DL-140), T-053 (DL-143) and T-060 (DL-144).** In one
-> line: **T-050 first** — the DLQ is watched, the main queues are not — then **T-035
-> `sysstats`**, which T-033 being green now permits — not `ltestats`, which is blocked on
-> D-12 P3. T-051, T-054 and T-055 are unblocked — they measure what T-025 built.
+> line: ~~**T-050 first** — the DLQ is watched, the main queues are not~~ — **done
+> 19 Sep 2026 (DL-147)** — then **T-035 `sysstats`**, which T-033 being green now
+> permits — not `ltestats`, which is blocked on D-12 P3. T-051, T-054 and T-055 are
+> unblocked — they measure what T-025 built.
 
 ### Ours to decide — decide deliberately, record as an ADR, do not escalate
 

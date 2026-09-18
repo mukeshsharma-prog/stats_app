@@ -145,6 +145,7 @@ class ManagementSurfaceTest {
     }
 
     @Autowired private io.micrometer.core.instrument.MeterRegistry registry;
+    @Autowired private com.zenner.datahub.stats.writer.metrics.QueueAgeMetrics queueAge;
 
     @Test
     void deliveryAttemptMetricsReachTheScrapeEvenForAMalformedBody() throws Exception {
@@ -162,7 +163,7 @@ class ManagementSurfaceTest {
         var message = new org.springframework.amqp.core.Message(new byte[] {'{'}, new org.springframework.amqp.core.MessageProperties());
         org.mockito.Mockito.doThrow(new IllegalArgumentException("malformed body"))
                 .when(processor).process(StatType.LORASTATS, message);
-        var consumer = new com.zenner.datahub.stats.writer.consumer.LorastatsConsumer(availability, router, registry);
+        var consumer = new com.zenner.datahub.stats.writer.consumer.LorastatsConsumer(availability, router, registry, queueAge);
         consumer.consume(message, org.mockito.Mockito.mock(com.rabbitmq.client.Channel.class));
         var scrape = rest.getForEntity("http://localhost:" + port + "/actuator/prometheus", String.class);
         assertThat(scrape.getStatusCode()).isEqualTo(HttpStatus.OK);
@@ -170,6 +171,26 @@ class ManagementSurfaceTest {
                 .contains("records_consumed_total{type=\"lorastats\"} 1.0")
                 .contains("records_processing_duration_seconds_count{type=\"lorastats\"} 1")
                 .contains("records_processing_duration_seconds_sum{type=\"lorastats\"}");
+    }
+
+    /**
+     * T-050 / DL-147: the oldest-message-age gauge reaches the scrape under the type
+     * this deployment serves, and NaN — "not observed yet" — is what it exports until a
+     * delivery or a poll has said otherwise. A NaN that Prometheus ingests is a sample
+     * the alert rules can tell apart from zero; an absent series is not.
+     */
+    @Test
+    void theOldestMessageAgeGaugeReachesTheScrape() {
+        var scrape = rest.getForEntity("http://localhost:" + port + "/actuator/prometheus", String.class);
+
+        assertThat(scrape.getStatusCode()).isEqualTo(HttpStatus.OK);
+        String sample = scrape.getBody().lines()
+                .filter(line -> line.startsWith(
+                        com.zenner.datahub.stats.writer.metrics.QueueAgeMetrics.OLDEST_MESSAGE_AGE
+                                + "{type=\"netstats\"}"))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("queue_oldest_message_age_seconds was not exported"));
+        assertThat(sample).doesNotContain("uid=", "tenant=", "clsbox=");
     }
 
     @Test

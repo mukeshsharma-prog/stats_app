@@ -1,6 +1,7 @@
 package com.zenner.datahub.stats.writer.consumer;
 
 import com.rabbitmq.client.Channel;
+import com.zenner.datahub.stats.writer.metrics.QueueAgeMetrics;
 import com.zenner.datahub.stats.writer.retry.FailedDeliveryRouter;
 import com.zenner.datahub.stats.writer.log.WriterLogContext;
 import java.util.Objects;
@@ -19,18 +20,21 @@ public final class LorastatsConsumer {
     private final StatsMessageProcessorAvailability processorAvailability;
     private final FailedDeliveryRouter failedDeliveryRouter;
     private final MeterRegistry registry;
+    private final QueueAgeMetrics queueAge;
     private final Counter consumed;
     private final Timer duration;
 
     public LorastatsConsumer(
             StatsMessageProcessorAvailability processorAvailability,
             FailedDeliveryRouter failedDeliveryRouter,
-            MeterRegistry registry) {
+            MeterRegistry registry,
+            QueueAgeMetrics queueAge) {
         this.processorAvailability =
                 Objects.requireNonNull(processorAvailability, "processorAvailability");
         this.failedDeliveryRouter =
                 Objects.requireNonNull(failedDeliveryRouter, "failedDeliveryRouter");
         this.registry = Objects.requireNonNull(registry, "registry");
+        this.queueAge = Objects.requireNonNull(queueAge, "queueAge");
         this.consumed = Counter.builder("records_consumed")
                 .description("Broker deliveries entering processing, including redeliveries and malformed bodies")
                 .tag("type", LorastatsConsumerDescriptor.WIRE_NAME).register(registry);
@@ -66,6 +70,10 @@ public final class LorastatsConsumer {
     public void consume(Message message, Channel channel) throws Exception {
         // Count before decoding so malformed records remain observable.
         consumed.increment();
+        // Sampled at entry, before any work: this delivery was the head of a FIFO queue
+        // when the broker handed it over, so its age IS the queue's oldest-message age
+        // at that moment (T-050, DL-147).
+        queueAge.observe(LorastatsConsumerDescriptor.TYPE, message);
         Timer.Sample sample = Timer.start(registry);
         try (WriterLogContext.Scope ignored =
                 WriterLogContext.open(message, LorastatsConsumerDescriptor.TYPE)) {
