@@ -152,7 +152,8 @@ public class EnvelopeGate {
                     RejectionReason.CLOCK_SKEW_EXCEEDED);
         }
 
-        return new GateResult.Accepted(statType, hasConverterTimestamp(record));
+        return new GateResult.Accepted(
+                statType, hasConverterTimestamp(record), server, isTsDeviceCorrected(record));
     }
 
     private GateResult rejection(
@@ -165,6 +166,16 @@ public class EnvelopeGate {
                 ProblemDetails.validationFailure(
                         errorCode, statType, errors, instance, IngestLogContext.traceId());
         return new GateResult.Rejected(problem, statType, reason);
+    }
+
+    /**
+     * Heimdal's own flag that it rewrote {@code ts.device} (DL-146). Read here to count
+     * it and for nothing else: the value is preserved as a passthrough member and never
+     * branched on. A missing or non-boolean member is simply "not corrected".
+     */
+    private static boolean isTsDeviceCorrected(JsonNode record) {
+        JsonNode flag = record.path("meta").path("tsDeviceCorrected");
+        return flag.isBoolean() && flag.booleanValue();
     }
 
     private static boolean isUnknownStatType(ValidationResult envelope) {

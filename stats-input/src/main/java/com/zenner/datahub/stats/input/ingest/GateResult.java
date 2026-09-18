@@ -2,6 +2,7 @@ package com.zenner.datahub.stats.input.ingest;
 
 import com.zenner.datahub.stats.common.error.ProblemDetails;
 import com.zenner.datahub.stats.common.model.StatType;
+import java.time.Instant;
 import java.util.Objects;
 
 /**
@@ -19,9 +20,21 @@ public sealed interface GateResult {
      * not been published yet — acceptance is only complete after publisher confirm
      * (STA-04A).
      */
-    record Accepted(StatType statType, boolean converterTimestampPresent) implements GateResult {
+    record Accepted(
+            StatType statType,
+            boolean converterTimestampPresent,
+            /**
+             * The record's own {@code ts.server} — Heimdal's receipt clock, already
+             * validated as an epoch-second integer. Carried out so the controller can
+             * meter where in the ten-minute cycle the record arrived (T-050, DL-147).
+             */
+            Instant tsServer,
+            /** {@code meta.tsDeviceCorrected == true}: Heimdal rewrote {@code ts.device} (DL-146). */
+            boolean tsDeviceCorrected)
+            implements GateResult {
         public Accepted {
             Objects.requireNonNull(statType, "statType");
+            Objects.requireNonNull(tsServer, "tsServer");
         }
     }
 

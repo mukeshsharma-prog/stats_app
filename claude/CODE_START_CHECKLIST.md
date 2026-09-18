@@ -73,7 +73,7 @@ product; one has engineering agreement and still needs a signature.
 | Q3a | Topology declaration scope | **Broker-connected modules only** — Input and Writer. `stats-api` gets no broker connection. T-032 is the enforcement; the platform ack is a courtesy | ADR-002 §11 |
 | — | DLQ retention and redrive | **No TTL, ever.** Alert on depth > 0 and oldest-message age; manual disposition within 14 days; redrive by an authorised ops role, per type, at ≤ 2× nominal, root cause first | ADR-002 §12; `amqp-topology-v1.md` §6; T-052 **BUILT 11 Sep 2026 (DL-138)** — `docs/runbooks/dlq-redrive.md` |
 | Q5a | Volume contradiction | **115.2M records/day.** The internal "around 10 million" is withdrawn; it never blocked the schema | ADR-003; capacity tables |
-| D5b | Late-arrival policy | **Engineering agreed**: skip, meter `records_expired_on_arrival`, ACK — **plus an alert when the counter is non-zero**. **SIGNED 4 Sep 2026 (DL-112); BUILT 10 Sep 2026 (T-026, DL-133).** The alert is the one part not built: T-050 | ADR-003 |
+| D5b | Late-arrival policy | **Engineering agreed**: skip, meter `records_expired_on_arrival`, ACK — **plus an alert when the counter is non-zero**. **SIGNED 4 Sep 2026 (DL-112); BUILT 10 Sep 2026 (T-026, DL-133); alert BUILT 19 Sep 2026 (T-050, DL-147).** | ADR-003 |
 
 > **One thing this set deliberately did not do:** it did not close D5a. The RPO/RTO
 > proposal — RPO ≤ 5 min, RTO 1 h per partition and 24 h for a full cluster restore —
@@ -96,7 +96,7 @@ DL-104…DL-112.
 | Q13c | **2× replay cap agreed** — and still unenforceable by us | DL-109; T-049 unblocked |
 | Q4b | **No IPv6, provisionally**, with a metered per-field rejection code as the reopening trigger | DL-110 |
 | **D5a** | **SIGNED.** RPO ≤ 5 min; RTO 1 h per partition, 24 h full cluster | DL-111; **T-051 unblocked** |
-| **D5b** | **SIGNED.** Skip, meter, ACK, alert | DL-112; **T-026 built 10 Sep 2026 (DL-133)** — the alert half is T-050 |
+| **D5b** | **SIGNED.** Skip, meter, ACK, alert | DL-112; **T-026 built 10 Sep 2026 (DL-133); the alert 19 Sep 2026 (T-050, DL-147)** |
 
 ## B. Approved implementation sequence
 

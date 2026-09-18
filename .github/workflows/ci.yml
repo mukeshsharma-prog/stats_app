@@ -49,20 +49,22 @@ jobs:
           python docs/contracts/test_schema_drift.py
           python docs/contracts/check_schema_drift.py
 
-      - name: Validate DLQ alert rules
+      # DL-144 (dlq-alerts) and DL-147 (writer-alerts: oldest-message age, late
+      # arrival, upstream status). Both files, both checked, both behaviour-tested.
+      - name: Validate Prometheus alert rules
         run: |
           docker run --rm \
             --entrypoint promtool \
             --volume "$PWD/ops/prometheus:/work:ro" \
             --workdir /work \
             prom/prometheus:v3.5.0 \
-            check rules dlq-alerts.yml
+            check rules dlq-alerts.yml writer-alerts.yml
           docker run --rm \
             --entrypoint promtool \
             --volume "$PWD/ops/prometheus:/work:ro" \
             --workdir /work \
             prom/prometheus:v3.5.0 \
-            test rules dlq-alerts.test.yml
+            test rules dlq-alerts.test.yml writer-alerts.test.yml
 
       # DL-117. Catches OpenAPI defects a YAML parse cannot see — an unquoted
       # description containing a comma silently becomes an extra schema key.

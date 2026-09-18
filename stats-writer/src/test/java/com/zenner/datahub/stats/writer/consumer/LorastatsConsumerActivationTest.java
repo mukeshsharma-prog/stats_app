@@ -22,6 +22,9 @@ class LorastatsConsumerActivationTest {
             .withBean(io.micrometer.core.instrument.MeterRegistry.class,
                     io.micrometer.core.instrument.simple.SimpleMeterRegistry::new)
             .withBean(
+                    com.zenner.datahub.stats.writer.metrics.QueueAgeMetrics.class,
+                    () -> mock(com.zenner.datahub.stats.writer.metrics.QueueAgeMetrics.class))
+            .withBean(
                     SimpleRabbitListenerContainerFactoryConfigurer.class,
                     () -> mock(SimpleRabbitListenerContainerFactoryConfigurer.class))
             .withBean(ConnectionFactory.class, () -> mock(ConnectionFactory.class))

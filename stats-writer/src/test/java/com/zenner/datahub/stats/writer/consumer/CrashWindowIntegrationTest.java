@@ -76,6 +76,7 @@ class CrashWindowIntegrationTest {
     @Autowired private LorastatsMessageProcessor realProcessor;
     @Autowired private FailedDeliveryRouter failedDeliveryRouter;
     @Autowired private MeterRegistry meterRegistry;
+    @Autowired private com.zenner.datahub.stats.writer.metrics.QueueAgeMetrics queueAge;
     @Autowired private RabbitTemplate rabbitTemplate;
     @Autowired private AmqpAdmin rabbitAdmin;
     @Autowired private JdbcTemplate jdbc;
@@ -172,7 +173,7 @@ class CrashWindowIntegrationTest {
     private LorastatsConsumer consumerUsing(StatsMessageProcessor processor) {
         when(applicationAvailability.requiredProcessor(TYPE)).thenReturn(processor);
         return new LorastatsConsumer(
-                applicationAvailability, failedDeliveryRouter, meterRegistry);
+                applicationAvailability, failedDeliveryRouter, meterRegistry, queueAge);
     }
 
     private static Channel ackFailureChannel(long deliveryTag) throws Exception {

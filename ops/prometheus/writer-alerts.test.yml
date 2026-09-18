@@ -1,0 +1,308 @@
+rule_files:
+  - writer-alerts.yml
+
+evaluation_interval: 1m
+
+tests:
+  # ---- Oldest-message age ----------------------------------------------------
+  - name: a healthy queue with a consumer and seconds of age raises nothing
+    interval: 1m
+    input_series:
+      - series: 'queue_oldest_message_age_seconds{type="lorastats",instance="writer-a"}'
+        values: '0 1 2 0 3 1 0 0 2 1 0 0 1 2 0 0 1 0 0 0 0'
+      - series: 'queue_depth{type="lorastats",instance="writer-a"}'
+        values: '0 4 7 0 9 2 0 0 3 1 0 0 2 5 0 0 1 0 0 0 0'
+      - series: 'consumer_availability{type="lorastats",instance="writer-a"}'
+        values: '1x20'
+      - series: 'broker_metrics_collection_success{type="lorastats",instance="writer-a"}'
+        values: '1x20'
+      - series: 'records_consumed_total{type="lorastats",instance="writer-a"}'
+        values: '0+300x20'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: StatsAppMainQueueAging
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: StatsAppMainQueueAgingCritical
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: StatsAppMainQueueNoConsumer
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: StatsAppConsumerStalled
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: StatsAppBrokerObservationStale
+        exp_alerts: []
+
+  - name: a queue whose oldest message has waited fifteen minutes for five minutes is a warning, not yet critical
+    interval: 1m
+    input_series:
+      - series: 'queue_oldest_message_age_seconds{type="lorastats",instance="writer-a"}'
+        values: '900x10'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: StatsAppMainQueueAging
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: StatsAppMainQueueAging
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              type: lorastats
+            exp_annotations:
+              summary: "Stats App lorastats main queue: oldest message is 15m 0s old"
+              description: >-
+                The oldest ready message on app_statsstore.lorastats has waited more
+                than five minutes for the Writer, for at least five minutes. The Writer is
+                consuming but not keeping up: check records_processing_duration,
+                records_postgres_errors and the retry counters before touching capacity.
+                Depth is a diagnostic here, not the alert (Q13b).
+              runbook: claude/SKILLS.md#skill-4--diagnose-a-stuck-or-growing-queue
+      - eval_time: 10m
+        alertname: StatsAppMainQueueAgingCritical
+        exp_alerts: []
+
+  - name: an hour-old head message is critical as well as warning
+    interval: 1m
+    input_series:
+      - series: 'queue_oldest_message_age_seconds{type="sysstats",instance="writer-a"}'
+        values: '3600x10'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: StatsAppMainQueueAgingCritical
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              type: sysstats
+            exp_annotations:
+              summary: "Stats App sysstats main queue: oldest message is 1h 0m 0s old"
+              description: >-
+                The oldest ready message on app_statsstore.sysstats has waited more
+                than thirty minutes. Records are not being lost — the queue is durable — but
+                the backlog is now longer than the retry arm, and a Heimdal replay on top of it
+                will be held at the 503 backpressure channel.
+              runbook: claude/SKILLS.md#skill-4--diagnose-a-stuck-or-growing-queue
+      - eval_time: 5m
+        alertname: StatsAppMainQueueAging
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              type: sysstats
+            exp_annotations:
+              summary: "Stats App sysstats main queue: oldest message is 1h 0m 0s old"
+              description: >-
+                The oldest ready message on app_statsstore.sysstats has waited more
+                than five minutes for the Writer, for at least five minutes. The Writer is
+                consuming but not keeping up: check records_processing_duration,
+                records_postgres_errors and the retry counters before touching capacity.
+                Depth is a diagnostic here, not the alert (Q13b).
+              runbook: claude/SKILLS.md#skill-4--diagnose-a-stuck-or-growing-queue
+
+  - name: replicas aggregate with max and types are independent
+    interval: 1m
+    input_series:
+      - series: 'queue_oldest_message_age_seconds{type="lorastats",instance="writer-a"}'
+        values: '100x10'
+      - series: 'queue_oldest_message_age_seconds{type="lorastats",instance="writer-b"}'
+        values: '700x10'
+      - series: 'queue_oldest_message_age_seconds{type="sysstats",instance="writer-c"}'
+        values: '5x10'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: StatsAppMainQueueAging
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              type: lorastats
+            exp_annotations:
+              summary: "Stats App lorastats main queue: oldest message is 11m 40s old"
+              description: >-
+                The oldest ready message on app_statsstore.lorastats has waited more
+                than five minutes for the Writer, for at least five minutes. The Writer is
+                consuming but not keeping up: check records_processing_duration,
+                records_postgres_errors and the retry counters before touching capacity.
+                Depth is a diagnostic here, not the alert (Q13b).
+              runbook: claude/SKILLS.md#skill-4--diagnose-a-stuck-or-growing-queue
+
+  - name: a NaN from a failed poll never reads as a healthy zero or as no consumer
+    interval: 1m
+    input_series:
+      - series: 'queue_oldest_message_age_seconds{type="lorastats",instance="writer-a"}'
+        values: 'NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN'
+      - series: 'consumer_availability{type="lorastats",instance="writer-a"}'
+        values: 'NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN'
+      - series: 'queue_depth{type="lorastats",instance="writer-a"}'
+        values: 'NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN'
+      - series: 'broker_metrics_collection_success{type="lorastats",instance="writer-a"}'
+        values: '0x10'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: StatsAppMainQueueNoConsumer
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: StatsAppMainQueueAging
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: StatsAppConsumerStalled
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: StatsAppBrokerObservationStale
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: StatsAppBrokerObservationStale
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              type: lorastats
+            exp_annotations:
+              summary: "Stats App lorastats broker observation has been failing for 5 minutes"
+              description: >-
+                The Writer's passive queue inspection for lorastats has failed on
+                every poll for five minutes. queue_depth, dlq_depth and consumer_availability
+                are NaN and the queue alerts cannot fire. Check the broker and the Writer's
+                AMQP connection; do not read the quiet as healthy.
+              runbook: claude/SKILLS.md#skill-4--diagnose-a-stuck-or-growing-queue
+
+  - name: zero consumers on a successful poll is critical after two minutes
+    interval: 1m
+    input_series:
+      - series: 'consumer_availability{type="sysstats",instance="writer-a"}'
+        values: '0x10'
+      - series: 'broker_metrics_collection_success{type="sysstats",instance="writer-a"}'
+        values: '1x10'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: StatsAppMainQueueNoConsumer
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: StatsAppMainQueueNoConsumer
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              type: sysstats
+            exp_annotations:
+              summary: "Stats App sysstats main queue has no consumer"
+              description: >-
+                The broker reports zero consumers on app_statsstore.sysstats while
+                the Writer's poll succeeds. Every record for this type is now waiting, and
+                queue_oldest_message_age_seconds cannot say so because it is sampled at
+                delivery. Check that a Writer for this type is deployed and its listener
+                started (stats.writer.stat-type, StatTypeDeploymentGuard).
+              runbook: claude/SKILLS.md#skill-4--diagnose-a-stuck-or-growing-queue
+
+  - name: a registered consumer that takes nothing for ten minutes while messages wait is stalled
+    interval: 1m
+    input_series:
+      - series: 'queue_depth{type="lorastats",instance="writer-a"}'
+        values: '5x20'
+      - series: 'records_consumed_total{type="lorastats",instance="writer-a"}'
+        values: '1000x20'
+      - series: 'queue_depth{type="sysstats",instance="writer-b"}'
+        values: '5x20'
+      - series: 'records_consumed_total{type="sysstats",instance="writer-b"}'
+        values: '0+50x20'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: StatsAppConsumerStalled
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              type: lorastats
+            exp_annotations:
+              summary: "Stats App lorastats consumer has taken no delivery in 10 minutes"
+              description: >-
+                app_statsstore.lorastats has ready messages and records_consumed has
+                not moved for ten minutes across every replica. The consumer is present but
+                not consuming — a wedged listener, a hung connection, or a prefetch window
+                held unacknowledged. Restart the Writer for this type; nothing is lost while
+                the deliveries stay unacknowledged.
+              runbook: claude/SKILLS.md#skill-4--diagnose-a-stuck-or-growing-queue
+
+  - name: an empty queue with a quiet consumer is not a stall
+    interval: 1m
+    input_series:
+      - series: 'queue_depth{type="lorastats",instance="writer-a"}'
+        values: '0x20'
+      - series: 'records_consumed_total{type="lorastats",instance="writer-a"}'
+        values: '1000x20'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: StatsAppConsumerStalled
+        exp_alerts: []
+
+  # ---- Late arrival ------------------------------------------------------------
+  - name: one late record alerts for the hour after it and then clears
+    interval: 1m
+    input_series:
+      - series: 'records_expired_on_arrival_total{type="omsstats",instance="writer-a"}'
+        values: '0x30 1x120'
+    alert_rule_test:
+      - eval_time: 29m
+        alertname: StatsAppLateArrival
+        exp_alerts: []
+      - eval_time: 40m
+        alertname: StatsAppLateArrival
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              type: omsstats
+            exp_annotations:
+              summary: "Stats App omsstats: 1 record(s) arrived past the retention window in the last hour"
+              description: >-
+                A valid omsstats record arrived with ts.device already older than
+                the retention window and was skipped, metered and ACKed — deliberate data loss
+                by a signed decision (D5b). A gateway back from a long outage does this once;
+                a fleet doing it every cycle is a clock or connectivity problem upstream.
+                If a DLQ redrive is in progress, this is the ~90-day trap: the redriven
+                records are too old to store and are NOT being recovered.
+              runbook: docs/runbooks/dlq-redrive.md
+      - eval_time: 140m
+        alertname: StatsAppLateArrival
+        exp_alerts: []
+
+  # ---- Upstream status ---------------------------------------------------------
+  - name: five percent not-OK for a sustained hour breaches the provisional one percent
+    interval: 1m
+    input_series:
+      - series: 'records_consumed_total{type="lorastats",instance="writer-a"}'
+        values: '0+100x180'
+      - series: 'records_upstream_status_not_ok_total{type="lorastats",instance="writer-a"}'
+        values: '0+5x180'
+    alert_rule_test:
+      # The ratio is over the threshold from the first minute; `for: 1h` holds it
+      # pending until a full hour has passed.
+      - eval_time: 59m
+        alertname: StatsAppUpstreamStatusNotOk
+        exp_alerts: []
+      - eval_time: 90m
+        alertname: StatsAppUpstreamStatusNotOk
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              type: lorastats
+            exp_annotations:
+              summary: "Stats App lorastats: 5% of records report a non-OK upstream status"
+              description: >-
+                More than the configured share of consumed lorastats records carried
+                a status other than ["conversion ok"] for a sustained hour. The records are
+                stored regardless (DL-108); this is Heimdal's converter reporting trouble, not
+                ours. The 1% threshold is PROVISIONAL until the first 24 h of ingest set it —
+                see ops/prometheus/README.md.
+              runbook: claude/SKILLS.md#skill-4--diagnose-a-stuck-or-growing-queue
+
+  - name: a baseline below the provisional threshold is quiet, and no traffic is not a breach
+    interval: 1m
+    input_series:
+      - series: 'records_consumed_total{type="lorastats",instance="writer-a"}'
+        values: '0+1000x180'
+      - series: 'records_upstream_status_not_ok_total{type="lorastats",instance="writer-a"}'
+        values: '0+5x180'
+      - series: 'records_consumed_total{type="sysstats",instance="writer-b"}'
+        values: '0x180'
+      - series: 'records_upstream_status_not_ok_total{type="sysstats",instance="writer-b"}'
+        values: '0x180'
+    alert_rule_test:
+      - eval_time: 150m
+        alertname: StatsAppUpstreamStatusNotOk
+        exp_alerts: []

@@ -76,12 +76,55 @@ class StatsIngestControllerTest {
         when(publisher.publish(eq(StatType.LORASTATS), any()))
                 .thenReturn(PublishOutcome.NOT_CONFIRMED);
         double before = counter(IngestMetrics.PUBLISH_FAILED);
+        double cycleSamplesBefore = cycleOffsetSamples(StatType.LORASTATS);
 
         mockMvc.perform(postRecord("valid/lorastats-production-canonical.json"))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(content().contentTypeCompatibleWith("application/problem+json"));
 
         assertThat(counter(IngestMetrics.PUBLISH_FAILED) - before).isEqualTo(1.0d);
+        // T-050: the cycle histogram counts ACCEPTED records only. Heimdal resends after a
+        // 503, and counting the attempt here would count that record twice.
+        assertThat(cycleOffsetSamples(StatType.LORASTATS)).isEqualTo(cycleSamplesBefore);
+    }
+
+    /**
+     * T-050 / DL-147: the two envelope observations metered on acceptance — where in the
+     * ten-minute cycle {@code ts.server} fell, and whether Heimdal corrected
+     * {@code ts.device} (DL-146). Both are read to be counted and for nothing else.
+     */
+    @Test
+    @DisplayName("an accepted record is placed in the reporting-cycle histogram, and a corrected one is counted")
+    void metersCyclePhaseAndTsDeviceCorrectionOnAcceptance() throws Exception {
+        when(publisher.publish(eq(StatType.SYSSTATS), any())).thenReturn(PublishOutcome.CONFIRMED);
+        double samplesBefore = cycleOffsetSamples(StatType.SYSSTATS);
+        double correctedBefore = counter(IngestMetrics.TS_DEVICE_CORRECTED);
+
+        mockMvc.perform(postRecord("valid/sysstats-production-ts-device-corrected.json"))
+                .andExpect(status().isOk());
+
+        assertThat(cycleOffsetSamples(StatType.SYSSTATS) - samplesBefore).isEqualTo(1.0d);
+        // ts.server 1786617001 mod 600 = 1.
+        assertThat(
+                        meterRegistry
+                                .get(IngestMetrics.TS_SERVER_CYCLE_OFFSET)
+                                .tag("type", "sysstats")
+                                .summary()
+                                .max())
+                .isLessThanOrEqualTo(599.0d);
+        assertThat(counter(IngestMetrics.TS_DEVICE_CORRECTED) - correctedBefore).isEqualTo(1.0d);
+    }
+
+    private double cycleOffsetSamples(StatType type) {
+        try {
+            return meterRegistry
+                    .get(IngestMetrics.TS_SERVER_CYCLE_OFFSET)
+                    .tag("type", type.wireName())
+                    .summary()
+                    .count();
+        } catch (MeterNotFoundException absent) {
+            return 0.0d;
+        }
     }
 
     @Test
@@ -153,8 +196,13 @@ class StatsIngestControllerTest {
      * later for being flaky rather than fixed.
      */
     private double counter(String name) {
+        // Summed across every type label: since T-050 this class posts sysstats records
+        // too, so a name can match several counters and "the first one" depends on
+        // which test ran first. A delta over the sum does not.
         try {
-            return meterRegistry.get(name).counter().count();
+            return meterRegistry.get(name).counters().stream()
+                    .mapToDouble(io.micrometer.core.instrument.Counter::count)
+                    .sum();
         } catch (MeterNotFoundException absent) {
             return 0.0d;
         }

@@ -131,6 +131,11 @@ public class StatsIngestController {
         }
 
         metrics.accepted(statType);
+        // T-050 / DL-147: metered on acceptance so a 503-then-resend counts once.
+        metrics.tsServerCycleOffset(statType, accepted.tsServer());
+        if (accepted.tsDeviceCorrected()) {
+            metrics.tsDeviceCorrected(statType);
+        }
         log.atDebug()
                 .addKeyValue("event", "published")
                 .log("Record publisher-confirmed and accepted");

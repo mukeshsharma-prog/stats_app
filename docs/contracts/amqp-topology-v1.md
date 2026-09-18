@@ -16,7 +16,8 @@ The message MUST contain a `type` whose literal matches the AMQP routing key, se
 |---|---|
 | Content type | `application/json` |
 | Delivery mode | Persistent |
-| Correlation ID | `uid` unless platform tracing supplies an approved additional ID |
+| Correlation ID | The request's `traceId` (also returned as `X-Trace-Id`); `uid` rides in `messageId` (DL-134) |
+| Timestamp | **Set to the publish time** — the standard AMQP `timestamp` property, whole seconds (DL-147). The Writer samples `queue_oldest_message_age_seconds` from it at delivery; the retry and DLQ copies carry it forward unchanged. A property, never a header, so the body stays byte-identical |
 | Message body | The validated JSON record, byte-identical to what was received |
 | Routing key | Exact `type` literal |
 | Publisher guarantee | Confirm required before successful HTTP acceptance |

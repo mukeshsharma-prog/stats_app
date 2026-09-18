@@ -56,6 +56,37 @@ class ConfirmingStatsPublisherTest {
                 new IngestMetrics(meterRegistry));
     }
 
+    /**
+     * T-050 / DL-147. The Writer computes {@code queue_oldest_message_age_seconds} from
+     * the standard AMQP {@code timestamp} property, so every message Input publishes has
+     * to carry one. A property rather than a header: it rides with the retry and DLQ
+     * copies the way {@code correlationId} does, and the body stays byte-identical.
+     */
+    @Test
+    @DisplayName("every published message carries its publish time as the AMQP timestamp")
+    void stampsThePublishTimeOnTheMessage() {
+        java.util.concurrent.atomic.AtomicReference<Message> sent = new java.util.concurrent.atomic.AtomicReference<>();
+        doAnswer(invocation -> {
+                    sent.set(invocation.getArgument(2));
+                    CorrelationData correlation = invocation.getArgument(3);
+                    correlation.getFuture().complete(new CorrelationData.Confirm(true, null));
+                    return null;
+                })
+                .when(rabbitTemplate)
+                .send(anyString(), anyString(), any(Message.class), any(CorrelationData.class));
+
+        java.time.Instant before = java.time.Instant.now().minusSeconds(1);
+        assertThat(publisher.publish(StatType.LORASTATS, BODY)).isEqualTo(PublishOutcome.CONFIRMED);
+        java.time.Instant after = java.time.Instant.now().plusSeconds(1);
+
+        assertThat(sent.get()).isNotNull();
+        assertThat(sent.get().getMessageProperties().getTimestamp()).isNotNull();
+        assertThat(sent.get().getMessageProperties().getTimestamp().toInstant())
+                .isBetween(before, after);
+        // The stamp is a property, never a change to the bytes (ADR-004).
+        assertThat(sent.get().getBody()).isEqualTo(BODY);
+    }
+
     @Test
     @DisplayName("a broker NACK is not a publish")
     void nackIsNotConfirmed() {

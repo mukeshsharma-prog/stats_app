@@ -19,6 +19,11 @@ The DLQ has no TTL. A record remains available for investigation and disposition
 operations must act within 14 days. PostgreSQL retention is based on `ts.device` and is
 90 days. The command refuses a record at or beyond that boundary because processing it
 would only increment `records_expired_on_arrival`; it would not recover a database row.
+Since T-050 (DL-147) that counter is alerted: **if `StatsAppLateArrival` fires while a
+redrive is running, stop the redrive** — the records being replayed are past the window
+and are being skipped, not recovered. The redriven copies also carry the original
+publish timestamp and `x-stats-manual-redrive`, so they are excluded from
+`queue_oldest_message_age_seconds` and a redrive does not look like a backlog.
 
 ## Required authority
 

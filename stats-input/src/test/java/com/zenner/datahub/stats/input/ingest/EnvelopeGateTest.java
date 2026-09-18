@@ -48,6 +48,28 @@ class EnvelopeGateTest {
         assertThat(accepted.statType()).isEqualTo(StatType.LORASTATS);
         // ts.converter is on 100% of production records: accepted, never read, metered.
         assertThat(accepted.converterTimestampPresent()).isTrue();
+        // T-050: the validated ts.server rides out with the result, in SECONDS, so the
+        // controller can meter the reporting-cycle phase without re-parsing the body.
+        assertThat(accepted.tsServer()).isEqualTo(java.time.Instant.ofEpochSecond(1_787_833_739L));
+        assertThat(accepted.tsDeviceCorrected()).isFalse();
+    }
+
+    /**
+     * DL-146: Heimdal flags a record whose {@code ts.device} it rewrote. The flag is read
+     * to be counted (T-050) and for nothing else — the record is still accepted, and the
+     * skew check sees the corrected value.
+     */
+    @Test
+    @DisplayName("a record Heimdal marked tsDeviceCorrected is accepted and the flag is reported")
+    void reportsHeimdalsTsDeviceCorrection() {
+        GateResult result =
+                gate.evaluate(fixture("valid/sysstats-production-ts-device-corrected.json"), INSTANCE);
+
+        assertThat(result).isInstanceOf(GateResult.Accepted.class);
+        GateResult.Accepted accepted = (GateResult.Accepted) result;
+        assertThat(accepted.statType()).isEqualTo(StatType.SYSSTATS);
+        assertThat(accepted.tsDeviceCorrected()).isTrue();
+        assertThat(accepted.tsServer()).isEqualTo(java.time.Instant.ofEpochSecond(1_786_617_001L));
     }
 
     @ParameterizedTest(name = "{0} is ACCEPTED by Input and left for the Writer to dead-letter")

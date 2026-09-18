@@ -6,6 +6,7 @@ import com.zenner.datahub.stats.common.model.StatType;
 import com.zenner.datahub.stats.input.ingest.IngestMetrics;
 import com.zenner.datahub.stats.input.log.IngestLogContext;
 import java.nio.charset.StandardCharsets;
+import java.util.Date;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
@@ -169,6 +170,11 @@ public final class ConfirmingStatsPublisher implements StatsPublisher {
         // byte-identical record body (T-005, ADR-004).
         messageProperties.setCorrelationId(IngestLogContext.traceId());
         messageProperties.setMessageId(IngestLogContext.uid());
+        // The publish time, as the standard AMQP `timestamp` property (whole seconds).
+        // The Writer reads it at delivery to compute queue_oldest_message_age_seconds
+        // (T-050, DL-147); a property, not a header, so it rides with the retry and
+        // DLQ copies the same way correlationId does. The body is untouched (ADR-004).
+        messageProperties.setTimestamp(new Date());
         return new Message(body, messageProperties);
     }
 }
