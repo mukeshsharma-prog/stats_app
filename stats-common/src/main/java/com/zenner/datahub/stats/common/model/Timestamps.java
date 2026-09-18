@@ -2,6 +2,7 @@ package com.zenner.datahub.stats.common.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import java.time.Instant;
@@ -25,13 +26,22 @@ import java.time.Instant;
  * {@code records_converter_ts_present{type}} — read it from {@link #converter()}
  * being non-null — so we can see if Heimdal ever stops sending it.</p>
  *
- * <p>{@code expiresOn} is the legacy Mongo TTL key, and production sends it as an
- * ISO-8601 <em>string</em> — not an epoch integer — inside this same object. It is
- * kept as a {@link String} and never parsed or read: Stats App retention is a
- * partition detach-and-drop keyed on {@code ts_device} (ADR-003 D1), not a TTL. It
- * is modelled rather than ignored so the typed view stays lossless, which is what
- * lets ADR-004's byte-identical publication survive a round trip through this
- * record.</p>
+ * <p>{@code expiresOn} is the legacy Mongo TTL key, an ISO-8601 instant — never an
+ * epoch integer — inside this same object, and it has been seen in <em>two</em>
+ * spellings: the plain string of the 29 Aug 2026 sample, and MongoDB Extended JSON
+ * {@code {"$date": "…"}} as the live datastore returns it (DL-146). Which one the
+ * HTTP forward emits is open (Q15e), so it is kept as a {@link JsonNode} and never
+ * parsed or read: Stats App retention is a partition detach-and-drop keyed on
+ * {@code ts_device} (ADR-003 D1), not a TTL. It is modelled rather than ignored so
+ * the typed view stays lossless, which is what lets ADR-004's byte-identical
+ * publication survive a round trip through this record.</p>
+ *
+ * <p>{@code deviceOrig} appears when Heimdal has <em>rewritten</em> {@code device}:
+ * live records carry {@code meta.tsDeviceCorrected: true} with {@code ts.device}
+ * set equal to {@code ts.server} and the clock the gateway actually sent kept here
+ * (DL-146). So {@code device} is not always device-assigned, and the value retention
+ * keys on is the corrected one. Preserved in the passthrough column, never read;
+ * when Heimdal applies the correction is open (Q15f).</p>
  *
  * <p>The Draft 2020-12 envelope schema owns range validation. The model does not
  * duplicate those checks; ingress validates the original JSON before creating
@@ -56,5 +66,9 @@ public record Timestamps(
         @JsonSerialize(converter = InstantToEpochSecondConverter.class)
         Instant converter,
 
-        String expiresOn) {
+        @JsonDeserialize(converter = EpochSecondToInstantConverter.class)
+        @JsonSerialize(converter = InstantToEpochSecondConverter.class)
+        Instant deviceOrig,
+
+        JsonNode expiresOn) {
 }

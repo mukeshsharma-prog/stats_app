@@ -2577,7 +2577,8 @@ open-questions sheet.
 
 Not decisions — the absence of them. **Nine items closed on 4 September 2026**
 (DL-104…DL-112); **two were added on 12 September 2026** (DL-139, from the Datahub API
-guide) and one of them, D16, **closed on 17 September 2026** (DL-142); what is left is
+guide) and one of them, D16, **closed on 17 September 2026** (DL-142); **three were added
+on 18 September 2026** from the first look at live data (DL-146); what is left is
 below. Historical status as at 29 Aug:
 `claude/OPEN_QUESTIONS_STATUS_29AUG2026.md`.
 
@@ -2586,6 +2587,9 @@ below. Historical status as at 29 Aug:
 | Q8a-2 | Heimdal inbound auth — mTLS or OAuth2; issuer, audience, identity, rotation. Our position: OAuth2 client credentials, sent as *"unless you object by \<date\>"* | ZC / security | Nothing today (DL-063). **Must close before any shared deployment** — until then anything that reaches the Input port can write |
 | **Q8a-3** | Is the stats push a Heimdal **ForwardRule** (`{url, type, id, maxRetry}`, credentials in the URL)? If so the auth mode is HTTP basic — not in `stats.input.auth.mode` — and Heimdal's retry is **bounded by `maxRetry`**, not indefinite (DL-139) | ZC, with Q8a-2 | Nothing today. Changes the *shape* of the Q8a-2 answer and the reading of rule 8 |
 | Q8b-2 | Confirmation of the proposed Keycloak realm values | ZC | Nothing — a config change (DL-064) |
+| **Q15e** | Which spelling of `ts.expiresOn` does the HTTP forward emit — the plain ISO-8601 string of the 29 Aug sample, or MongoDB Extended JSON `{"$date": …}` as the live datastore returns it? (DL-146) | Hasan | Nothing — the envelope, the Java model and the `passthrough` column accept and keep either form. Closing it lets the schema narrow to one |
+| **Q15f** | When does Heimdal rewrite `ts.device`? Live records carry `meta.tsDeviceCorrected: true` with `ts.device = ts.server` and the gateway's clock kept as `ts.deviceOrig` — while others carry uncorrected skews of +3 s / −1 s (DL-146) | Hasan | Nothing — both members are preserved and never read. It nuances DL-106 (retention and the D9 skew check see the *corrected* value) and may mean Q14a's rejection never fires |
+| **Q15g** | Where do `netstats` records land? `type: "netstats"` returns **nothing** from the datastore across the retained window, though ZC supplied a `netstats` sample on 18 Aug (DL-146) | ZC / Hasan | Nothing today — schema, fixtures, queue and table stay. Blocks nothing until the fan-out reaches `netstats` |
 | **D-09** | ZC confirmation of `docs/contracts/openapi.yaml` | ZC | **Phase 4 — the one item that genuinely gates work.** T-038 directly, T-039…T-046 transitively |
 | — | API consumer catalogue: who calls this, with what filters, to what SLO? BRD §3 lists four, all pending | Product | Index-design justification and Phase 4 scope. No operation or index should exist without tracing to a consumer |
 | D-03 | Exact success code (200 vs 202), path confirmation, request size and timeout limits | Heimdal owner | Request-limit properties only |
@@ -2601,6 +2605,7 @@ recorded so it is not rediscovered as a surprise.
 |---|---|---|
 | DL-105 (Q15a) | *Are the `lorastats` dialects being retired?* Only the first half of Q15a was answered | All three are accepted. This only decides whether a parser can ever be deleted — and `records_lorastats_dialect{dialect}` is what will show one going to zero |
 | DL-108 (Q15d) | The vocabulary of non-OK `status` values — **one more known-good value since DL-139:** measurement documents carry `["ok"]` where stats records carry `["conversion ok"]` | The counter is value-agnostic by design and will enumerate the real values itself; T-050's threshold should be set after the first 24 h, not at zero |
+| DL-106 (Q15b) | `ts.device` is device-assigned — **except when Heimdal corrects it** (`meta.tsDeviceCorrected`, DL-146) | Retention still keys on the value received, as STA-23B says; the corrected value is closer to `ts.server`, never further, so the late-arrival and skew paths get *fewer* records, not more. The rule for the correction is Q15f |
 | DL-110 (Q4b) | IPv6, *"for now consider no"* | Provisional by its own wording. The metered per-field rejection code is the reopening trigger — a non-zero count reopens Q4b |
 | DL-104 (Q13b) | Jitter is a statement, not a measurement | Hardware is not cut until the `ts.server mod 600` histogram over the first 24 h of ingest confirms it (T-050) |
 | DL-109 (Q13c) | The 2× replay cap is agreed and **unenforceable by us** | 503 backpressure, bounded prefetch and T-018's rate limit are the controls we own, and they stay regardless |
@@ -4006,6 +4011,12 @@ thing that can catch it is a fixture in which the two values were made to differ
 purpose — which is why `valid/<type>-tenant-isolation-pair.json` exists and why that
 rule in §6 is not a suggestion.
 
+> **Corrected 18 September 2026 (DL-146).** "Equal on every record this system will
+> receive" was true of every tenant but one. On the **minol** tenant, roughly one live
+> record in ten carries `tenant: minol-gateway` with `maintenant: minol` (Naman, from
+> live data). The isolation rule and the fixture rule are unchanged; what changes is
+> the wording of the trap — see DL-146 decision 1.
+
 **Decision 2 — four questions are recorded, and none is answered here.** Each was
 derived from the guide, not from ZC, and the guide's §9 documents *sensor* forwarding —
 whether gateway statistics use the same path is not stated. So they are questions.
@@ -4244,3 +4255,188 @@ what was built.
 jitter (DL-104) depth is a diagnostic, not the alert. `records_expired_on_arrival` non-zero
 (D5b, DL-112) and `records_upstream_status_not_ok` after the first 24 h (DL-128 residual)
 are T-050's too. This entry closes the DLQ half of "nobody is watching".
+
+### DL-145 — The Heimdal inbound contract gets an OpenAPI twin, and both contracts render onto one reviewable page
+
+**18 September 2026** · `ENGINEERING` · ADR-007 §5, DL-117, DL-118…DL-121, DL-139 · STA-01…STA-06, T-014…T-018
+
+**Trigger.** Management confirmed on 17 September 2026 that Heimdal delivers over
+**HTTP** — the transport the endpoint was built for — and asked what the Stats App
+provides for ZC to configure. The answer existed, but not in a shape anyone could hand
+over: `heimdal-input-contract-v1.md` still carried its August placeholders (*"path —
+confirm against the deployed Datahub convention"*, *"200 or 202, exact code pending"*,
+*"replay rate — our proposal, not yet agreed"*), the read API had a linted OpenAPI
+contract while the ingest side had only prose, and DL-117 had decided the rendered
+HTML is generated rather than committed — which meant, in practice, that nobody ever
+generated it.
+
+**Decision.**
+
+1. **`docs/contracts/openapi-input.yaml`** is the machine-readable inbound contract:
+   the single `POST /stats` operation, every status code `stats-input` is built to
+   return (200, 400 with its field-code catalogue, 413, 429, 503, and 401/403 reserved
+   for Q8a-2), the `X-Trace-Id` header on every response, and the three candidate
+   security schemes under `security: []`. It **`$ref`s** the read contract's
+   `Envelope` and `ProblemDetails` rather than restating them, so the envelope is
+   described once. Problem examples use the `type` URI `ErrorCode.typeUri()` actually
+   emits (`https://stats.example/errors/<wire_code>`, underscore and all), because
+   Input is built and these are the bytes Heimdal will receive. The file is linted in
+   CI under `redocly.yaml` with **one** recorded suppression, `no-unused-components`,
+   because an unreferenced candidate scheme is the contract being accurate about a
+   deferred decision, not a leftover; the suppression is removed the day Q8a-2
+   selects a scheme.
+2. **One page, two sources.** `docs/contracts/build-html.sh` renders both YAMLs into
+   `stats-api-v1-draft.html` — `redocly join` (dedupes the shared refs, refuses to
+   guess on a genuine clash: three responses were renamed `Ingest*` for it), a small
+   `merge-info.py` (join keeps only the *first* `info`, which would have dropped the
+   read API's principles from the page), then `redocly build-docs`, all pinned at
+   2.51.2. The read API is *not* folded into the ingest YAML and vice versa: the SCOPE
+   notes in each file — different caller, different authentication, no shared
+   version segment — still hold. ZC is the audience for *both* confirmations, which
+   is why they get one document.
+3. **The HTML stays uncommitted (DL-117 stands).** CI builds it on every push and
+   uploads it as the `stats-api-v1-draft` workflow artifact, so a reviewer without
+   Node downloads it from the run. The output is byte-deterministic for a given input
+   (verified: two consecutive builds `cmp` equal), so a future drift gate is a
+   one-line addition if the decision is ever reversed.
+4. **`heimdal-input-contract-v1.md` §0 "Handover"** is the table ZC fills in: URL,
+   success code, retry/never-retry sets, limits, replay cap, credential, ForwardRule
+   `maxRetry`. Each row says *built*, *PROVISIONAL* or **OPEN**, and only Q8a-2/Q8a-3
+   are open. §5's replay paragraph is corrected — it still said *"our proposal, not
+   yet agreed"* fourteen days after DL-109 recorded Heimdal's agreement.
+
+**What the transport confirmation does and does not settle.** HTTP is what the
+endpoint was built for, so nothing in code changes. It narrows Q8a-3 rather than
+closing it: a Heimdal ForwardRule of type `HTTP` is now the likely mechanism, and if
+so the credential is basic-in-URL (a mode `stats.input.auth.mode` does not offer) and
+retry is bounded by `maxRetry`. The handover table asks both questions in one row so
+they are answered together, as DL-139 intended.
+
+**Rejected.** *One YAML for both APIs* — would put a POST into a contract whose first
+principle is "GET only, ever", and would tie the ingest path's release cadence to API
+consumers'. *Committing the HTML* — reverses DL-117 for a 350 KB file that changes on
+every contract edit; the workflow artifact gives the same reviewer the same file.
+*Inlining the Redoc viewer* to make the page fully offline — the prerendered text is
+readable without it; only the sidebar and expanders need `cdn.redocly.com`, and
+carrying a 1 MB vendored script for that is not worth it for an internal draft.
+
+**One inconsistency found and not fixed here.** The read contract's problem examples
+use hyphenated type URIs (`…/errors/invalid-time-range`) where `stats-common`'s
+`ErrorCode.typeUri()` emits underscores (`…/errors/invalid_time_range`). The read API is
+Phase 4 and not built, so today this is contract-versus-library drift, not
+contract-versus-behaviour; it is recorded here so the Phase 4 controllers are written
+against one spelling and the examples corrected in that change, not discovered by a
+client matching on `type`.
+
+
+### DL-146 — First look at live data: `ltestats` becomes two closed shapes, the envelope gains three things Heimdal actually sends, and the `maintenant` trap is re-worded
+
+**18 September 2026** · `ENGINEERING` · ADR-007 §6 / Amendment B, ADR-006 Amendment, ADR-003, DL-106, DL-139 · STA-03, STA-03A, STA-23B, T-035
+
+**Trigger.** Hasan pointed engineering at `POST https://one.bmz.cloud/datastore-stats/aggregate`
+— the Datahub's own store of the records Heimdal forwards, queried with a Mongo
+aggregation pipeline — as the way to *"see what kind of data is coming."* It is the first
+sight of production beyond the fifteen records of 29 August (ADR-007). 300 records per
+type were pulled (natural order, so mostly 13 August), plus the full 36-day history of
+one device (1,680 `ltestats` records) and a handful from the current hour, and every one
+was run through **the same validators CI uses** — the Python gate's registry over
+`docs/schemas/`. The endpoint returns MongoDB Extended JSON (`_id.$oid`,
+`ts.expiresOn.$date`); `_id` was stripped as the export artefact DL-107 says it is. Full
+collection scans (`$group`, `$regex`, `$exists`) time out at the proxy; `$match` on
+`type`/`clsbox`/`ts.server` plus `$limit` works. **The samples stayed in the session
+scratchpad**: `ltestats.data.imsi` is a subscriber identifier (D-12), and the fixtures
+below are hand-authored from the observed *shapes* with `uid`, `clsbox` and `imsi`
+synthesised.
+
+**What passed.** All 300 `lorastats`, all 300 `sysstats` and all 300 `omsstats` — both
+gates, no exceptions. The `lorastats` sample was 100% dialect B (string counters),
+which is the dialect DL-089 originally dead-lettered. Six findings did not fit the
+documents.
+
+**Decision 1 — `maintenant ≠ tenant` on the minol tenant, and only there; the trap is
+re-worded, not the rule.** 29 of 300 `lorastats`, 28 of 300 `ltestats` and 35 of 300
+`sysstats` carried `tenant: minol-gateway` with `maintenant: minol`. Naman, from live
+data: **this is minol only; on every other tenant `tenant = maintenant`.** DL-139
+decision 1 said "equal on every record this system will receive" and is corrected in
+place. Nothing about isolation moves: `tenant` is the field (ADR-006), and the
+`*-tenant-isolation-pair.json` fixtures remain the only test that catches a wrong
+filter *for every tenant but one*. What the wording now has to carry is that the two
+cases fail differently — on most tenants a filter on `maintenant` returns the right
+rows and can never be caught by data; on minol it silently *drops* one row in ten,
+which is a different wrong answer, not a safe one. §4, §6 and the sensitivity inventory
+say so. Two new fixtures use the real minol pattern deliberately.
+
+**Decision 2 — `ltestats` `data` is a closed `oneOf` of two shapes (ADR-007 Amendment
+B1).** 6 of 300 live records would have dead-lettered: five with `access_Technology:
+"2G"` and **no `rsrp`/`rsrq`** — LTE reference-signal measurements a 2G modem does not
+have — and one carrying only `{"etxt": "unknown technology"}`, a modem that never
+registered. Both are the degraded-device records ops most needs, in a queue that never
+expires; this is the trap §6 names ("a required field that is absent because the
+device is broken") and the rule ADR-007 §6 applied to `netstats` `wwan`. So:
+`shapeMeasured` = the 29 Aug shape with `rsrp`/`rsrq` optional; `shapeUnknownTechnology`
+= `etxt` required and `additionalProperties: false`, so `etxt` beside a partial
+measurement matches **neither** and dead-letters. Closed at two for the reason DL-105
+closed `lorastats` at three. *Rejected:* making everything optional — an empty `data`
+would then validate and the schema would stop describing the record; making only
+`rsrp`/`rsrq` optional — leaves the never-registered modem as a permanent DLQ entry
+that a redrive re-rejects forever. `invalid/ltestats-missing-required.json` now omits
+`access_Technology`, because the field it used to omit stopped being required.
+
+**Decision 3 — `ts.expiresOn` is accepted in both spellings seen (Amendment B2).** The
+datastore returns `{"$date": "2026-08-13T10:30:01Z"}`; the 29 Aug sample had the plain
+string; which one the **HTTP forward** emits is not known and is **Q15e**. The envelope
+schema is a `oneOf` of the two, `Timestamps.expiresOn` is a `JsonNode`, and the
+`passthrough` column keeps whichever arrived — because the value is never read
+(ADR-003), and guessing wrong would have 400'd 100% of ingest for a field nobody uses.
+An epoch integer stays invalid. *Rejected:* keep `string` and wait for Hasan — the
+failure mode is loud (Heimdal retries a 400… `maxRetry` times, Q8a-3), but it is 100%
+loss of a day's ingest to protect nothing. *Not a Mongo dependency:* one JSON object
+with one string member; no driver, no type, no library.
+
+**Decision 4 — `meta.tsDeviceCorrected` and `ts.deviceOrig` are passthrough members
+(Amendment B2).** On some records Heimdal **rewrites `ts.device` to equal `ts.server`**
+and keeps the gateway's clock as `ts.deviceOrig` (5–12 s behind on the records seen),
+flagging it with `meta: {"tsDeviceCorrected": true}`; other records carry uncorrected
++3 s / −1 s skews. The typed view used to drop both silently (`ignoreUnknown`), which
+is the D14b class of loss. `StatsEnvelope.meta` and `Timestamps.deviceOrig` are added,
+`LorastatsBatchWriter` writes both into `passthrough`, and the round-trip fixture test
+now proves it. Never read. It nuances DL-106 — `ts.device` is *not always*
+device-assigned, and retention/D9 see the corrected value — and the rule for the
+correction is **Q15f**. Metering the flag (`records_ts_device_corrected{type}`) is a
+sensible T-050 addition and is not built here.
+
+**Decision 5 — `netstats` does not exist in the datastore: recorded as Q15g, nothing
+changed.** `type: "netstats"` returned zero records across the retained window. The
+schema, fixtures, queue and table stay exactly as designed; where those records go is
+ZC's to answer before the fan-out reaches that type.
+
+**Decision 6 — two observations, fixtures only.** `lorastats` dialect B sometimes
+carries `util_restarted` as an **integer** among fourteen strings and omits
+`rx_type_arol` (7 of 300): valid today, because `LorastatsDialects.valueShapeOf` reads
+only the thirteen required counters and the extra lands in `data_extra`, metered by
+`records_unmapped_data_field` — a fixture pins that so nobody "fixes" the mixed-type
+rule to reject it. And one device's `ltestats` cadence is every ~29 minutes, not 10 —
+one data point for T-050's histogram, not a capacity change.
+
+**Gates moved, and why.** `validate-fixtures.py` 96 → **103** (six fixtures, one of
+them carrying `writer-dlq`); Java parity 84 → **90**; the valid-directory round trip
+40 → **45**; fixture files 79 → **85**; markers twelve → **thirteen**.
+`check_schema_drift.py` mirrors the `ltestats` `oneOf` into `openapi.yaml`
+(`LtestatsMeasured`, `LtestatsUnknownTechnology`) and its mutation tests now mutate
+inside the `$defs` branch. `StatsSchemaValidatorTest` shows a oneOf's error report
+names what *both* shapes wanted (`/data/access_Technology` and `/data/etxt`) — still
+pointers and static messages, never a value.
+
+**Verification.** `validate-fixtures.py` 103/0; `check_schema_drift.py` passes;
+`test_schema_drift.py` 6/0; `redocly lint` 2.51.2 clean on both contracts;
+`./gradlew build` **593 tests, 0 failures** against Testcontainers — including the
+extended passthrough proof and the new Extended-JSON `expiresOn` proof in
+`LorastatsBatchWriterIntegrationTest`.
+
+**Reference.** The endpoint, its limits and the sampling method are in
+`claude/DEVELOPMENT.md` §11 and `docs/contracts/heimdal-input-contract-v1.md` §0, so
+the next person does not rediscover that a `$group` 502s. The working documents
+(`CLAUDE.md` 1.14, `FLOW.md`, `SKILLS.md`, `PROJECT_STATUS_AND_PLAN.md`,
+`IMPLEMENTATION_RULES.md`, `CODE_START_CHECKLIST.md`, `README.md`) and the
+Developer Guide outside the repo (68 pages, reprinted 18 Sep 2026) were updated in
+the same change.

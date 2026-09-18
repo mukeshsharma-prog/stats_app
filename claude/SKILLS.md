@@ -45,7 +45,10 @@ an existing stat type's code, **stop** — that violates STA-14/STA-22.
    - Mandatory envelope fields: `uid`, `tenant`, `maintenant`, `clsbox`, `type`, `ts.server`, `ts.device`
    - **Parse the wire types this type actually sends, not the ones the SRS implies.**
      `timespan` is an integer in `lorastats`/`omsstats`/`netstats` and the string
-     `"300"` in `sysstats`; every `ltestats` numeric is a string; `netstats` counters
+     `"300"` in `sysstats`; every `ltestats` numeric is a string **and `ltestats`
+     `data` is a closed `oneOf` of two shapes** — a measurement with `rsrp`/`rsrq`
+     optional, or `{"etxt": …}` alone from a modem that never registered (DL-146);
+     `netstats` counters
      are digit-only strings up to 19 digits. Range-check against the signed `BIGINT`
      maximum **before** conversion and dead-letter on overflow — never zero, never
      truncate *(T-062, STA-04C)*
@@ -84,7 +87,8 @@ an existing stat type's code, **stop** — that violates STA-14/STA-22.
      `ts_device`, `tenant`, `maintenant`, `uid`, `record_version` — plus the type's
      `data` representation
    - A nullable **`passthrough jsonb`** for `ts.datastore`, `ts.converter`,
-     `ts.expiresOn` and `status`, and a nullable **`data_extra jsonb`** for unmapped
+     `ts.expiresOn` (string or `{"$date": …}` — store what arrived), `ts.deviceOrig`,
+     `status` and `meta`, and a nullable **`data_extra jsonb`** for unmapped
      `data` members. **Omitting `data_extra` silently reopens a data-loss path**
      *(DL-094, DL-095)*
    - **`CHECK (clsbox ~ '^[0-9A-F]{12}$')`, and the Writer uppercases before the
@@ -421,9 +425,10 @@ Order matters — the domain before the code.
 9. **First task:** something that exercises Skill 1 or Skill 3
 
 ### The four traps to internalise on day one
-1. **`tenant` vs `maintenant`** — they are equal in most sample data. Filtering
-   on the wrong one passes every test and leaks data in production. Always write
-   fixtures where they differ.
+1. **`tenant` vs `maintenant`** — they are equal in most sample data and on every
+   live tenant but minol. Filtering on the wrong one passes every test and leaks
+   data in production — or, on minol, silently drops one row in ten (DL-146).
+   Always write fixtures where they differ.
 2. **Unix seconds, not milliseconds** — treating `ts.device` as millis gives 1970.
 3. **Unsorted pagination is not stable** — always sort on an indexed field with a
    unique tie-breaker, not only when the caller asks.

@@ -222,7 +222,11 @@ tenant would receive data measured while the gateway belonged to someone else, w
 the exposure this ADR exists to prevent.
 
 **Consequences.** No code change. `maintenant` is not an escape hatch — it moves with
-`tenant` (DL-139) and carries no pre-move information. Privileged cross-tenant access
+`tenant` (DL-139) and carries no pre-move information. *(Precision added 18 Sep 2026,
+DL-146: on every tenant but minol the two are equal on every live record; on minol
+roughly one record in ten carries `tenant: minol-gateway` with `maintenant: minol`.
+Neither case makes `maintenant` a filter — the first cannot reveal a wrong filter, the
+second gives a wrong filter a different wrong answer.)* Privileged cross-tenant access
 remains out of scope, as the register says; this amendment does not reopen it. The
 support answer to "the gateway moved to us and its history is missing" is *by design*,
 and the Datahub's `moved` array — not this system — is the record of the move.

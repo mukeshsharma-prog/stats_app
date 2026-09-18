@@ -383,10 +383,12 @@ public final class LorastatsBatchWriter implements StatsBatchWriter {
     /**
      * The envelope members production sends that this system preserves and never
      * reads: {@code ts.datastore}, {@code ts.converter}, {@code ts.expiresOn} and
-     * {@code status} (ADR-003 "Required table and index direction", ADR-007 §2).
+     * {@code status} (ADR-003 "Required table and index direction", ADR-007 §2), plus
+     * the two Heimdal has since been seen to add — {@code ts.deviceOrig} and
+     * {@code meta} (DL-146).
      *
      * <p>Written in the wire's own shape and units — epoch <em>seconds</em>, and
-     * {@code expiresOn} as the ISO-8601 string production actually sends — so the
+     * {@code expiresOn} in whichever of its two spellings arrived — so the
      * stored value reconstructs the received one. Returns {@code null} when the
      * record carries none of them, which is every fixture written before 29 Aug 2026.</p>
      */
@@ -397,14 +399,19 @@ public final class LorastatsBatchWriter implements StatsBatchWriter {
         ObjectNode timestamps = objectMapper.createObjectNode();
         putEpochSeconds(timestamps, "datastore", ts.datastore());
         putEpochSeconds(timestamps, "converter", ts.converter());
+        putEpochSeconds(timestamps, "deviceOrig", ts.deviceOrig());
         if (ts.expiresOn() != null) {
-            timestamps.put("expiresOn", ts.expiresOn());
+            // String or {"$date": ...} - whichever form arrived is the form stored (DL-146).
+            timestamps.set("expiresOn", ts.expiresOn());
         }
         if (!timestamps.isEmpty()) {
             passthrough.set("ts", timestamps);
         }
         if (record.status() != null) {
             passthrough.set("status", objectMapper.valueToTree(record.status()));
+        }
+        if (record.meta() != null) {
+            passthrough.set("meta", record.meta());
         }
         return passthrough.isEmpty() ? null : writeJson(passthrough);
     }

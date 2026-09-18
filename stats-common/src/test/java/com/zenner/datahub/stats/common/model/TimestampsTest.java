@@ -41,7 +41,30 @@ class TimestampsTest {
 
         assertThat(timestamps.server().getEpochSecond()).isEqualTo(1787833797L);
         assertThat(timestamps.converter().getEpochSecond()).isEqualTo(1787833797L);
-        assertThat(timestamps.expiresOn()).isEqualTo("2026-08-27T12:29:57.182Z");
+        assertThat(timestamps.expiresOn().asText()).isEqualTo("2026-08-27T12:29:57.182Z");
+        assertThat(OBJECT_MAPPER.readTree(OBJECT_MAPPER.writeValueAsBytes(timestamps)))
+                .isEqualTo(source);
+    }
+
+    @Test
+    void keepsExpiresOnInExtendedJsonFormAndDeviceOrigWhenHeimdalSendsThem() throws Exception {
+        // Live records on 18 Sep 2026 (DL-146): expiresOn as Mongo Extended JSON rather
+        // than a plain string, and deviceOrig holding the gateway's own clock after
+        // Heimdal rewrote device. Both must survive the typed view untouched - a String
+        // field would have thrown on the first, and ignoreUnknown would have silently
+        // dropped the second.
+        JsonNode source = OBJECT_MAPPER.readTree("""
+                {"server": 1786617001, "datastore": 1786617001, "converter": 1786617001,
+                 "deviceOrig": 1786616989, "device": 1786617001,
+                 "expiresOn": {"$date": "2026-08-13T10:30:01.3Z"}}
+                """);
+
+        Timestamps timestamps = OBJECT_MAPPER.treeToValue(source, Timestamps.class);
+
+        assertThat(timestamps.deviceOrig().getEpochSecond()).isEqualTo(1786616989L);
+        assertThat(timestamps.device().getEpochSecond()).isEqualTo(1786617001L);
+        assertThat(timestamps.expiresOn().isObject()).isTrue();
+        assertThat(timestamps.expiresOn().path("$date").asText()).isEqualTo("2026-08-13T10:30:01.3Z");
         assertThat(OBJECT_MAPPER.readTree(OBJECT_MAPPER.writeValueAsBytes(timestamps)))
                 .isEqualTo(source);
     }

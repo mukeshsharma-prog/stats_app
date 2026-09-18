@@ -14,7 +14,10 @@
 #
 # SCOPE: the read-only Stats API only. The Heimdal inbound POST contract is a
 # different audience, a different auth mode and a different release cadence; it
-# lives in docs/contracts/heimdal-input-contract-v1.md and is NOT in this file.
+# lives in docs/contracts/heimdal-input-contract-v1.md and, since DL-145, in its
+# OpenAPI twin docs/contracts/openapi-input.yaml — which $refs the schemas below
+# rather than restating them. It is NOT in this file; the two are rendered onto one
+# reviewable page by docs/contracts/build-html.sh.
 # The /actuator/** endpoints are platform-only (ARD v1.1 §8.1) and are deliberately
 # absent from a consumer-facing contract. There is no /v1/openapi discovery route:
 # Q1a answered that no internal reference repo exists, so there is no platform
@@ -48,10 +51,14 @@ info:
       — including single-record lookup by `uid`. A `tenant` value supplied by a
       caller is ignored, never honoured. (STA-34A, STA-35A, ADR-006)
     - **`maintenant` is not an isolation field.** It is stored and returned, and it
-      is never filtered on. In much of the supplied sample data `tenant` and
-      `maintenant` hold the same value, so an implementation that filters on the
-      wrong one passes every test written from those samples and leaks data in
-      production. (CLAUDE.md §6 — the highest-risk item in the project)
+      is never filtered on. On every tenant but one `tenant` and `maintenant` hold
+      the same value — the platform sets both on a tenant move — so an
+      implementation that filters on the wrong one passes every test written from
+      real data and leaks in production. The one exception is minol, where roughly
+      one live record in ten carries `tenant: minol-gateway` with `maintenant: minol`
+      (DL-146); a filter on `maintenant` there would drop those rows, which is a
+      *different* wrong answer, not a safe one. (CLAUDE.md §6 — the highest-risk
+      item in the project)
     - **Timestamps are Unix epoch SECONDS**, on the wire and in every filter. Not
       milliseconds, not RFC 3339. This matches what Heimdal sends and what
       retention keys on, so a value never changes meaning between ingest and read.
@@ -498,7 +505,10 @@ components:
       type: object
       description: |
         The production `ts` block. `server`, `device`, `datastore` and `converter`
-        are Unix seconds; `expiresOn` is an ISO-8601 string. The Stats App performs
+        are Unix seconds; `expiresOn` is an ISO-8601 instant, as a string or as
+        Extended-JSON `{"$date": …}` (DL-146). Heimdal may also add `deviceOrig` —
+        the clock the gateway sent before Heimdal corrected `device` — and a
+        top-level `meta.tsDeviceCorrected`; both are preserved. The Stats App performs
         **no timestamp normalisation** — Heimdal already sends the canonical
         `ts.server` (ADR-004, ACCEPTED, amended 29 Aug 2026).
 
@@ -535,13 +545,30 @@ components:
           description: |
             Heimdal's converter clock. Preserved and returned, never read. Presence is
             metered at ingest as `records_converter_ts_present{type}`.
+        deviceOrig:
+          allOf:
+            - $ref: '#/components/schemas/UnixSeconds'
+          description: |
+            Present when Heimdal has rewritten `device` to equal `server`: the clock the
+            gateway actually sent (`meta.tsDeviceCorrected` is set on the same record).
+            Preserved and returned, never read (DL-146, Q15f).
         expiresOn:
-          type: string
+          oneOf:
+            - type: string
+            - type: object
+              required: ['$date']
+              properties:
+                '$date': { type: string }
+              additionalProperties: false
           description: |
             The legacy Mongo TTL key, an ISO-8601 instant equal to `device`. Preserved
             and returned, never read — Stats App retention is a partition
             detach-and-drop keyed on `ts_device` (ADR-003 D1), not a TTL. Deliberately
-            a string, not a Unix-seconds integer: that is what production sends.
+            never a Unix-seconds integer. Accepted and returned in either of the two
+            forms seen: the plain string of the 29 Aug 2026 sample, or MongoDB Extended
+            JSON `{"$date": "<ISO-8601>"}` as the live datastore returns it. Which one
+            the HTTP forward emits is open (Q15e, DL-146); the value is stored verbatim
+            in whichever form it arrived.
       additionalProperties: true
 
     Envelope:
@@ -617,6 +644,13 @@ components:
             Heimdal converter annotations, e.g. `["conversion ok"]`. Stored and
             returned verbatim and never interpreted — this is upstream state, not
             Stats App state.
+        meta:
+          type: object
+          additionalProperties: true
+          description: |
+            Heimdal annotations about the record, e.g. `{"tsDeviceCorrected": true}`
+            when `ts.device` was rewritten upstream. Stored and returned verbatim,
+            never read (DL-146).
       additionalProperties: true
 
     StatRecord:
@@ -744,10 +778,22 @@ components:
               $ref: '#/components/schemas/LtestatsData'
 
     LtestatsData:
+      description: |
+        LTE modem signal and network identity — **one of two closed shapes**
+        (DL-146, 18 Sep 2026). A modem reports either a measurement
+        (`LtestatsMeasured`) or the reason it has none (`LtestatsUnknownTechnology`).
+        Live data on 18 Sep 2026 showed both, and the earlier single-shape schema
+        dead-lettered every 2G fallback and every modem that never registered — the
+        records ops most needs. A record matching neither shape, or carrying `etxt`
+        next to a partial measurement, is dead-lettered by the Writer (ADR-007 §5).
+      oneOf:
+        - $ref: '#/components/schemas/LtestatsMeasured'
+        - $ref: '#/components/schemas/LtestatsUnknownTechnology'
+
+    LtestatsMeasured:
+      title: measured
       type: object
       description: |
-        LTE modem signal and network identity.
-
         `imsi` is a subscriber identifier and is classified sensitive operational
         data (ARD v1.1 §9). Whether it is returned in full, masked, or withheld from
         some consumers is **not settled** — it needs the same consumer/security
@@ -757,12 +803,14 @@ components:
         capital T: `access_Technology`. Both were corrected against production on
         29 Aug 2026 (ADR-007) — the previous integer/lowercase declaration came from
         the SRS and each mistake alone dead-lettered 100% of ltestats traffic.
-      required: [rssi, rsrp, rsrq, access_Technology, operator, plmn, imsi, lac, cid]
+        `rsrp` and `rsrq` are **optional**: they are LTE reference-signal
+        measurements and a modem on 2G reports neither (DL-146).
+      required: [rssi, access_Technology, operator, plmn, imsi, lac, cid]
       properties:
         rssi: { type: string, pattern: '^-?(0|[1-9][0-9]{0,18})$', description: 'Received signal strength, dBm, as a string, e.g. "-67".' }
-        rsrp: { type: string, pattern: '^-?(0|[1-9][0-9]{0,18})$', description: 'Reference signal received power, dBm, as a string.' }
-        rsrq: { type: string, pattern: '^-?(0|[1-9][0-9]{0,18})$', description: 'Reference signal received quality, dB, as a string.' }
-        access_Technology: { type: string, minLength: 1, description: 'Note the capital T. Production spelling; the lowercase form has never appeared on the wire.' }
+        rsrp: { type: string, pattern: '^-?(0|[1-9][0-9]{0,18})$', description: 'Reference signal received power, dBm, as a string. Optional — absent when the modem is on 2G.' }
+        rsrq: { type: string, pattern: '^-?(0|[1-9][0-9]{0,18})$', description: 'Reference signal received quality, dB, as a string. Optional — absent when the modem is on 2G.' }
+        access_Technology: { type: string, minLength: 1, description: 'Note the capital T. Production spelling; the lowercase form has never appeared on the wire. Observed values: "4G", "2G".' }
         operator: { type: string, minLength: 1 }
         plmn: { type: string, pattern: '^[0-9]{5,6}$', description: 'Public land mobile network code, as a string.' }
         imsi: { type: string, pattern: '^[0-9]{1,20}$', description: 'SENSITIVE — masking policy pending review.' }
@@ -770,6 +818,19 @@ components:
         cid: { type: string, pattern: '^[0-9A-Fa-f]{1,16}$', description: 'Cell identifier, hexadecimal, as reported.' }
         timespan: { type: string, pattern: '^(0|[1-9][0-9]{0,18})$', description: 'Reporting window in seconds, as a string. Optional — production omits it on some records.' }
       additionalProperties: true
+
+    LtestatsUnknownTechnology:
+      title: unknown-technology
+      type: object
+      description: |
+        A modem that never registered on any network: `{"etxt": "unknown technology"}`
+        and no measurement at all. Closed (`additionalProperties: false`) so that
+        `etxt` beside a partial measurement matches neither shape and is dead-lettered
+        — half a measurement is not a known shape (DL-146).
+      required: [etxt]
+      properties:
+        etxt: { type: string, minLength: 1, description: 'Free-text reason the modem produced no measurement. Observed value: "unknown technology".' }
+      additionalProperties: false
 
     SysstatsRecord:
       allOf:

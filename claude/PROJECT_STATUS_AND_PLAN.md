@@ -120,7 +120,7 @@ pending ZC confirmation and it gates Phase 4.
 | `omsstats` timestamp | Heimdal already sends `ts.server`. **No normalisation on our side.** `ts.converter` handling is dead. |
 | `netstats` schema | **Strict and final** (Q4a, 18 Aug 2026): `eth0`/`wwan` mandatory, other interfaces allowed, `apipa` optional, counters digit-only strings stored as `BIGINT`. The Writer must range-check against the signed `BIGINT` maximum. IPv6 (Q4b) closed provisionally on 4 Sep 2026 — **no, for now** (DL-110) — with a metered per-field rejection code whose non-zero count reopens it. |
 | Every record has a tenant | Yes. A missing tenant is a validation failure, not a placeholder write. |
-| Isolation field | `tenant`, never `maintenant` |
+| Isolation field | `tenant`, never `maintenant` — which equals `tenant` on every live tenant but minol (DL-146) |
 | `uid` | Unique; Heimdal does not deliver duplicates. Store as its own PG column; uniqueness is `PRIMARY KEY (ts_device, uid)` per partition (ADR-003, G2), and suppressed duplicates are metered. |
 | Retention basis | **`ts.device`**, 90 days default, externally configurable |
 | Published message | Byte-identical to what was received. Input transforms nothing. |
@@ -217,8 +217,9 @@ decision are in `docs/decisions/2B-ANSWERS-18AUG2026.md`. **Do not reopen these.
 |---|---|---|
 | **Q8a-2** — Heimdal inbound auth: mTLS or OAuth2, issuer, audience, identity, rotation | The Input port is unauthenticated until it closes | Nothing today. **Must close before any shared deployment.** |
 | **Q8b-2** — confirmation of the proposed Keycloak values | Every value is a property with no default, so this is a config change | Hardening sign-off, not development |
+| **Q15e / Q15f / Q15g** — from the first look at live data, 18 Sep 2026 (DL-146): which `ts.expiresOn` spelling the forward sends; when Heimdal rewrites `ts.device`; where `netstats` records go | Both `expiresOn` forms and both correction members are accepted and preserved, so nothing waits on the first two. **Zero `netstats` records exist in the datastore** | Nothing today; Q15g blocks T-037 `netstats` |
 
-**Q13b, Q13c, Q4b and the four Q15 questions were removed from this table on 4 September 2026** — all answered. **Q14a and Q5a were removed on 29 August 2026** — both decided, not answered. See §2c and §2d. Only the two auth items above remain owed by ZC.
+**Q13b, Q13c, Q4b and the four Q15 questions were removed from this table on 4 September 2026** — all answered. **Q14a and Q5a were removed on 29 August 2026** — both decided, not answered. See §2c and §2d. The two auth items and the three 18 September live-data questions are what remain owed by ZC / Hasan.
 
 ### 2c. Decided 29 August 2026 — was "conflicted" or misfiled
 
@@ -318,7 +319,15 @@ slice is complete, observable and operable. What that leaves is the *watching*:
 | **Now** | T-029/T-030/T-033 — poison isolation, crash window, outage drill. T-033 is Phase 3's entry criterion | **T-060 + T-050** — the DLQ has depth, age and a redrive; `records_expired_on_arrival`, `records_upstream_status_not_ok`, `retention_oldest_partition_age_days` and the broker gauges all exist. Nobody alerts on any of them. T-027's scrape assertions are the contract to alert against |
 | **Then** | T-051 — the timed per-partition restore drill (RTO 1 h, DL-111); real partitions exist since T-025 | T-054, T-055 — advisory-lock contention and `DETACH CONCURRENTLY` latency, both measured against the built sweep |
 | **When T-033 is green** | reviews the first fan-out end to end | T-035 `sysstats` **first**, then T-036, T-034 (D-12 P3), T-037 |
-| **Ask ZC** | **Q8a-3** with Q8a-2: is the stats push a ForwardRule, and what is its `maxRetry`? (DL-139) | — |
+| **Ask ZC** | **Q8a-3** with Q8a-2: is the stats push a ForwardRule, and what is its `maxRetry`? (DL-139). **Q15e–Q15g** to Hasan (DL-146): `expiresOn` spelling, the `tsDeviceCorrected` rule, and where `netstats` lands | — |
+
+> **18 September 2026.** T-029/T-030/T-033, T-047, T-053 and T-060 merged on 17 Sep;
+> the inbound contract became handable on 18 Sep (DL-145); and the same afternoon the
+> documents met live data for the first time (DL-146) — `ltestats` reshaped into two
+> closed shapes before anyone built it, the envelope widened for three things Heimdal
+> actually sends, and the `maintenant` trap re-worded. **T-050 is still the gap**, and
+> **T-035 `sysstats`** is still the fan-out's first step; T-034 `ltestats` now starts
+> from a schema that has survived 1,980 live records rather than fifteen.
 
 The 8 September table is kept below for the record.
 
@@ -356,9 +365,14 @@ the same range-checked helper T-063 built, not a second one — `sysstats`' `tim
 `sysstats`, `omsstats`, `ltestats` — each an additive copy of the Phase 2 pattern.
 **`sysstats` goes first** (5 Sep 2026): `ltestats` is blocked on D-12 P3 — whether
 `imsi` is stored masked or raw and whether it may be a query predicate — and `sysstats`
-is blocked on nothing, so the copy is rehearsed on the cheapest type. `netstats` last —
+is blocked on nothing, so the copy is rehearsed on the cheapest type. When `ltestats`
+does start, its `data` is a **closed `oneOf` of two shapes** (DL-146): the typed columns
+for `rsrp`/`rsrq` are nullable, and the `etxt`-only record from a never-registered modem
+is a stored row, not a dead-letter. `netstats` last —
 its schema was finalised by Q4a on 18 Aug 2026, so nothing gates it but the reference
-slice, and it is the `jsonb` hybrid the typed-column slice templates least well.
+slice, and it is the `jsonb` hybrid the typed-column slice templates least well — and
+**no `netstats` record exists in the datastore today** (Q15g), so confirm the source
+before wiring a consumer to an empty queue.
 Every new type's table carries `data_extra jsonb` (DL-095) **and** the `clsbox` CHECK
 (DL-115). If any of these requires
 editing Phase 2 code, the abstraction is wrong — that comes back to you.
@@ -417,9 +431,10 @@ all pass naive tests while being wrong.
 
 ### Brief every junior on these four traps
 
-1. **`tenant` vs `maintenant`.** They are equal in most sample data. Filtering on the
-   wrong one passes every test and leaks data in production. Every fixture you write
-   must set them to different values.
+1. **`tenant` vs `maintenant`.** They are equal in most sample data and on every live
+   tenant but minol. Filtering on the wrong one passes every test and leaks data in
+   production — or on minol silently drops rows (DL-146). Every fixture you write must
+   set them to different values.
 2. **Unix *seconds*, not milliseconds.** Treating `ts.device` as millis gives you 1970.
 3. **Unsorted pagination is not stable.** Always sort on an indexed field with a
    unique tie-breaker — not only when the caller asks for a sort.

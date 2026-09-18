@@ -148,7 +148,7 @@ Include validation, **no transformation** of the received record, publisher conf
 
 **Entry criteria:** Phase 2's reference slice exists and is green.
 
-`sysstats`, `omsstats`, `ltestats`, then `netstats` — each an **additive** copy of the Phase 2 pattern. **Order corrected 5 Sep 2026 (DL-125):** `ltestats` is blocked on D-12 P3 (whether `imsi` is stored masked or raw and whether it may be a predicate) and `sysstats` is not, so the first copy is rehearsed on the type nothing gates; `netstats` stays last as the `jsonb` hybrid. If any of them requires editing Phase 2 code, the abstraction is wrong and that is a design smell to raise, not to work around (STA-14A, STA-22).
+`sysstats`, `omsstats`, `ltestats`, then `netstats` — each an **additive** copy of the Phase 2 pattern. *(`ltestats` schema reshaped on live data 18 Sep 2026, DL-146 — two closed shapes, `rsrp`/`rsrq` nullable; `netstats` has no records in the datastore, Q15g.)* **Order corrected 5 Sep 2026 (DL-125):** `ltestats` is blocked on D-12 P3 (whether `imsi` is stored masked or raw and whether it may be a predicate) and `sysstats` is not, so the first copy is rehearsed on the type nothing gates; `netstats` stays last as the `jsonb` hybrid. If any of them requires editing Phase 2 code, the abstraction is wrong and that is a design smell to raise, not to work around (STA-14A, STA-22).
 
 **Exit criteria:** all approved types ingesting; the poison-message isolation test proves one bad type does not stall another.
 

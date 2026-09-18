@@ -2,7 +2,28 @@
 
 **Status:** `PENDING HEIMDAL AND SECURITY APPROVAL` — **record shape re-derived from production 29 August 2026 (ADR-007)**  
 **Upstream owner:** ZC / Heimdal Core  
-**Input service:** `stats-input`
+**Input service:** `stats-input`  
+**Machine-readable twin:** `docs/contracts/openapi-input.yaml` — linted in CI and rendered with the read API onto one page, `stats-api-v1-draft.html`, by `docs/contracts/build-html.sh` (DL-145). This file is the narrative and the record of what is agreed; the YAML states what `stats-input` is built to do. Change both together.
+
+## 0. Handover — what ZC configures in Heimdal
+
+The values Heimdal needs to deliver to this endpoint, with what is built and what is still open. Added 18 September 2026 after the transport was confirmed as HTTP (DL-145); the rows marked **OPEN** are the questions to return with.
+
+| Item | Our value | Status |
+|---|---|---|
+| Transport | HTTP `POST`, one record per request, `Content-Type: application/json` | **Confirmed 17 Sep 2026** — relayed to engineering by management; the ForwardRule question below is what turns this into a configuration |
+| URL | `https://<ingress-host>/stats` | Path **DRAFT** — confirm against the deployed Datahub convention (D-03). `stats.input.endpoint.path`, so a prefix is a property change |
+| Success response | `200`, empty body, `X-Trace-Id` header | Built. `202` is the only alternative the code admits (`stats.input.endpoint.success-status`) |
+| Retry on | `503`, `429` (after `Retry-After: 1`), any other `5xx` | Built — §2 |
+| Never retry on | `400`, `413` | Built — the verdict is deterministic; resending the same bytes gets the same answer |
+| Body limit | 256 KB | Built, `PROVISIONAL` (DL-121) |
+| Rate limit | 4,000 req/s **per instance** | Built, `PROVISIONAL` (DL-121). The only replay control we own |
+| Replay after an outage | ≤ 2× nominal, 2,667 records/s | **Agreed by Heimdal 4 Sep 2026** (Q13c, DL-109); not enforceable by us |
+| Credential | None today; `prod` refuses to start unauthenticated | **OPEN — Q8a-2.** mTLS or OAuth2 client credentials; our position is OAuth2 |
+| Is it a ForwardRule? | Unknown | **OPEN — Q8a-3.** If yes: auth is basic-in-URL, which we have not built, and retry is bounded by `maxRetry` — tell us the value |
+| `ts.expiresOn` spelling | Either accepted: `"2026-08-13T10:30:01Z"` or `{"$date": "2026-08-13T10:30:01Z"}` | **OPEN — Q15e.** The 29 Aug sample had the string; the live datastore returns the object. Which does the forward send? (DL-146) |
+| `ts.device` correction | Accepted and preserved: `meta.tsDeviceCorrected`, `ts.deviceOrig` | **OPEN — Q15f.** When does Heimdal rewrite `ts.device` to `ts.server`? Live records show both corrected and uncorrected skews (DL-146) |
+| `netstats` | Schema, queue and table ready | **OPEN — Q15g.** Zero `netstats` records exist in the datastore. Where do they go, and will they come down this path? (DL-146) |
 
 ## 1. Endpoint
 
@@ -84,7 +105,7 @@ Re-derived 29 August 2026 from 15 real records (ADR-007). **The names in SRS v1.
 |---|---|---|---|
 | `uid` | yes | yes | `CLSCON-`-prefixed in production. No format enforced — ZC guarantees uniqueness, not a shape |
 | `tenant` | yes | yes | **The isolation field** |
-| `maintenant` | yes | no | Stored and returned. Never used for isolation |
+| `maintenant` | yes | no | Stored and returned. Never used for isolation. Equal to `tenant` on every tenant but minol (DL-146) |
 | `clsbox` | yes | yes | 12 hex characters. **Called `gateway` in SRS v1.0** — a name production has never used |
 | `type` | yes | yes | Closed enumeration of five |
 | `version` | no | no | **Not a payload discriminator.** All three `lorastats` dialects carry `1` |
@@ -92,7 +113,9 @@ Re-derived 29 August 2026 from 15 real records (ADR-007). **The names in SRS v1.
 | `ts.device` | yes | yes | Retention and `from`/`to` filtering key on this |
 | `ts.datastore` | no | no | Legacy Mongo write clock |
 | `ts.converter` | no | no | **On 100% of production records.** Metered as `records_converter_ts_present{type}` |
-| `ts.expiresOn` | no | no | **ISO-8601 string**, not epoch seconds. Legacy Mongo TTL key |
+| `ts.expiresOn` | no | no | ISO-8601 instant as a **string** or as `{"$date": "…"}` — both accepted, never epoch seconds. Legacy Mongo TTL key (Q15e) |
+| `ts.deviceOrig` | no | no | The gateway's own clock, present when Heimdal has rewritten `ts.device` (DL-146, Q15f) |
+| `meta` | no | no | Heimdal annotations, e.g. `{"tsDeviceCorrected": true}`. Preserved verbatim |
 | `data` | yes | at the Writer | Validated by the per-type schema — see §2 |
 | `status` | no | no | e.g. `["conversion ok"]`. Upstream converter annotation |
 
@@ -141,7 +164,7 @@ The Input Module is stateless and does not buffer locally. If RabbitMQ cannot ac
 
 PostgreSQL retains a uniqueness defence even though Heimdal states duplicates are not intentionally delivered: `PRIMARY KEY (ts_device, uid)` scoped per partition, with `ON CONFLICT DO NOTHING` and a `records_duplicate_suppressed{type}` counter (ADR-003, ADR-005). A replayed record carries its original `ts_device`, so it lands in the same partition and is absorbed.
 
-**Replay rate — our proposal, not yet agreed (Q13c).** A 6-hour Heimdal outage is roughly 28.8M messages. We ask Heimdal to cap replay at **2× nominal (2,667/s)**, which bounds catch-up to about 3 hours while normal ingest continues, holding total ingest near 4,000/s. We cannot enforce this; a 503 under replay is the backpressure channel working as designed, not an incident. The ZC owner must confirm the cap and whether Heimdal replays the same `uid` after recovery.
+**Replay rate — agreed by Heimdal on 4 September 2026 (Q13c, DL-109).** A 6-hour Heimdal outage is roughly 28.8M messages. Heimdal caps replay at **2× nominal (2,667/s)**, which bounds catch-up to about 3 hours while normal ingest continues, holding total ingest near 4,000/s. We cannot enforce this — an agreement is a commitment, not a control — so nothing is relaxed: the per-instance 429 limit, bounded Writer prefetch and 503 backpressure all stay, and a 503 under replay is the channel working as designed, not an incident. A replayed `uid` is absorbed by the primary key below.
 
 ## 6. Contract tests
 

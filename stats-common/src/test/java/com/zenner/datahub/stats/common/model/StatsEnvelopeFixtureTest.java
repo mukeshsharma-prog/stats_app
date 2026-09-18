@@ -42,10 +42,18 @@ class StatsEnvelopeFixtureTest {
      * dialect records that moved out of invalid/ when DL-105 was built, the BIGINT
      * overflow record the Writer refuses after the schema admits it, and the non-OK
      * upstream status of DL-108.
+     *
+     * <p>Five more on 18 Sep 2026 with DL-146, all shaped from live data: the two
+     * ltestats records the old schema dead-lettered (2G without rsrp/rsrq, and
+     * etxt-only), a dialect-B lorastats record with an integer extra member, Heimdal's
+     * {@code meta} / {@code ts.deviceOrig}, and {@code expiresOn} as Extended JSON. The
+     * last two are the ones this round-trip test exists for: before DL-146 the typed
+     * view dropped {@code meta} and {@code deviceOrig} silently and threw on the
+     * object-form {@code expiresOn}.</p>
      */
     @Test
-    void expandsTheValidDirectoryToFortyRecords() {
-        assertThat(validRecords()).hasSize(40);
+    void expandsTheValidDirectoryToFortyFiveRecords() {
+        assertThat(validRecords()).hasSize(45);
     }
 
     static List<Arguments> validRecords() {

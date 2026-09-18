@@ -77,14 +77,15 @@ narrowed field by field.
 |---|---|---|---|---|---|---|
 | `uid` | Record identifier. Also **the log correlation ID** (D1), so it is on every log line by design | ✅ | — | ✅ | ✅ **always** | ✅ |
 | `tenant` | **Customer identifier.** The isolation field; reveals which Zenner customer a record belongs to | ✅ | — | ✅ | ✅ **always** | ✅ |
-| `maintenant` | **Customer identifier** — the maintaining tenant, equal to `tenant` and moved with it (DL-139). Never used for isolation (trap 1) | ✅ | — | ✅ | — | ✅ |
+| `maintenant` | **Customer identifier** — the maintaining tenant, moved with `tenant` and equal to it on every tenant but minol, where it can be the parent name `minol` under `tenant: minol-gateway` (DL-139, DL-146). Never used for isolation (trap 1) | ✅ | — | ✅ | — | ✅ |
 | `clsbox` | **Device identifier** — 12 hex, the physical gateway. Stable for the life of the device | ✅ | — | ✅ | ✅ **always** | ✅ |
 | `type` | Operational only | ✅ | — | ✅ | ✅ | ✅ |
 | `version` | Operational only | ✅ `record_version` | — | ✅ | — | ✅ |
 | `status` | Operational only — Heimdal converter annotation | — | ✅ | ✅ | — | ✅ |
 | `ts.server` | Operational only — arrival clock | ✅ | — | ✅ | — | ✅ |
 | `ts.device` | Operational only — measurement clock. **Behavioural**: the retention and partition key | ✅ | — | ✅ | — | ✅ |
-| `ts.datastore` `ts.converter` `ts.expiresOn` | Operational only, never read | — | ✅ | ✅ | — | ✅ |
+| `ts.datastore` `ts.converter` `ts.expiresOn` | Operational only, never read. `expiresOn` in either of its two spellings (DL-146) | — | ✅ | ✅ | — | ✅ |
+| `ts.deviceOrig` `meta` | Operational only, never read — Heimdal's note that it rewrote `ts.device`, and the clock the gateway sent (DL-146). Same class and same sinks as the row above | — | ✅ | ✅ | — | ✅ |
 
 **`uid`, `tenant` and `clsbox` are on every log line on the success path**, by deliberate
 design (DL-080, `DEVELOPMENT.md` §7). That is a stable device identifier and a customer
@@ -102,13 +103,14 @@ Not built yet (T-034). **This is the table the review is for.**
 
 | Field | Class | Column (planned) | API | DLQ |
 |---|---|---|---|---|
-| **`imsi`** | 🔴 **Subscriber identifier.** Identifies a SIM and therefore a subscriber. Required by the schema; no length constraint on purpose | ✅ | ✅ *"SENSITIVE — masking policy pending review"* | ✅ |
+| **`imsi`** | 🔴 **Subscriber identifier.** Identifies a SIM and therefore a subscriber. Required on the *measured* shape; no length constraint on purpose | ✅ | ✅ *"SENSITIVE — masking policy pending review"* | ✅ |
 | **`lac`** | 🟠 **Location.** Location Area Code | ✅ | ✅ | ✅ |
 | **`cid`** | 🟠 **Location.** Serving Cell ID. With `lac` this resolves to an approximate geographic position | ✅ | ✅ | ✅ |
 | `plmn` | 🟠 Carrier + country (MCC+MNC) | ✅ | ✅ | ✅ |
 | `operator` | 🟠 Carrier name | ✅ | ✅ | ✅ |
-| `rssi` `rsrp` `rsrq` | 🟡 Signal measurements. Not identifiers, but they refine a cell-level position | ✅ | ✅ | ✅ |
+| `rssi` `rsrp` `rsrq` | 🟡 Signal measurements. Not identifiers, but they refine a cell-level position. `rsrp`/`rsrq` are absent on 2G (DL-146) | ✅ | ✅ | ✅ |
 | `access_Technology` `timespan` | Operational only | ✅ | ✅ | ✅ |
+| `etxt` | Operational only — free-text reason a modem produced no measurement (`"unknown technology"`, DL-146). The *unknown-technology* shape carries **none** of the fields above: a never-registered modem has no IMSI, no cell, no carrier | ✅ (planned) | ✅ | ✅ |
 
 > **The finding that changes the shape of D-12.** D-12 names **one** sensitive field —
 > IMSI. The schema carries **three classes**: a subscriber identifier (`imsi`), location

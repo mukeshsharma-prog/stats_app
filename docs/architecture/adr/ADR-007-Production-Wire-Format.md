@@ -1,12 +1,12 @@
 # ADR-007 — The production wire format is the contract
 
-**Status:** `ACCEPTED` — **§4 amended 4 September 2026** (see *Amendment*, below)
+**Status:** `ACCEPTED` — **§4 amended 4 September 2026**; **§6 and the envelope amended 18 September 2026** (see the two *Amendment* sections below)
 **Date:** 29 August 2026
 **Decision owner:** Naman Vashishtha (engineering), on production data supplied by Hasan Dogan
 **Requirements:** STA-01A, STA-02, STA-03A, STA-14A, STA-21A, STA-23B
 **Supersedes:** the envelope field names in SRS v1.0 and every document derived from them
 **Amends:** ADR-004 (§2 below), ADR-003 (column names)
-**Amended by:** the *Amendment — 4 September 2026* section below, which answers Q15a–Q15d and **reverses §4**
+**Amended by:** the *Amendment — 4 September 2026* section below, which answers Q15a–Q15d and **reverses §4**; and the *Amendment — 18 September 2026* section, which extends §6 to `ltestats` and widens the envelope on live data (DL-146)
 
 > **Numbering warning (G5).** `Datahub_Core_StatsApp_ARD_v1_1.pdf` carries its own
 > ADR-007. Cite the ARD's as **`ARD-ADR-07`**. An unqualified "ADR-007" always means
@@ -163,6 +163,10 @@ Under the second rule:
 * `ltestats` numerics become **strings** and the field becomes
   **`access_Technology`** (capital T). Each of these alone dead-lettered 100% of
   ltestats traffic. This is a correction of a transcription error, not a widening.
+* **Added 18 September 2026 (Amendment B1):** `ltestats` `rsrp`/`rsrq` become
+  **optional** — a modem on 2G reports neither — and a modem that never registered
+  sends `{"etxt": "unknown technology"}` alone, which is a second, closed shape.
+  Same rule, same reasoning as the `netstats` `wwan` line above.
 
 ## Consequences
 
@@ -286,6 +290,67 @@ preserved and metered (§2, amending ADR-004); `ts.server` as the arrival clock
 (§3); **the two validation gates and their asymmetric consequences (§5)**; and the
 required-field corrections of §6.
 
+## Amendment — 18 September 2026
+
+**Trigger.** Hasan pointed engineering at the live `datastore-stats` aggregate
+endpoint on 18 September 2026 — the first look at production beyond the fifteen
+records of 29 August. 300 records per type plus one device's full 36-day history were
+run through the same validators CI uses. Every `lorastats`, `sysstats` and `omsstats`
+record passed both gates. Six findings did not fit the documents; the decision record
+is **DL-146**. Nothing in §1–§5 or §A1–§A3 changes.
+
+### B1. `ltestats` is a closed enumeration of two shapes — §6 extended
+
+`data` is a `oneOf` of **`measured`** and **`unknown-technology`**:
+
+* *measured*: the shape of 29 August with **`rsrp` and `rsrq` optional**. Both are
+  LTE reference-signal measurements; a modem that has fallen back to **2G** reports
+  `rssi`/`plmn`/`imsi`/`operator`/`lac`/`cid` and nothing else (5 of 300 live
+  records), and every such record dead-lettered.
+* *unknown-technology*: `{"etxt": "unknown technology"}` and no measurement — a
+  modem that never registered (1 of 300). `additionalProperties: false`, so `etxt`
+  beside a partial measurement matches **neither** shape and dead-letters: half a
+  measurement is not a known shape. The enumeration is closed at two for the reason
+  §A1 closed `lorastats` at three.
+
+This is §6's second rule applied where it was missed: the field is absent because
+the thing it measures is not there. A DLQ full of degraded modems is a DLQ full of
+the records ops most needs, in a queue that never expires.
+
+### B2. The envelope has two more members, and one member has two spellings
+
+* **`meta.tsDeviceCorrected: true` and `ts.deviceOrig`.** Heimdal *rewrites*
+  `ts.device` on some records — `ts.device` is set equal to `ts.server` and the clock
+  the gateway sent is kept as `ts.deviceOrig` (5–12 s behind, on the records seen).
+  Both are **passthrough members**: accepted, preserved verbatim in the `passthrough`
+  column, never read. The consequence for STA-23B and DL-106 is that `ts.device` is
+  *not always* device-assigned — retention and the D9 skew check see Heimdal's
+  corrected value. When Heimdal applies the correction is **open (Q15f)**; other live
+  records carry uncorrected skews of +3 s and −1 s.
+* **`ts.expiresOn` is accepted as a string *or* as `{"$date": "<ISO-8601>"}`.** The
+  29 August sample carried the string; the live datastore returns MongoDB Extended
+  JSON. Which one the HTTP forward emits is **open (Q15e)**. The schema, the Java model
+  (`JsonNode`) and the `passthrough` column all keep whichever form arrived, because
+  the value is never read and a wrong guess would have cost 100% of ingest for
+  nothing. An epoch integer is still invalid. **This is not a Mongo dependency** — it
+  is a JSON object with one string member, and no Mongo type or library is involved.
+
+### B3. What this amendment observes but does not decide
+
+* **`maintenant ≠ tenant` on roughly one live record in ten — on the minol tenant
+  only.** DL-139's "equal in production" was true of every tenant but that one
+  (`tenant: minol-gateway`, `maintenant: minol`). §1's isolation field is unchanged;
+  DL-146 corrects the trap's wording.
+* **No `netstats` record exists in the datastore.** `type: "netstats"` returned
+  nothing across the retained window. The schema, fixtures and queue stay; where
+  those records go is a question for ZC (Q15g).
+* **`lorastats` dialect B may carry `util_restarted` as an integer among strings, and
+  omit `rx_type_arol`.** Valid today: detection reads only the required counters
+  and the extra member lands in `data_extra`. Recorded so the counter is read as
+  "Heimdal added a field", not as a defect.
+* **One device's `ltestats` cadence is every ~29 minutes, not 10.** One data point,
+  not a capacity decision; T-050's first-24-hours histogram is where it becomes one.
+
 ## Verification
 
 As at 29 August 2026, when this ADR was accepted:
@@ -310,3 +375,14 @@ docs/schemas/validate-fixtures.py    91 assertions checked, 0 failed
 dialect fixtures, now in `valid/`, and their counters reach the same typed columns as
 the canonical dialect — which is the assertion `allThreeDialectsLandAsOneIdenticalRow`
 makes against a real PostgreSQL partition rather than against the schema.
+
+Re-established after the 18 September 2026 amendment (DL-146):
+
+```
+docs/schemas/validate-fixtures.py    103 assertions checked, 0 failed
+docs/contracts/check_schema_drift.py 5 per-type data schemas agree
+./gradlew build                      593 tests, 0 failures (90 Java parity cases)
+```
+
+**1,200 live records — 300 per type for the four types that exist — pass both gates**,
+including the six ltestats records the previous schema dead-lettered.

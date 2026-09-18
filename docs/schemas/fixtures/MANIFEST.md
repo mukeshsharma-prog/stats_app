@@ -1,17 +1,29 @@
 # Fixture catalogue
 
 Built 18 August 2026 in answer to Q11a. **Rebuilt on the production wire format 29 August 2026
-(ADR-007).** 79 fixture files — 77 individual fixtures plus the two combined bundles
+(ADR-007).** 85 fixture files — 83 individual fixtures plus the two combined bundles
 (`valid/approved-types.json` and `invalid/validation-failures.json`), which are kept so nothing that
 already references them breaks.
 
-Run `python3 ../validate-fixtures.py` from `docs/schemas/` to assert the whole set. It checks 96
+Run `python3 ../validate-fixtures.py` from `docs/schemas/` to assert the whole set. It checks 103
 assertions and exits non-zero on any mismatch, so CI can gate on it.
 
-Those 96 are **84 schema cases plus 12 `$expect` markers** — 5 `input-reject`, 1 `writer-dlq`,
+Those 103 are **90 schema cases plus 13 `$expect` markers** — 5 `input-reject`, 2 `writer-dlq`,
 1 `writer-range-reject` and 5 `writer-skip`. The Java parity test (`SchemaFixtureParityTest`)
-mirrors the 84 schema cases only, so the two numbers differing is correct and deliberate — do not
+mirrors the 90 schema cases only, so the two numbers differing is correct and deliberate — do not
 "fix" one to match the other.
+
+**+6 on 18 September 2026 — the first look at live data (DL-146).** 1,200 records from the
+Datahub's `datastore-stats` aggregate endpoint were run through the same validators CI uses,
+and six shapes that no document had seen became fixtures, hand-authored from the observed shape
+with `uid`, `clsbox` and `imsi` synthesised (the live samples carry subscriber identifiers and
+stayed outside the repo). Two `ltestats` records the 29 Aug schema **dead-lettered** — a 2G modem
+with no `rsrp`/`rsrq`, and a never-registered modem sending only `etxt` — are now `valid/`; the
+half-and-half record the widened schema must still refuse is `invalid/` with `writer-dlq`; and
+three passthrough shapes — `meta`/`ts.deviceOrig`, `expiresOn` as `{"$date": …}`, and a
+dialect-B `lorastats` record with an integer extra member — pin behaviour that was correct by
+accident. `invalid/ltestats-missing-required.json` changed the field it omits, because the one it
+used to omit (`rsrp`) stopped being required. Markers **12 → 13**, assertions **96 → 103**.
 
 **+1 on 5 September 2026:** `valid/lorastats-clsbox-lowercase.json` (DL-115). Every `clsbox` in
 this set was uppercase, so nothing here could catch a device splitting across two index keys.
@@ -73,11 +85,15 @@ there is unrecoverable data loss where a dead-letter is a redrive.
 
 ## Conventions
 
-- **`tenant` and `maintenant` differ in every fixture but one.** They are equal in most of the
-  supplied sample data, and an implementation filtering on the wrong one passes every test written
-  from those samples while leaking data in production. The single exception is
-  `valid/netstats-supplied-sample.json`, which is kept byte-for-byte as ZC sent it and therefore has
-  `tenant == maintenant`. **Never use that file as a tenant-isolation fixture** — it is the exact
+- **`tenant` and `maintenant` differ in every synthetic fixture.** They are equal on every live
+  record of every tenant but one, and an implementation filtering on the wrong one passes every
+  test written from real data while leaking in production. The exceptions are the byte-faithful
+  production records (`valid/netstats-supplied-sample.json`, `ltestats-production.json` and the
+  other `*-production*` files of 29 Aug), which have `tenant == maintenant` as production sends
+  it. Three fixtures of 18 Sep 2026 carry the one real pattern where they *differ* —
+  `tenant: minol-gateway`, `maintenant: minol` — which is the minol tenant only (DL-146); a
+  filter on `maintenant` there drops rows rather than leaking them, a different wrong answer.
+  **Never use a production-shaped file as a tenant-isolation fixture** — it is the exact
   shape that makes a wrong implementation look correct. Use `<type>-tenant-isolation-pair.json`.
 - **Timestamps are Unix seconds**, anchored to 2026-08-18T12:00:00Z. Ten digits, never thirteen.
   The exception is `ts.expiresOn`, which is an **ISO-8601 string** — that is what production sends.
@@ -106,6 +122,11 @@ there is unrecoverable data loss where a dead-letter is a redrive.
 | `lorastats-status-not-ok.json` | `status` reports a **failed** upstream conversion (Q15d, DL-108). Valid everywhere: the Writer **stores** it, meters `records_upstream_status_not_ok{type}` and logs at `WARN`, and never dead-letters it — a redrive would repeat the same verdict forever. The literal value is an example; the comparison behind the counter is value-agnostic |
 | `lorastats-clsbox-lowercase.json` | The same device as the record above (`04B64810652B`) written lowercase. **Schema-valid on purpose** — the envelope is `^[0-9A-Fa-f]{12}$` and stays that way, so a real measurement is never rejected over hex case. The Writer uppercases and a `CHECK` enforces it, so both spellings share one key in `(tenant, clsbox, …)` (DL-115) |
 | `ltestats-production.json` | Real production record. Every numeric a **string**, and `access_Technology` with a capital T |
+| `ltestats-production-2g-no-rsrp.json` | **DL-146.** Live shape: `access_Technology: "2G"` and **no `rsrp`/`rsrq`** — LTE measurements a 2G modem does not have. 5 of 300 live records; every one dead-lettered before `shapeMeasured` made the pair optional. Carries the real minol `tenant`/`maintenant` split |
+| `ltestats-production-unknown-technology.json` | **DL-146.** Live shape: `data` is `{"etxt": "unknown technology"}` and nothing else — a modem that never registered. The second, closed shape of the `ltestats` `oneOf` (`shapeUnknownTechnology`). `status` is still `["conversion ok"]` |
+| `lorastats-dialect-string-util-restarted.json` | **DL-146.** Live shape: dialect B with `util_restarted` as an **integer** among fourteen strings, and no `rx_type_arol`. Valid — detection reads only the thirteen required counters, the extra lands in `data_extra` and increments `records_unmapped_data_field`. Pinned so nobody tightens the mixed-type rule to reject it |
+| `sysstats-production-ts-device-corrected.json` | **DL-146.** Live shape: `meta: {"tsDeviceCorrected": true}` and `ts.deviceOrig` — Heimdal rewrote `ts.device` to equal `ts.server` and kept the gateway's clock (12 s behind). Must round-trip through the typed view **losslessly**; before DL-146 both members were silently dropped |
+| `omsstats-expires-on-extended-json.json` | **DL-146.** `ts.expiresOn` as `{"$date": "…"}`, the form the live datastore returns. Accepted and stored in that form; which form the HTTP forward sends is Q15e |
 | `sysstats-production-minimal.json` | Real production record from a gateway with no temperature sensor — `temp`, `rtt`, `wan_if`, `rebootcause`, `timespan` all absent |
 | `sysstats-production-full.json` | Real production record carrying every optional field, with `timespan` as the **string** `"300"` |
 | `omsstats-production.json` | Real production record. The one type SRS v1.0 got right |
@@ -122,8 +143,9 @@ envelope and must **not** be 400'd.
 
 | File | Proves |
 |---|---|
+| `ltestats-shape-mixed.json` | **`$expect: writer-dlq`.** `etxt` beside a partial measurement (`rssi`, `plmn`, no `access_Technology`). Passes the envelope → 200 and published; matches **neither** closed `ltestats` shape → the Writer dead-letters it (DL-146). The `ltestats` counterpart of the row below: if it ever validates, one of the two shapes has been loosened |
 | `lorastats-dialect-unknown.json` | **`$expect: writer-dlq`.** A synthetic FOURTH spelling (`lorawan_`-prefixed), carrying `version: 1` like every other dialect so nothing announces that it is new. Passes the envelope → Input returns 200 and publishes; matches none of the three `oneOf` branches → the Writer dead-letters it. **This is the fixture that proves the enumeration is closed** (DL-105 rule 4). If it ever starts validating, the union has been reopened |
-| `<type>-missing-required.json` | A mandatory payload field is absent → `missing` |
+| `<type>-missing-required.json` | A mandatory payload field is absent → `missing`. For `ltestats` the absent field is `access_Technology` since 18 Sep 2026 — it used to be `rsrp`, which DL-146 made optional |
 | `<type>-wrong-type.json` | Right field, wrong JSON type → `invalid_type`. The response must not echo the offending value |
 | `envelope-missing-tenant.json` | `tenant` is never defaulted; its absence is a hard 400 |
 | `envelope-clsbox-too-short.json`, `envelope-clsbox-not-hex.json` | The 12-hex-character `clsbox` rule. Renamed with the field on 29 Aug 2026 (ADR-007 §1) |

@@ -21,7 +21,10 @@ import java.util.List;
  * inside {@code data} are preserved by its {@link JsonNode} representation. This
  * typed record is an application view; ingress validates and publishes the
  * original JSON byte-identically, so this view is not responsible for retaining
- * unknown top-level extensions.</p>
+ * unknown top-level extensions — except {@code meta}, which Heimdal has been seen
+ * to send ({@code {"tsDeviceCorrected": true}}, DL-146) and which the Writer keeps
+ * in the passthrough column so that a stored record still says its device clock
+ * was rewritten upstream.</p>
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -41,6 +44,13 @@ public record StatsEnvelope(
 
         Timestamps ts,
         JsonNode data,
+
+        /**
+         * Heimdal annotations about the record itself, e.g.
+         * {@code {"tsDeviceCorrected": true}}. Preserved verbatim and never read —
+         * upstream state, like {@link #status()} (DL-146).
+         */
+        JsonNode meta,
 
         /**
          * Heimdal converter annotations, e.g. {@code ["conversion ok"]}. Preserved

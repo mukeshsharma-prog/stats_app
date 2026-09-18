@@ -6,6 +6,59 @@ It is still auto-loaded every session: the repository-root `CLAUDE.md` is a
 pointer file whose only content is an `@claude/CLAUDE.md` import. Edit this file,
 not the pointer.
 
+> **Version 1.14 — 18 September 2026 (later the same day).** No decision in 1.13
+> changes. What changes is that **the documents have now met live data** — Hasan opened
+> the Datahub's `datastore-stats` aggregate endpoint, 1,200 records were run through the
+> CI validators, and six things did not fit. Governing entry: **DL-146**; ADR-007 gains
+> an *Amendment — 18 September 2026*.
+>
+> * **`maintenant ≠ tenant` on the minol tenant — and only there.** Roughly one live
+>   record in ten carries `tenant: minol-gateway` with `maintenant: minol`; on every other
+>   tenant the two are equal (Naman, from live data). The isolation rule does not move.
+>   The trap's wording does — §4 and §6 — because the two cases fail *differently*, and
+>   DL-139's "equal on every record" is corrected in place.
+> * **`ltestats` is a closed `oneOf` of two shapes.** `rsrp`/`rsrq` are **optional** — a
+>   2G modem has neither — and `{"etxt": "unknown technology"}` alone is the second,
+>   closed shape. 6 of 300 live records were dead-lettering; they are the degraded-modem
+>   records ops needs most. ADR-007 §6's rule, applied where it was missed.
+> * **Heimdal sends three things no document had seen.** `meta.tsDeviceCorrected` and
+>   `ts.deviceOrig` — Heimdal *rewrites* `ts.device` on some records — are passthrough
+>   members, now preserved rather than silently dropped. `ts.expiresOn` arrives as a
+>   string **or** as `{"$date": …}`; both are accepted and kept verbatim. Three questions
+>   for Hasan: **Q15e** (which `expiresOn` form the forward sends), **Q15f** (when the
+>   clock is corrected), **Q15g** (`netstats` — **zero records** exist in the datastore).
+> * **Gates:** fixtures 96 → **103**, Java parity 84 → **90**, 85 fixture files, thirteen
+>   markers. `openapi.yaml` mirrors the new shapes (`LtestatsMeasured`,
+>   `LtestatsUnknownTechnology`).
+> * **How to look at live data:** `POST https://one.bmz.cloud/datastore-stats/aggregate`
+>   with a pipeline body and a UAA bearer; `$match` + `$limit` only — full scans 502.
+>   Samples carry IMSIs: scratchpad only, never the repo.
+>
+> **Version 1.13 — 18 September 2026.** No decision in 1.12 changes. What changes is
+> that **the inbound contract is now something you can hand to ZC.** Governing entry:
+> **DL-145.**
+>
+> * **Heimdal delivers over HTTP — confirmed 17 Sep 2026.** That is what the endpoint
+>   was built for; no code changes. It narrows **Q8a-3** (a ForwardRule of type `HTTP`
+>   is now the likely mechanism) without closing it — the credential and `maxRetry`
+>   rows are still **OPEN**, and are the two questions to take back.
+> * **`docs/contracts/openapi-input.yaml`** is the OpenAPI twin of
+>   `heimdal-input-contract-v1.md`: `POST /stats`, every built status code, the
+>   field-code catalogue, `X-Trace-Id`, and the three candidate auth schemes. It
+>   `$ref`s the read contract's schemas and is linted in CI.
+> * **One reviewable page:** `docs/contracts/build-html.sh` renders both contracts to
+>   `stats-api-v1-draft.html`. Still **not committed** (DL-117 stands) — CI uploads it
+>   as the `stats-api-v1-draft` workflow artifact.
+> * **`heimdal-input-contract-v1.md` §0 is the handover table** — URL, success code,
+>   retry sets, limits, replay cap, credential, `maxRetry` — each row marked built /
+>   PROVISIONAL / OPEN. Its §5 no longer says the replay cap is "not yet agreed".
+> * **A `/stats/mac/{clsbox}`-style device-first read endpoint was raised by
+>   management on 17 Sep and is NOT designed** — the phrase *"not stopped by a Spring
+>   controller"* is unresolved. Every reading but one collides with rule 3 / ADR-006;
+>   the harmless reading is an additive, tenant-scoped, cross-type lookup that the
+>   `(tenant, clsbox, ts_device DESC, uid DESC)` index already serves. Ask before
+>   building.
+>
 > **Version 1.12 — 12 September 2026.** No decision in 1.11 changes. What changes is
 > that **the four Phase 1/2 rows that were PARTIAL are DONE, the DLQ has a redrive, and the
 > platform's own API guide has been read against this project.** Governing entries:
@@ -399,12 +452,12 @@ Use these terms exactly. Do not invent synonyms.
 | **Envelope** | The common fields present on every record regardless of type: `uid`, `tenant`, `maintenant`, `clsbox`, `type`, `version`, `ts`, `data`, `status`. |
 | **Payload** | The `data` object — the only part that differs between stat types. |
 | **tenant** | The tenant the gateway is assigned to. **The isolation field.** |
-| **maintenant** | The *maintaining* tenant. **Set to the same value as `tenant`, and moved with it:** when a device changes tenant on the Datahub, both fields take the new tenant name (DL-139). Equal in the sample data **and in production** — **this is a trap, see §6**. Never used for isolation. |
+| **maintenant** | The *maintaining* tenant. **Set to the same value as `tenant`, and moved with it:** when a device changes tenant on the Datahub, both fields take the new tenant name (DL-139). Equal on every live record of every tenant **except minol**, where roughly one record in ten carries `tenant: minol-gateway` with `maintenant: minol` (DL-146) — **this is a trap either way, see §6**. Never used for isolation. |
 | **clsbox** | **The device identifier field.** 12 hexadecimal characters. This is the name on the wire, in the schema, in Java, in the PostgreSQL column, and in API responses (ADR-007 §1). The SRS called it `gateway`; nothing in production ever has. |
 | **gateway** | The *physical device* — used in prose only ("160,000 gateways", "a gateway with a bad clock"). **Never a field name.** Do not mechanically rewrite this word to `clsbox`. |
 | **ts.server** | The canonical **arrival** clock — Heimdal's receipt time. What the SRS called `ts.processor`. Clock skew is measured against it (ADR-007 §3). |
 | **ts.device** | When the gateway measured the record. **Retention keys on this**, not on `ts.server` (STA-23B). |
-| **Passthrough members** | `ts.datastore`, `ts.converter`, `ts.expiresOn`, `status`, `version` — accepted, stored, returned verbatim, and **never branched on**. Two are *read* for metering only and change no routing: `ts.converter` (ADR-007 §2) and, since DL-108, `status` — anything other than exactly `["conversion ok"]` increments `records_upstream_status_not_ok{type}`. `version` is read by nothing, ever: it is not a dialect discriminator. |
+| **Passthrough members** | `ts.datastore`, `ts.converter`, `ts.expiresOn`, `status`, `version` — and since DL-146 `meta` and `ts.deviceOrig`, which Heimdal sends when it has rewritten `ts.device` — accepted, stored, returned verbatim, and **never branched on**. Two are *read* for metering only and change no routing: `ts.converter` (ADR-007 §2) and, since DL-108, `status` — anything other than exactly `["conversion ok"]` increments `records_upstream_status_not_ok{type}`. `version` is read by nothing, ever: it is not a dialect discriminator. |
 | **Heimdal Core** | The Datahub Core module that sends us data. Upstream, owned by ZC. Not ours. |
 | **Statsstore** | The persistence layer — Module 2. Also the queue-name prefix. |
 | **DLQ** | Dead-letter queue. Per stat type. Holds messages that failed processing after the retry limit. |
@@ -435,8 +488,12 @@ an idealisation of it — build against this.
 ```
 
 `ts.server`, `ts.datastore`, `ts.converter` and `ts.device` are **Unix timestamps in
-seconds**. `ts.expiresOn` is an **ISO-8601 string** — the odd one out, and typing it
-as an epoch integer throws on every production record.
+seconds**. `ts.expiresOn` is an **ISO-8601 instant** — the odd one out — and it has been
+seen in two spellings: the plain string above, and `{"$date": "…"}` as the live
+datastore returns it (DL-146, Q15e). Both are valid; an epoch integer is not. Some
+records also carry `"meta": {"tsDeviceCorrected": true}` and `ts.deviceOrig` — Heimdal
+rewrote `ts.device` to equal `ts.server` and kept the gateway's clock there. Preserved,
+never read.
 
 **Required:** `uid`, `tenant`, `maintenant`, `clsbox`, `type`, `ts` (with `server`
 and `device`), `data`. Everything else is optional and never read.
@@ -531,10 +588,14 @@ that filters on the wrong one will pass every test written against those samples
 and leak data in production. Always write fixtures where the two values
 **differ**. This is the single highest-risk item in the project. **DL-139 made the
 reason precise:** on the Datahub a tenant change sets *both* fields to the new name, so
-they are equal on every real record, in production as in the samples. That means **no
-production record can ever reveal a filter on the wrong field** — the only place the
-two values differ is a fixture we wrote on purpose, which is why that fixture rule is
-not optional.
+on every tenant but one they are equal on every real record. That means **no
+production record from those tenants can ever reveal a filter on the wrong field** —
+the only place the two values differ is a fixture we wrote on purpose, which is why
+that fixture rule is not optional. **DL-146 added the exception, and it is not a
+comfort:** on the **minol** tenant roughly one live record in ten carries
+`tenant: minol-gateway` with `maintenant: minol`. A filter on `maintenant` there does
+not leak — it silently *drops* those rows and returns a page that looks complete. Two
+tenants, two different wrong answers, one correct field: `tenant`.
 
 **Head-of-line blocking with a shared queue.**
 If all stat types share one queue, a poison message in one type stalls every
@@ -550,7 +611,11 @@ A gateway that was offline delivers records whose `ts.device` is weeks older tha
 4 Sep 2026 (Q15b, DL-106):** `ts.device` is genuinely device-assigned. The 15-record
 sample showed `ts.device == ts.server` on 14 of 15 records only because all fifteen
 came from healthy gateways sending immediately — a sample of the healthy path is not
-evidence about the absence of the unhealthy one.
+evidence about the absence of the unhealthy one. **One nuance since DL-146:** on some
+records Heimdal *rewrites* `ts.device` to equal `ts.server` and keeps the gateway's own
+clock as `ts.deviceOrig`, flagged by `meta.tsDeviceCorrected`. Retention still keys on
+the `ts.device` received — the corrected one — which only ever moves a record *toward*
+`ts.server`, so this path gets fewer records, not more. When Heimdal corrects is Q15f.
 
 **Unix seconds, not milliseconds.**
 `ts.server` and `ts.device` are in **seconds**. Treating them as milliseconds
@@ -655,6 +720,9 @@ either case on purpose — a lowercase record is never 400'd — and the API fil
 **A required field that is absent because the device is broken.**
 `netstats` required `ip`/`gw`/`mask`/`dns` on every interface, which dead-lettered
 every record from a modem that never came up — exactly the record ops most needs.
+**It happened again in `ltestats`** (DL-146): `rsrp`/`rsrq` were required, a modem on
+2G has neither, and a modem that never registered sends only
+`{"etxt": "unknown technology"}` — 2% of live traffic, all of it the interesting 2%.
 Before making a field required, ask what the record looks like when the thing it
 describes is *failing*.
 
@@ -689,19 +757,23 @@ derived engineering decisions, is `docs/decisions/2B-ANSWERS-18AUG2026.md`. Read
 | Q8b | **Engineering proposal, live in the dev realm** | Realm `statsapp`, clients `stats-api`/`stats-input`/`stats-dev-cli`, roles `stats.readOnly` and `stats.ingest`, tenant claim **`tenant`, single-valued String**. Working realm at `docs/setup/keycloak-realm-statsapp.json`. Single-valued on purpose: a multi-valued claim turns isolation into `tenant IN (...)`, and one misconfigured user then reads several tenants with every test still green |
 | Q13a | ~~Assume synchronised 10-minute boundaries~~ — **amended 4 Sep 2026 (Q13b, DL-104): gateways JITTER** | Design target of **13,333/s** is now **configured headroom**, not the expected case; expected steady state is the average, ~1,333/s. Writer prefetch starts at 500; Writer is sized for drain (~2,000/s per type). **Alert on oldest message age, never on depth — unchanged.** But the reading inverts: a cyclic depth spike used to be the buffer working, and under jitter it is **evidence the answer is wrong**. Hardware is not sized down until the `ts.server mod 600` histogram over the first 24 h of ingest confirms it (T-050) |
 | Q13a (replay) | **Heimdal AGREES the 2× nominal cap (2,667/s)** — Q13c answered 4 Sep 2026, DL-109 | A 6-hour outage is 28.8M messages and about 3 hours of replay at that cap, holding total ingest at 4,000/s. **Not one defence changes: the agreement is a commitment, not a control.** 503 is the backpressure channel and is the mechanism working, not an incident. Replayed records are duplicates by definition and `ON CONFLICT DO NOTHING` absorbs them. T-049 unblocked |
-| Q11a | **Built**, then **rebuilt on production 29 Aug 2026 (ADR-007)**, and reshaped again by T-063/T-064 on 8 Sep 2026. **79** fixture files across `valid/`, `invalid/`, `edge/`, `malformed/` — 77 individual fixtures plus the two kept legacy bundles | `docs/schemas/fixtures/`, catalogued in `MANIFEST.md`. `docs/schemas/validate-fixtures.py` asserts **91** and exits non-zero for CI, over three `$expect` markers: `input-reject`, `writer-dlq` and `writer-range-reject`. The 18 Aug set found three real schema gaps; the 29 Aug production sample found that **four of the five payload schemas and every envelope field name were wrong**, and inverted four fixture assertions outright |
+| Q11a | **Built**, then **rebuilt on production 29 Aug 2026 (ADR-007)**, reshaped again by T-063/T-064 on 8 Sep 2026, and **checked against 1,200 live records on 18 Sep 2026 (DL-146)**. **85** fixture files across `valid/`, `invalid/`, `edge/`, `malformed/` — 83 individual fixtures plus the two kept legacy bundles | `docs/schemas/fixtures/`, catalogued in `MANIFEST.md`. `docs/schemas/validate-fixtures.py` asserts **103** and exits non-zero for CI, over four `$expect` markers: `input-reject`, `writer-dlq`, `writer-range-reject` and `writer-skip`. The 18 Aug set found three real schema gaps; the 29 Aug production sample found that **four of the five payload schemas and every envelope field name were wrong**, and inverted four fixture assertions outright |
 
 ### Still needs ZC / Hasan
 
-Three items — two carried since August and one added on 12 September 2026 from the
-Datahub API guide (DL-139). Everything else on this list was answered on 4 September
+Six items — two carried since August, one added on 12 September 2026 from the
+Datahub API guide (DL-139), and three added on 18 September 2026 from the first look
+at live data (DL-146). Everything else on this list was answered on 4 September
 2026 — see *Decided 4 September 2026* below.
 
 | Ref | Question | Blocks |
 |---|---|---|
 | Q8a-2 | Heimdal inbound auth, when ZC is ready: mTLS or OAuth2 client credentials; issuer, audience, client identity, rotation. Our position is OAuth2 client credentials, to be sent as *"unless you object by \<date\>, we implement OAuth2"* | Nothing today — deferred by decision. **Must close before any shared deployment**; until then anything that can reach the Input port can write |
-| **Q8a-3** | **Is the stats push a Heimdal ForwardRule?** The Datahub API guide (§9) defines one as `{url, type, id, maxRetry}` with *"credentials in the URL"* over `HTTP\|AMQP\|MQTT\|…`. If so: the inbound auth is HTTP **basic**, which `stats.input.auth.mode=none\|mtls\|oauth2` cannot express, and Heimdal's retry on a non-2xx is **bounded by `maxRetry`** — a sustained 503 burns a budget we cannot see. Ask together with Q8a-2 (DL-139) | Nothing today. Changes the *shape* of the Q8a-2 answer and the reading of rule 8; the guide documents sensor forwarding and does not say gateway stats use the same path |
+| **Q8a-3** | **Is the stats push a Heimdal ForwardRule?** The Datahub API guide (§9) defines one as `{url, type, id, maxRetry}` with *"credentials in the URL"* over `HTTP\|AMQP\|MQTT\|…`. If so: the inbound auth is HTTP **basic**, which `stats.input.auth.mode=none\|mtls\|oauth2` cannot express, and Heimdal's retry on a non-2xx is **bounded by `maxRetry`** — a sustained 503 burns a budget we cannot see. Ask together with Q8a-2 (DL-139). **Transport confirmed HTTP on 17 Sep 2026 (DL-145)** — a ForwardRule of type `HTTP` is now the likely mechanism; the credential and `maxRetry` are what remain. The handover table is `heimdal-input-contract-v1.md` §0 | Nothing today. Changes the *shape* of the Q8a-2 answer and the reading of rule 8; the guide documents sensor forwarding and does not say gateway stats use the same path |
 | Q8b-2 | Confirmation of the proposed Keycloak realm, client, issuer, audience, role names and tenant claim | Nothing today — the proposal is live and confirmation is a config change |
+| **Q15e** | Which spelling of `ts.expiresOn` does the HTTP forward emit — the plain ISO-8601 string of the 29 Aug sample, or `{"$date": "…"}` as the live datastore returns it? (DL-146) | Nothing — both are accepted and kept verbatim. An answer lets the schema narrow to one |
+| **Q15f** | When does Heimdal rewrite `ts.device`? Live records carry `meta.tsDeviceCorrected: true`, `ts.device = ts.server` and the gateway's clock as `ts.deviceOrig`; others carry uncorrected +3 s / −1 s skews (DL-146) | Nothing — preserved, never read. Nuances DL-106 and may mean the D9 rejection never fires |
+| **Q15g** | Where do `netstats` records go? `type: "netstats"` returns **zero** records from the datastore across the retained window, though ZC supplied a sample on 18 Aug (DL-146) | Nothing until the fan-out reaches `netstats`. Schema, fixtures, queue and table stay |
 
 **Residuals carried inside a closed decision.** Not open questions — none blocks
 anything, and each is recorded so it is not rediscovered as a surprise. Full table:
@@ -712,7 +784,8 @@ anything, and each is recorded so it is not rediscovered as a surprise. Full tab
 | DL-105 (Q15a) | *Are the other `lorastats` dialects being retired?* Only decides whether a parser can ever be deleted; `records_lorastats_dialect{dialect}` is what will show one going to zero |
 | DL-108 (Q15d) | The vocabulary of non-OK `status` values — the counter is value-agnostic and will enumerate it. **One more known-good value since DL-139:** measurement documents carry `["ok"]` where stats records carry `["conversion ok"]`; set T-050's threshold after the first 24 h, not at zero |
 | DL-110 (Q4b) | IPv6 is *"for now, no"*. **A non-zero count on the metered IPv4 rejection code reopens it** |
-| DL-104 (Q13b) | Jitter is a statement, not a measurement. Hardware is not sized down until the `ts.server mod 600` histogram confirms it (T-050) |
+| DL-104 (Q13b) | Jitter is a statement, not a measurement. Hardware is not sized down until the `ts.server mod 600` histogram confirms it (T-050). **One data point since DL-146:** one device's `ltestats` cadence is every ~29 min, not 10 |
+| DL-106 (Q15b) | `ts.device` is device-assigned — **except when Heimdal corrects it** (`meta.tsDeviceCorrected`, DL-146). Retention keys on the value received; the correction only moves it toward `ts.server`. The rule is Q15f |
 | DL-109 (Q13c) | The 2× replay cap is agreed and **unenforceable by us** |
 
 ### Decided 29 August 2026 — do NOT reopen
@@ -781,7 +854,8 @@ plan is not written against a repository that no longer exists. Full reasoning:
 | DL-135 | **Database capability is proved by PostgreSQL.** `stats_ro` has `CONNECT`, `USAGE`, `SELECT` — and `DatabaseRolesIntegrationTest` proves `INSERT`/`UPDATE`/`DELETE`/`TRUNCATE`/`CREATE`/sequence access each fail with SQLSTATE `42501` on a table created *after* bootstrap. Compose blanks the database variables in `stats-input` and hides each module's identity from the others. There is no `stats_input` database identity | T-009 |
 | DL-136, DL-137 | **The Writer is observable, and a scrape performs no I/O.** `records_consumed` before decoding, `records_processing_duration` on every exit, `records_persisted` only after a committed insert, `records_postgres_errors` by exception *type*. `queue_depth`, `dlq_depth`, `consumer_availability` are polled on `stats.metrics.poll-interval` and cached; a failed poll writes **NaN** and drops `broker_metrics_collection_success` — a queue the broker cannot report on must never read as empty. Aggregate replicas with `max`, never `sum`. The branch's second retention cutoff and polled lag gauge were dropped on merge. Contract: `docs/contracts/writer-metrics-v1.md` | T-027 |
 | DL-138 | **A manual redrive is one attempt, never fresh tiers.** `DlqRedriveCommand` (`./gradlew :stats-writer:redriveDlq`): per type, ≤ 2,667/s, `--change-id` and `--root-cause-resolved=true` mandatory, refuses a record past the retention window, publishes the original bytes with `x-stats-manual-redrive=true` and ACKs the DLQ original **only after the copy is confirmed**. `FailedDeliveryRouter` sends a repeat failure straight back to the DLQ. Runbook: `docs/runbooks/dlq-redrive.md` | T-052 |
-| DL-139 | **The Datahub API guide is reconciled.** `maintenant` pinned down — it moves with `tenant` and equals it, so only a deliberate fixture can ever catch a wrong filter; Q8a-3 (ForwardRule / `maxRetry` / basic auth) and D16 (tenant-move history) raised, not answered — **D16 since ratified, DL-142**; `["ok"]` added to the DL-108 residual; `clsbox = FFFFFFFFFFFF` means *synthetic / no gateway*. The platform's own `POST /datastore/aggregate/pageable` on `{clsbox, type, ts.device}` is a **parity oracle** for the API tests | — |
+| DL-139 | **The Datahub API guide is reconciled.** `maintenant` pinned down — it moves with `tenant` and equals it *(on every tenant but minol — corrected by DL-146)*, so only a deliberate fixture can ever catch a wrong filter; Q8a-3 (ForwardRule / `maxRetry` / basic auth) and D16 (tenant-move history) raised, not answered — **D16 since ratified, DL-142**; `["ok"]` added to the DL-108 residual; `clsbox = FFFFFFFFFFFF` means *synthetic / no gateway*. The platform's own `POST /datastore/aggregate/pageable` on `{clsbox, type, ts.device}` is a **parity oracle** for the API tests | — |
+| DL-146 | **Live data met the documents.** `ltestats` `data` is a closed `oneOf` — `measured` (`rsrp`/`rsrq` optional) and `unknown-technology` (`etxt` only) — after 2% of live traffic was found dead-lettering. `ts.expiresOn` accepted as string or `{"$date": …}`; `meta` and `ts.deviceOrig` preserved as passthrough. `maintenant ≠ tenant` on minol only. `netstats` absent from the datastore. Three questions raised (Q15e–Q15g), none answered. Gates 96 → 103, 84 → 90 | T-035, T-050 |
 
 > **What to do next lives in `Stats_App_Tracker.xlsx` → the `Next Up` sheet**, ranked
 > across both owners with the gate on each row. T-063, T-057 and T-064 were done on
@@ -967,13 +1041,15 @@ only `README.md` (the index) and a `CLAUDE.md` pointer that imports this file.
 | `docs/decisions/POSTGRESQL_BASELINE.md` | Persistence direction, table/index draft, sizing |
 | `docs/architecture/adr/ADR-001…007` | Platform, AMQP topology, retention/indexes, OMS timestamps, delivery/idempotency, tenant isolation, **production wire format** |
 | `docs/architecture/Stats_App_Flow.png` | End-to-end flow diagram |
-| `docs/contracts/heimdal-input-contract-v1.md` | Inbound HTTP contract, response matrix, auth |
+| `docs/contracts/heimdal-input-contract-v1.md` | Inbound HTTP contract — **§0 is the handover table for ZC** — response matrix, auth |
+| `docs/contracts/openapi-input.yaml` | **The inbound contract as OpenAPI 3.1** — `POST /stats`, every built status code, the field-code catalogue, candidate auth schemes. `$ref`s the read contract's schemas; linted in CI (DL-145) |
+| `docs/contracts/build-html.sh` | Renders **both** contracts onto one page, `stats-api-v1-draft.html` — generated, never committed (DL-117); CI uploads it as a workflow artifact |
 | `docs/contracts/amqp-topology-v1.md` | Exchange, per-type queues, retry/DLQ, redrive |
 | `docs/contracts/writer-metrics-v1.md` | **Every Writer metric, its labels and its measurement boundary** — what `records_persisted` does and does not count, why a failed broker poll is NaN, how replicas aggregate (DL-136, DL-137) |
 | `docs/runbooks/dlq-redrive.md` | **The DLQ redrive procedure** — access, one-record pilot, audit line, stop conditions, and the 90-day trap made checkable against `records_expired_on_arrival` (DL-138) |
 | `docs/contracts/openapi.yaml` | **The API contract.** OpenAPI 3.1, GET-only, `/v1/stats/{type}`. Draft pending ZC confirmation; gates Phase 4 |
 | `docs/contracts/openapi-v1-design.md` | Design input for the above. Converted 21 Aug 2026 — the YAML wins where they differ |
-| `docs/schemas/` | JSON Schema catalogue, per-type schemas, the 75-file fixture set (`fixtures/MANIFEST.md`), and `validate-fixtures.py` for CI |
+| `docs/schemas/` | JSON Schema catalogue, per-type schemas, the 85-file fixture set (`fixtures/MANIFEST.md`), and `validate-fixtures.py` for CI |
 | `docs/decisions/2B-ANSWERS-18AUG2026.md` | The seven §2b answers of 18 Aug 2026 and every engineering decision derived from them |
 | `docs/decisions/DATA-SENSITIVITY-INVENTORY.md` | **Every field in all six schemas, the six sinks it can reach, and what class of identifier it is.** The input document for **D-12** — engineering's, not a classification. Read it before touching logging, masking, or `ltestats`/`netstats` persistence |
 | `docs/setup/keycloak-realm-statsapp.json` | Importable dev realm — proposed Q8b values, four users built for specific tests |

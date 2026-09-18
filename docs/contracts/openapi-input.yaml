@@ -1,0 +1,486 @@
+# Zenner Datahub Core — Stats App: the Heimdal INBOUND contract, as OpenAPI.
+#
+# This is the machine-readable twin of docs/contracts/heimdal-input-contract-v1.md
+# (DL-145). The Markdown remains the narrative — why 400 is permanent, why 2xx waits
+# for the broker, what is still open with ZC. This file is what gets linted, what
+# renders into stats-api-v1-draft.html alongside the read API, and what
+# ZC can confirm or decline operation by operation. Where the two disagree, THIS FILE
+# describes what stats-input is built to do today; the Markdown records what was
+# agreed and what is still draft. Both are updated in the same change.
+#
+# SCOPE: the single ingest operation stats-input exposes to Heimdal Core. It is kept
+# out of openapi.yaml on purpose (see the SCOPE note there): different caller,
+# different authentication, no /v1 version segment, and a release cadence tied to
+# ZC's ForwardRule configuration rather than to API consumers. The two files share
+# their schemas by $ref so the envelope can never be described two ways.
+#
+# EVERY STATUS CODE BELOW IS PRODUCED BY CODE THAT EXISTS. The response matrix is
+# derived from StatsIngestController, EnvelopeGate, ClockSkewPolicy,
+# RequestSizeLimitFilter, IngestRateLimitFilter and IngestExceptionHandler in
+# stats-input (T-013 … T-018, DL-118 … DL-121). If a status is added here, the code
+# that produces it lands in the same change — a contract that promises a response the
+# service cannot give is how Heimdal ends up retrying something it should not.
+
+openapi: 3.1.0
+
+info:
+  title: Zenner Datahub Core — Stats App Ingest (Heimdal inbound)
+  version: 1.0.0-draft
+  summary: The HTTP POST endpoint Heimdal Core delivers gateway statistics to.
+  description: |
+    The inbound half of the Stats App. **Heimdal Core** — the Datahub's forwarding
+    service — pushes one statistics record per HTTP request to this endpoint. The
+    Stats App validates the **envelope**, publishes the record byte-identically to the
+    `app_stats_input` exchange with the stat type as routing key, and answers only
+    once RabbitMQ has confirmed the publication.
+
+    The direction is always **Heimdal → Stats App**. The Stats App never pulls, never
+    polls and never calls Heimdal back.
+
+    ## The one rule that explains every status code
+
+    **A 2xx is a promise.** It means *the record is persisted on the broker and will
+    reach the database* — Heimdal may discard its copy. It is returned only after the
+    RabbitMQ publisher confirm; if the broker is unavailable, does not confirm within
+    `stats.amqp.confirm-timeout` (5 s), or reports the message unroutable, the answer
+    is **503** so that Heimdal resends. Nothing is buffered locally: `stats-input` is
+    stateless, and Heimdal owns retry on every non-2xx. (STA-04A, STA-06A, DL-118)
+
+    From that rule, the response matrix Heimdal must honour:
+
+    | Status | Meaning | Heimdal should |
+    |---:|---|---|
+    | **200** | Envelope valid, publisher-confirmed. **The record is safe.** | Discard its copy. Never resend. |
+    | **400** | Body unreadable, JSON malformed, envelope invalid, unknown `type`, or `ts.device` too far ahead of `ts.server`. **Nothing was published.** | **Not retry** the same bytes — the outcome is deterministic. Fix the sender or the gateway clock. |
+    | **413** | Body over `stats.input.limits.max-request-bytes` (256 KB). Nothing published. | Not retry without correcting the record. |
+    | **429** | Over the **per-instance** rate limit (4,000 req/s). Nothing published. | Retry after `Retry-After` (1 s). |
+    | **503** | Broker unavailable, confirm timed out, or message unroutable. Nothing accepted. | **Retry.** This is the backpressure channel working, not an incident. |
+    | 401 / 403 | Reserved for when inbound authentication is switched on (Q8a-2). | Treat as configuration; do not retry blindly. |
+    | other 5xx | Unexpected failure inside Input. | Retry. |
+
+    ## What is validated here — and what is not
+
+    Input validates the **envelope only**: the fields common to every record (`uid`,
+    `tenant`, `maintenant`, `clsbox`, `type`, `ts.server`, `ts.device`, `data`), the
+    closed `type` enumeration, and the cross-field clock-skew rule. It does **not**
+    validate `data` against the per-type payload schema. That is the Writer's gate,
+    and a failure there is a **dead-letter**, not a 400 — by then the record has been
+    accepted and Heimdal has been told 200, so a 400 would destroy it. (ADR-007 §5)
+
+    Consequently a record with a valid envelope and a `data` block the Stats App cannot
+    store is answered **200**. That is deliberate. Heimdal must not resend it; its
+    disposition is a Stats App operations concern (`docs/runbooks/dlq-redrive.md`).
+
+    The record is published **byte-identically**: no field is renamed, reordered,
+    normalised or dropped. Unknown members are accepted and preserved (D14).
+
+    ## What ZC configures in Heimdal
+
+    | Item | Proposed value | Status |
+    |---|---|---|
+    | URL | `https://<ingress-host>/stats` — one record per `POST`, `Content-Type: application/json` | Path is **DRAFT**: confirm against the deployed Datahub convention (D-03). Externalised as `stats.input.endpoint.path`, so a prefix is a property change. |
+    | Success status | `200`, empty body | Built; `202` is the only alternative the code admits (`stats.input.endpoint.success-status`). |
+    | Retry on | `503`, `429` (after `Retry-After`), other `5xx` | Built. |
+    | Never retry on | `400`, `413` | Built — the outcome is the same every time. |
+    | Credential | **None today.** `stats.input.auth.mode` has no default; `prod` refuses to start with `none` | **OPEN — Q8a-2 / Q8a-3.** Must close before any shared deployment. |
+    | `maxRetry` | Unknown | **OPEN — Q8a-3.** If the push is a Heimdal ForwardRule, its retry is bounded and a sustained 503 burns a budget the Stats App cannot see. |
+    | Replay after an outage | ≤ 2× nominal, **2,667 records/s** | Agreed by Heimdal 4 Sep 2026 (Q13c, DL-109). Not enforceable by the Stats App; the per-instance 429 limit is the only control it owns. |
+
+    ## Status
+
+    **Draft pending ZC confirmation.** Items marked `PROVISIONAL` below — the path,
+    the success status, the request limits — are engineering defaults held in
+    `application.properties` precisely so that ZC's answer is a configuration change.
+    Authentication is deferred by decision (Q8a, 18 Aug 2026) and the endpoint is
+    unauthenticated on a dev stack only.
+  contact:
+    name: Naman and Mukesh
+  license:
+    name: Internal / Confidential
+
+servers:
+  - url: https://{host}
+    description: |
+      Deployment-supplied ingress host. There is deliberately no `/v1` segment: the
+      inbound contract is versioned by ZC's ForwardRule configuration, not by a path.
+    variables:
+      host:
+        default: stats.example
+        description: Ingress host, supplied by the platform.
+  - url: http://localhost:8081
+    description: Local development stack (docker/docker-compose.yml).
+
+# Authentication is DEFERRED BY DECISION (Q8a, 2B-ANSWERS §3). The endpoint runs with
+# stats.input.auth.mode=none on a dev stack — WARN on every startup, refused under the
+# `prod` profile. The three schemes below are the candidates, declared so the
+# 401/403 rows have a defined meaning the day one is switched on; none is required
+# today, which is what the empty security requirement states.
+security: []
+
+tags:
+  - name: ingest
+    description: Heimdal Core → Stats App. One record per request.
+
+paths:
+
+  /stats:
+    post:
+      tags: [ingest]
+      operationId: ingestStatsRecord
+      summary: Deliver one statistics record
+      description: |
+        Accepts exactly one record in the production wire format (ADR-007), validates
+        the envelope, publishes it unchanged to `app_stats_input` with routing key
+        `{type}`, and answers **200 only after the publisher confirm**.
+
+        `PROVISIONAL` — the path `/stats` is the engineering default
+        (`stats.input.endpoint.path`) awaiting D-03.
+
+        **Idempotency.** Resending a record the Stats App already holds is harmless:
+        the Writer's `PRIMARY KEY (ts_device, uid)` with `ON CONFLICT DO NOTHING`
+        absorbs it and increments `records_duplicate_suppressed{type}`. A replay after
+        a Heimdal outage is therefore safe at any rate the 429 limit admits.
+
+        **Correlation.** Every response — success or problem — carries `X-Trace-Id`,
+        minted per request. The same value rides on the AMQP message as
+        `correlationId`, and the record's `uid` as `messageId`, so one identifier
+        follows the record from this response to the database row (DL-134). Quote it
+        in any support request.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './openapi.yaml#/components/schemas/Envelope'
+            examples:
+              lorastatsProduction:
+                summary: A production lorastats record (dialect A)
+                description: |
+                  `docs/schemas/fixtures/valid/lorastats-production-canonical.json`,
+                  with the one permitted deviation — `tenant` and `maintenant` made to
+                  differ, because an example that repeats production's
+                  `tenant == maintenant` teaches every generated client the project's
+                  highest-risk trap.
+                value:
+                  uid: CLSCON-11d3ec4c-f6e1-403a-a9ef-b6f5fe909eee
+                  tenant: mzc
+                  maintenant: mzc-ops
+                  clsbox: 04B64810652B
+                  type: lorastats
+                  version: 1
+                  ts:
+                    server: 1787833739
+                    datastore: 1787833739
+                    converter: 1787833739
+                    device: 1787833739
+                    expiresOn: "2026-08-27T12:28:59.074Z"
+                  data:
+                    rx_nr_pkts: 219
+                    fsk_received: 0
+                    rx_crc_missing: 0
+                    rx_crc_bad: 48
+                    tx_peek_index_zero: 0
+                    tx_success: 0
+                    rx_short_pkt: 166
+                    timespan: 1800
+                    chip_comm_error: 0
+                    tx_failed: 0
+                    tx_override: 0
+                    util_fopen_failed: 0
+                    tx_peek: 0
+                    tx_type_beacon: 0
+                    tx_busy: 0
+                    tx_dequeue_error: 0
+                  status: ["conversion ok"]
+      responses:
+        '200':
+          description: |
+            **Accepted and publisher-confirmed.** The record is durable on the broker
+            and will be persisted; Heimdal may discard its copy. The body is empty.
+
+            `PROVISIONAL` — `200` is the built default; `202` is the only other value
+            `stats.input.endpoint.success-status` admits. Either way the meaning is
+            identical: *do not resend*.
+          headers:
+            X-Trace-Id:
+              $ref: '#/components/headers/TraceId'
+        '400':
+          $ref: '#/components/responses/EnvelopeRejected'
+        '401':
+          $ref: '#/components/responses/IngestUnauthorized'
+        '403':
+          $ref: '#/components/responses/IngestForbidden'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/NotAccepted'
+
+components:
+
+  securitySchemes:
+    heimdalOAuth2:
+      type: oauth2
+      description: |
+        **Candidate — not active.** The Stats App's proposed answer to Q8a-2: OAuth2
+        client credentials against the `statsapp` Keycloak realm, client
+        `stats-input`, role `stats.ingest`. Selected by `stats.input.auth.mode=oauth2`.
+      flows:
+        clientCredentials:
+          tokenUrl: https://keycloak.example/realms/statsapp/protocol/openid-connect/token
+          scopes: {}
+    heimdalMtls:
+      type: mutualTLS
+      description: |
+        **Candidate — not active.** Certificate identity with a pinned issuer DN and
+        allowed subject DN. Selected by `stats.input.auth.mode=mtls`.
+    heimdalBasic:
+      type: http
+      scheme: basic
+      description: |
+        **Candidate — not built, raised by Q8a-3 (DL-139).** The Datahub API guide
+        describes a Heimdal ForwardRule as carrying *"credentials in the URL"*, which
+        is HTTP basic. `stats.input.auth.mode` cannot express it today. Listed so the
+        question is visible in the contract ZC reviews, not as an offer.
+
+  headers:
+    TraceId:
+      description: |
+        Per-request correlation identifier, present on **every** response. Also the
+        AMQP `correlationId` of the published message and the `traceId` member of any
+        problem body (DL-134).
+      schema:
+        type: string
+        minLength: 1
+    RetryAfter:
+      description: Seconds to wait before resending. Always `1` for the rate limit.
+      schema:
+        type: integer
+        format: int32
+        minimum: 1
+
+  responses:
+
+    EnvelopeRejected:
+      description: |
+        **The envelope was rejected and nothing was published.** The failure is
+        deterministic — the same bytes will be rejected again — so Heimdal must not
+        retry unchanged. The `code` of each `errors[]` entry says which:
+
+        | `errors[].field` | `errors[].code` | Cause |
+        |---|---|---|
+        | `/` | `empty_body` | Zero-length body. |
+        | `/` | `unreadable_body` | The body could not be read as a request at all. |
+        | `/` | `malformed_json` | Not a JSON object. |
+        | `/<member>` | `missing` | A required envelope member is absent. |
+        | `/<member>` | `invalid_type` | An envelope member has the wrong JSON type. |
+        | `/<member>` | `invalid_parameter` | An envelope member fails its constraint (e.g. `clsbox` not 12 hex characters). |
+        | `/type` | `unknown_stat_type` | `type` is not one of the five V1 types. The problem `type` URI is `unknown_stat_type` too. |
+        | `/ts/device` | `clock_skew_exceeded` | `ts.device` exceeds `ts.server` by more than `stats.input.validation.max-clock-skew` (`PT5M`). **Fix the gateway clock.** |
+
+        Field errors name the **member and the code, never the offending value**
+        (DL-102). `statType` is present when `type` could be read.
+
+        Rejections are metered as `records_validation_failed{type}` and
+        `records_clock_skew_rejected{type}` and logged at `WARN` — never silently
+        dropped (STA-03A).
+      headers:
+        X-Trace-Id:
+          $ref: '#/components/headers/TraceId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: './openapi.yaml#/components/schemas/ProblemDetails'
+          examples:
+            malformedJson:
+              $ref: '#/components/examples/ProblemMalformedJson'
+            missingMember:
+              $ref: '#/components/examples/ProblemMissingMember'
+            unknownStatType:
+              $ref: '#/components/examples/ProblemIngestUnknownStatType'
+            clockSkewExceeded:
+              $ref: '#/components/examples/ProblemClockSkewExceeded'
+
+    IngestUnauthorized:
+      description: |
+        **Reserved.** Returned only once an authentication mode other than `none` is
+        selected (Q8a-2): no credential, or one that is malformed, expired or wrongly
+        issued. Nothing is published. Configuration, not data — do not retry blindly.
+      headers:
+        X-Trace-Id:
+          $ref: '#/components/headers/TraceId'
+        WWW-Authenticate:
+          description: Challenge for the active mode, per RFC 6750 / RFC 7617.
+          schema:
+            type: string
+      content:
+        application/problem+json:
+          schema:
+            $ref: './openapi.yaml#/components/schemas/ProblemDetails'
+
+    IngestForbidden:
+      description: |
+        **Reserved.** Authenticated, but the identity lacks the ingest role
+        (`stats.input.auth.required-role`, proposed `stats.ingest`). Nothing is
+        published.
+      headers:
+        X-Trace-Id:
+          $ref: '#/components/headers/TraceId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: './openapi.yaml#/components/schemas/ProblemDetails'
+
+    PayloadTooLarge:
+      description: |
+        The body exceeds `stats.input.limits.max-request-bytes` — **256 KB**,
+        `PROVISIONAL` (DL-121). Nothing is published. The largest production record
+        observed is under 4 KB, so this is a defence against a runaway sender, not a
+        working limit. Do not retry without correcting the record. Metered as
+        `requests_too_large`.
+      headers:
+        X-Trace-Id:
+          $ref: '#/components/headers/TraceId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: './openapi.yaml#/components/schemas/ProblemDetails'
+          examples:
+            payloadTooLarge:
+              $ref: '#/components/examples/ProblemPayloadTooLarge'
+
+    TooManyRequests:
+      description: |
+        This **instance** is over `stats.input.limits.max-requests-per-second` —
+        **4,000 req/s**, `PROVISIONAL` (DL-121). The cluster ceiling is that value
+        times the replica count. Nothing is published; retry after `Retry-After`.
+
+        This is the only replay control the Stats App owns: Heimdal has agreed the
+        2× nominal replay cap (2,667/s, DL-109), and an agreement is a commitment,
+        not a mechanism. Metered as `requests_rate_limited`.
+      headers:
+        X-Trace-Id:
+          $ref: '#/components/headers/TraceId'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/problem+json:
+          schema:
+            $ref: './openapi.yaml#/components/schemas/ProblemDetails'
+          examples:
+            tooManyRequests:
+              $ref: '#/components/examples/ProblemTooManyRequests'
+
+    NotAccepted:
+      description: |
+        **The record was NOT accepted — resend it.** The envelope was valid, but the
+        broker did not confirm the publication: RabbitMQ unavailable, confirm timed
+        out (`stats.amqp.confirm-timeout`, 5 s), the publish interrupted, or the
+        message **acked but returned as unroutable** — which the Stats App treats as a
+        failed acceptance, never a success (DL-118).
+
+        A 503 here is the system working correctly: Input refusing to pretend it has
+        a record it cannot vouch for. Under a replay it is the backpressure channel.
+        Metered as `records_publish_failed{type}` / `records_unroutable{type}` and
+        logged at `ERROR`.
+      headers:
+        X-Trace-Id:
+          $ref: '#/components/headers/TraceId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: './openapi.yaml#/components/schemas/ProblemDetails'
+          examples:
+            notAccepted:
+              $ref: '#/components/examples/ProblemNotAccepted'
+
+  # Problem `type` URIs are what stats-common's ErrorCode.typeUri() emits:
+  # https://stats.example/errors/<wire_code>, underscore and all. Input is built, so
+  # these examples show what Heimdal will actually receive.
+  examples:
+
+    ProblemMalformedJson:
+      summary: Body is not a JSON object
+      value:
+        type: https://stats.example/errors/invalid_parameter
+        title: Invalid request parameter
+        status: 400
+        instance: /stats
+        traceId: 7b3f1c8e2a904d51
+        errors:
+          - field: /
+            code: malformed_json
+            message: Field has an invalid value.
+
+    ProblemMissingMember:
+      summary: A required envelope member is absent
+      value:
+        type: https://stats.example/errors/invalid_parameter
+        title: Invalid request parameter
+        status: 400
+        instance: /stats
+        statType: lorastats
+        traceId: 3e9a41d07c8b2f56
+        errors:
+          - field: /ts/server
+            code: missing
+            message: Mandatory field is absent.
+
+    ProblemIngestUnknownStatType:
+      summary: type is not one of the five V1 types
+      value:
+        type: https://stats.example/errors/unknown_stat_type
+        title: Unknown stat type
+        status: 400
+        instance: /stats
+        traceId: a1c6d2e9f04b3857
+        errors:
+          - field: /type
+            code: unknown_stat_type
+            message: Not a supported stat type.
+
+    ProblemClockSkewExceeded:
+      summary: ts.device is more than 5 minutes ahead of ts.server
+      value:
+        type: https://stats.example/errors/invalid_parameter
+        title: Invalid request parameter
+        status: 400
+        instance: /stats
+        statType: sysstats
+        traceId: 5d80b3f7e1c24a96
+        errors:
+          - field: /ts/device
+            code: clock_skew_exceeded
+            message: Field has an invalid value.
+
+    ProblemPayloadTooLarge:
+      summary: Body over the configured maximum
+      value:
+        type: https://stats.example/errors/payload_too_large
+        title: Payload too large
+        status: 413
+        detail: The request body exceeds the configured maximum of 262144 bytes.
+        instance: /stats
+        traceId: 9f2c7a1e5b4d0836
+
+    ProblemTooManyRequests:
+      summary: Per-instance rate limit exceeded
+      value:
+        type: https://stats.example/errors/too_many_requests
+        title: Too many requests
+        status: 429
+        detail: This instance is at its configured ingest rate. Retry after 1 second.
+        instance: /stats
+        traceId: c409e7b21d8f5a63
+
+    ProblemNotAccepted:
+      summary: Broker did not confirm — resend
+      value:
+        type: https://stats.example/errors/service_unavailable
+        title: Service unavailable
+        status: 503
+        detail: The record was not accepted. Retry.
+        instance: /stats
+        statType: lorastats
+        traceId: e7a13f5c9b2d4068

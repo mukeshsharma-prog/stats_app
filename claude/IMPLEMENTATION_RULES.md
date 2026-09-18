@@ -72,7 +72,7 @@ All record types use the common envelope:
 {
   "uid": "<unique record id>",
   "tenant": "<assigned tenant>",
-  "maintenant": "<same value as tenant; never the isolation field>",
+  "maintenant": "<same value as tenant on every tenant but minol; never the isolation field>",
   "clsbox": "<12-character hexadecimal gateway MAC>",
   "type": "<stat type>",
   "ts": { "server": 0, "device": 0 },
@@ -129,7 +129,7 @@ review cycle; contradicting them produces work that has to be thrown away.
 | OMS timestamps | Heimdal sends the canonical field. No transformation on our side. |
 | `uid` | Unique; Heimdal does not deliver duplicates. Keep the `(ts_device, uid)` per-partition key as defence anyway, and meter every suppressed duplicate. |
 | Tenant presence | Every record carries a tenant. |
-| Isolation field | `tenant`, never `maintenant`. |
+| Isolation field | `tenant`, never `maintenant` — equal on every live tenant but minol (DL-146). |
 | Retention basis | `ts.device`, default 90 days, externally configurable. |
 | HTTP success timing | Only after publisher confirm. |
 | Broker unavailable | Non-2xx (503). No local buffering. Heimdal owns retry. |

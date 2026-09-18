@@ -47,8 +47,8 @@ class SchemaFixtureParityTest {
     }
 
     @Test
-    void expandsToTheSameEightyFourOutcomesAsThePythonOracle() {
-        assertThat(fixtureCases()).hasSize(84);
+    void expandsToTheSameNinetyOutcomesAsThePythonOracle() {
+        assertThat(fixtureCases()).hasSize(90);
         assertThat(fixtureCases())
                 .extracting(arguments -> (String) arguments.get()[0])
                 .noneMatch(description -> description.contains("malformed/"));
@@ -64,9 +64,10 @@ class SchemaFixtureParityTest {
      * {@code "writer-dlq"} on the unknown fourth dialect (DL-105 rule 4),
      * {@code "writer-range-reject"} on the dialect-B counter that overflows a
      * {@code BIGINT} (DL-105 rule 3), and {@code "writer-skip"} on the five late-arrival
-     * fixtures (D5b → DL-112, T-026) — none of which are schema cases. So it reports 96
-     * assertions where this test expands to 84 outcomes. That gap is deliberate — do not
-     * "fix" either number to match the other.</p>
+     * fixtures (D5b → DL-112, T-026), and {@code "writer-dlq"} again on the ltestats
+     * record that is half a measurement (DL-146) — none of which are schema cases. So it
+     * reports 103 assertions where this test expands to 90 outcomes. That gap is
+     * deliberate — do not "fix" either number to match the other.</p>
      *
      * <p>The marker count stayed at seven on 8 Sep 2026 while its composition changed
      * completely: the two lorastats dialect fixtures lost their {@code writer-dlq}
@@ -80,6 +81,12 @@ class SchemaFixtureParityTest {
      * signed, deliberate data-loss path. That is the identical gap the clock-skew
      * fixtures had before {@code "input-reject"} existed — an undecided question with
      * "accept" quietly baked into a green assertion.</p>
+     *
+     * <p>84 → 90 on 18 Sep 2026 (DL-146): six fixtures re-derived from live data — the
+     * two ltestats shapes the old schema dead-lettered, the mixed shape the new one must
+     * still dead-letter, a lorastats dialect-B record with an integer extra member,
+     * Heimdal's {@code meta}/{@code ts.deviceOrig}, and {@code expiresOn} as Extended
+     * JSON. Thirteen markers now.</p>
      */
     static List<Arguments> fixtureCases() {
         List<Path> files = new ArrayList<>();

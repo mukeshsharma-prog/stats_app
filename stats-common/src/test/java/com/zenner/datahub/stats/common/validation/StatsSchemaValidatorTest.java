@@ -73,8 +73,12 @@ class StatsSchemaValidatorTest {
         ValidationResult badPattern = validator.validate(readFixture("invalid/envelope-clsbox-not-hex.json"));
         ValidationResult outOfRange = validator.validate(readFixture("invalid/envelope-ts-in-milliseconds.json"));
 
+        // The fixture omits access_Technology - not rsrp, which DL-146 made optional.
+        // Since ltestats data is a closed oneOf, the report also names what the OTHER
+        // shape wanted (/data/etxt) and flags /data itself; all three are pointers
+        // and static messages, never a value from the record.
         assertThat(missing.errors()).contains(FieldError.of(
-                "/data/rsrp", "missing", FieldError.SafeMessage.MANDATORY_FIELD_ABSENT));
+                "/data/access_Technology", "missing", FieldError.SafeMessage.MANDATORY_FIELD_ABSENT));
         assertThat(wrongType.errors()).contains(FieldError.of(
                 "/data/rssi", "invalid_type", FieldError.SafeMessage.INVALID_FIELD_TYPE));
         assertThat(badPattern.errors()).contains(FieldError.of(

@@ -1,0 +1,28 @@
+{
+  "uid": "CLSCON-5f2a9c1e-7b3d-4e8a-9c6f-2d1146000006",
+  "tenant": "minol-gateway",
+  "maintenant": "minol-gateway",
+  "clsbox": "04B648120006",
+  "type": "omsstats",
+  "version": 1,
+  "ts": {
+    "server": 1786720481,
+    "datastore": 1786720481,
+    "converter": 1786720481,
+    "device": 1786720481,
+    "expiresOn": {
+      "$date": "2026-08-14T15:14:41.124Z"
+    }
+  },
+  "data": {
+    "rx_nr_pkts": 0,
+    "rx_valid_nr_pkts": 0,
+    "rx_crc_bad": 0,
+    "timespan": 1800,
+    "device_count": 0
+  },
+  "status": [
+    "conversion ok"
+  ],
+  "$comment": "Shape of a live record as the datastore-stats aggregate endpoint returns it on 18 Sep 2026 (uid and clsbox synthesised): ts.expiresOn is MongoDB Extended JSON, {\"$date\": \"<ISO-8601>\"}, not the plain string of the 29 Aug 2026 sample. Which form the HTTP forward emits is OPEN (Q15e); the envelope accepts both since DL-146 because the value is a passthrough member that is stored verbatim and never read, and guessing wrong would have cost 100% of ingest. The Java model holds it as a JsonNode for the same reason. An epoch integer here is still invalid."
+}

@@ -8,8 +8,9 @@ in **PostgreSQL**, and exposes them through a read-only, tenant-scoped REST API.
 slice — built, observable and operable, with the alerting still to come. Requirements and architecture are settled and ADRs 001–007 are approved
 or accepted. The Gradle multi-project builds: five modules (`stats-common`,
 `stats-testsupport` and the three applications), three deployable images, a Docker
-Compose stack with PostgreSQL 17, RabbitMQ and Keycloak, and 79 JSON schema fixture
-files gated by `docs/schemas/validate-fixtures.py` at 91 assertions.
+Compose stack with PostgreSQL 17, RabbitMQ and Keycloak, and 85 JSON schema fixture
+files gated by `docs/schemas/validate-fixtures.py` at 103 assertions — checked against
+1,200 live records on 18 September 2026 (DL-146).
 
 Since **8 September 2026 `lorastats` is complete end to end**, in all three of the
 payload dialects production actually sends: the Writer's per-type payload gate refuses
@@ -243,7 +244,7 @@ Every working document lives in `claude/`. The repository root holds only this
 | `docs/decisions/` | `ANSWER_RECONCILIATION.md` (what ZC answered), `2B-ANSWERS-18AUG2026.md` (the seven §2b answers and every decision derived from them), and the PostgreSQL baseline |
 | `docs/architecture/adr/` | ADR-001 … **ADR-007**. **`ADR-nnn` always means one of these.** The ARD carries its own ADR-001…010 with different meanings — cite those as `ARD-ADR-nn`. **Start with ADR-007** if you have not read this repository since 29 Aug 2026: it rebuilt the envelope on the production wire format and amends ADR-002, ADR-003 and ADR-004. |
 | `docs/architecture/Stats_App_Flow.png` | End-to-end flow diagram |
-| `docs/contracts/` | Heimdal inbound HTTP contract, AMQP topology, **`writer-metrics-v1.md`** (every Writer metric and its measurement boundary), and **`openapi.yaml`** — the API contract, OpenAPI 3.1, GET-only, draft pending ZC confirmation |
+| `docs/contracts/` | Heimdal inbound HTTP contract (`heimdal-input-contract-v1.md`, with its OpenAPI twin **`openapi-input.yaml`**), AMQP topology, **`writer-metrics-v1.md`** (every Writer metric and its measurement boundary), and **`openapi.yaml`** — the read API contract, OpenAPI 3.1, GET-only. Both contracts are draft pending ZC confirmation; `build-html.sh` renders them onto one page (DL-145) |
 | `docs/runbooks/` | **`dlq-redrive.md`** — the guarded per-type DLQ redrive: access, pilot, audit, stop conditions, and the 90-day trap made checkable |
 | `docs/schemas/` | JSON Schema catalogue, per-type schemas, and fixtures |
 | `docs/prompts/` | Prompt templates for working on this repo |
@@ -278,7 +279,7 @@ Stat types: `lorastats`, `ltestats`, `sysstats`, `omsstats`, `netstats`.
 
 ## Four things that are easy to get wrong
 
-1. **`tenant` vs `maintenant`.** They hold the same value in most sample data.
+1. **`tenant` vs `maintenant`.** They hold the same value in most sample data — and on every live tenant but minol, where a filter on the wrong field *drops* rows instead of leaking them (DL-146).
    Filtering on the wrong one passes every test and leaks data in production.
    `tenant` is the isolation field. Always write fixtures where the two differ.
 2. **Unix seconds, not milliseconds.** Treating `ts.device` as millis gives 1970.

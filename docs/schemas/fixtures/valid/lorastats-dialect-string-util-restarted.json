@@ -1,0 +1,36 @@
+{
+  "uid": "CLSCON-5f2a9c1e-7b3d-4e8a-9c6f-2d1146000004",
+  "tenant": "minol-gateway",
+  "maintenant": "minol",
+  "clsbox": "80029C000004",
+  "type": "lorastats",
+  "version": 1,
+  "ts": {
+    "server": 1786616324,
+    "datastore": 1786616324,
+    "converter": 1786616324,
+    "device": 1786616326,
+    "expiresOn": "2026-08-13T10:18:44.004Z"
+  },
+  "data": {
+    "rx_nr_pkts": "42",
+    "util_restarted": 0,
+    "rx_crc_missing": "0",
+    "rx_crc_bad": "18",
+    "tx_peek_index_zero": "0",
+    "tx_success": "0",
+    "rx_short_pkt": "0",
+    "chip_comm_error": "0",
+    "tx_failed": "0",
+    "tx_override": "0",
+    "util_fopen_failed": "0",
+    "tx_peek": "0",
+    "tx_type_beacon": "0",
+    "tx_busy": "0",
+    "tx_dequeue_error": "0"
+  },
+  "status": [
+    "conversion ok"
+  ],
+  "$comment": "Shape of a live record seen on 18 Sep 2026; uid and clsbox are synthesised, the payload is as observed. Dialect B (bare names, string counters) carrying a member no earlier sample had - util_restarted, as an INTEGER next to fourteen strings - and omitting rx_type_arol. 7 of 300 live lorastats records looked like this. VALID, on three grounds worth keeping true: rx_type_arol is optional; dialect detection reads only the thirteen required counters, so a foreign-typed extra member does not make the record 'mixed' (LorastatsDialects.valueShapeOf); and util_restarted has no typed column, so it lands verbatim in data_extra and increments records_unmapped_data_field (D14b, DL-095). If Heimdal keeps sending it, that counter is the signal to give it a column. Also a real example of ts.device two seconds AHEAD of ts.server - inside the skew tolerance, so accepted (ADR-003 D9)."
+}

@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fasterxml.jackson.databind.node.TextNode;
 import com.zenner.datahub.stats.common.model.StatType;
 import com.zenner.datahub.stats.common.model.StatsEnvelope;
 import com.zenner.datahub.stats.common.model.Timestamps;
@@ -195,6 +196,8 @@ class LorastatsBatchWriterIntegrationTest {
     void preservesRecordVersionAndTheFivePassthroughEnvelopeMembers() {
         Instant datastore = DEVICE_TIME.plusSeconds(1);
         Instant converter = DEVICE_TIME.plusSeconds(2);
+        // Heimdal rewrote ts.device and kept the gateway's own clock here (DL-146).
+        Instant deviceOrig = DEVICE_TIME.minusSeconds(12);
         StatsEnvelope record =
                 new StatsEnvelope(
                         "passthrough-proof",
@@ -208,8 +211,10 @@ class LorastatsBatchWriterIntegrationTest {
                                 DEVICE_TIME,
                                 datastore,
                                 converter,
-                                "2097-07-13T12:28:59.074Z"),
+                                deviceOrig,
+                                TextNode.valueOf("2097-07-13T12:28:59.074Z")),
                         completeData(0),
+                        objectMapper.createObjectNode().put("tsDeviceCorrected", true),
                         List.of("conversion ok"));
 
         assertThat(writer.write(List.of(admitted(record))))
@@ -232,11 +237,52 @@ class LorastatsBatchWriterIntegrationTest {
                 .isEqualTo(datastore.getEpochSecond());
         assertThat(passthrough.path("ts").path("converter").asLong())
                 .isEqualTo(converter.getEpochSecond());
-        // expiresOn stays a STRING. Production sends a date here, not an integer.
+        // expiresOn stays a STRING when it arrived as one. Production sends a date
+        // here, not an integer.
         assertThat(passthrough.path("ts").path("expiresOn").asText())
                 .isEqualTo("2097-07-13T12:28:59.074Z");
+        assertThat(passthrough.path("ts").path("deviceOrig").asLong())
+                .isEqualTo(deviceOrig.getEpochSecond());
+        assertThat(passthrough.path("meta").path("tsDeviceCorrected").asBoolean()).isTrue();
         assertThat(passthrough.path("status").isArray()).isTrue();
         assertThat(passthrough.path("status").get(0).asText()).isEqualTo("conversion ok");
+    }
+
+    /**
+     * DL-146. The live datastore returns {@code expiresOn} as Mongo Extended JSON,
+     * {@code {"$date": "..."}}, and which form the HTTP forward emits is open (Q15e).
+     * Whichever arrives is what is stored: a String column would have thrown on the
+     * object form, and normalising to one spelling would be the timestamp rewrite
+     * ADR-004 forbids.
+     */
+    @Test
+    void storesExpiresOnInTheExtendedJsonFormWhenThatIsWhatArrived() {
+        ObjectNode extended = objectMapper.createObjectNode().put("$date", "2097-07-13T12:28:59.074Z");
+        StatsEnvelope record =
+                new StatsEnvelope(
+                        "expires-on-extended-json",
+                        "tenant-a",
+                        "management-parent",
+                        "A1B2C3D4E5F6",
+                        StatType.LORASTATS,
+                        1,
+                        new Timestamps(DEVICE_TIME, DEVICE_TIME, null, null, null, extended),
+                        completeData(0),
+                        null,
+                        null);
+
+        assertThat(writer.write(List.of(admitted(record))))
+                .extracting(RecordWriteResult::status)
+                .containsExactly(RecordWriteStatus.INSERTED);
+
+        JsonNode passthrough =
+                readJson(
+                        jdbc.queryForObject(
+                                "SELECT passthrough FROM lorastats WHERE ts_device = ? AND uid = ?",
+                                Object.class,
+                                Timestamp.from(DEVICE_TIME),
+                                "expires-on-extended-json"));
+        assertThat(passthrough.path("ts").path("expiresOn")).isEqualTo(extended);
     }
 
     /**
@@ -254,8 +300,9 @@ class LorastatsBatchWriterIntegrationTest {
                         "A1B2C3D4E5F6",
                         StatType.LORASTATS,
                         null,
-                        new Timestamps(DEVICE_TIME, DEVICE_TIME, null, null, null),
+                        new Timestamps(DEVICE_TIME, DEVICE_TIME, null, null, null, null),
                         completeData(0),
+                        null,
                         null);
 
         assertThat(writer.write(List.of(admitted(record))))
@@ -342,8 +389,10 @@ class LorastatsBatchWriterIntegrationTest {
                                 Instant.parse("2098-01-01T12:00:00Z"),
                                 null,
                                 null,
+                                null,
                                 null),
                         completeData(0),
+                        null,
                         null);
 
         assertThat(writer.write(List.of(admitted(noPartition))))
@@ -380,8 +429,9 @@ class LorastatsBatchWriterIntegrationTest {
                         "INVALID",
                         StatType.LORASTATS,
                         1,
-                        new Timestamps(Instant.now(), Instant.now(), null, null, null),
+                        new Timestamps(Instant.now(), Instant.now(), null, null, null, null),
                         completeData(0),
+                        null,
                         null);
 
         assertThat(writer.write(List.of(admitted(badClsbox))))
@@ -619,8 +669,9 @@ class LorastatsBatchWriterIntegrationTest {
                 clsbox,
                 StatType.LORASTATS,
                 1,
-                new Timestamps(DEVICE_TIME, DEVICE_TIME, null, null, null),
+                new Timestamps(DEVICE_TIME, DEVICE_TIME, null, null, null, null),
                 data,
+                null,
                 null);
     }
 

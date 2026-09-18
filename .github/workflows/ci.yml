@@ -68,8 +68,21 @@ jobs:
       # description containing a comma silently becomes an extra schema key.
       # Version pinned: an unpinned linter can start failing CI on a release we
       # did not make. Rules and the two deliberate suppressions: redocly.yaml.
-      - name: Lint OpenAPI contract
+      - name: Lint OpenAPI contracts
         run: npx --yes @redocly/cli@2.51.2 lint
+
+      # DL-145. Both contracts rendered onto one reviewable page — the document ZC
+      # confirms or declines. Not committed (DL-117: a checked-in bundle goes stale);
+      # built here so a reviewer without Node downloads it from the run instead.
+      - name: Render contracts HTML
+        run: docs/contracts/build-html.sh
+
+      - name: Upload contracts HTML
+        uses: actions/upload-artifact@v4
+        with:
+          name: stats-api-v1-draft
+          path: stats-api-v1-draft.html
+          if-no-files-found: error
 
       - name: Build and test
         run: ./gradlew build --no-daemon

@@ -70,8 +70,16 @@
           "$comment": "ADR-004 AMENDED 29 Aug 2026. Present on 100% of production records, so the previous rule - `not: {required: [converter]}`, which made the field's presence INVALID - rejected every record Heimdal sends. The field is now accepted, preserved, and never read. ADR-004's actual decision is unchanged and still binding: the Stats App performs NO timestamp normalisation. Presence is metered as records_converter_ts_present{type} so we can see if Heimdal ever stops sending it."
         },
         "expiresOn": {
-          "type": "string",
-          "$comment": "The legacy Mongo TTL key, an ISO-8601 instant equal to ts.device. Accepted and preserved, never read - Stats App retention is a partition detach-and-drop keyed on ts_device (ADR-003 D1), not a TTL. Deliberately NOT typed as an epoch integer: production sends a date string here."
+          "oneOf": [
+            { "type": "string" },
+            {
+              "type": "object",
+              "required": ["$date"],
+              "properties": { "$date": { "type": "string" } },
+              "additionalProperties": false
+            }
+          ],
+          "$comment": "The legacy Mongo TTL key, an ISO-8601 instant equal to ts.device. Accepted and preserved, never read - Stats App retention is a partition detach-and-drop keyed on ts_device (ADR-003 D1), not a TTL. Deliberately NOT typed as an epoch integer: production sends a date string here. 18 Sep 2026 (DL-146): ALSO accepted as MongoDB Extended JSON, {\"$date\": \"<ISO-8601>\"} - the 29 Aug 2026 sample carried a plain string, the live datastore-stats aggregate endpoint returns the object form, and which one the HTTP forward emits is OPEN (Q15e). The schema accepts both rather than guess: the value is a passthrough member stored verbatim and never read (ADR-003), so a wrong guess would have cost 100% of ingest for nothing. An epoch integer is still invalid."
         }
       },
       "additionalProperties": true,

@@ -21,7 +21,8 @@ class ValidatedRecordTest {
                     "A1B2C3D4E5F6",
                     StatType.LORASTATS,
                     1,
-                    new Timestamps(Instant.EPOCH, Instant.EPOCH, null, null, null),
+                    new Timestamps(Instant.EPOCH, Instant.EPOCH, null, null, null, null),
+                    null,
                     null,
                     null);
 

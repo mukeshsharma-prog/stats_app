@@ -1,0 +1,35 @@
+{
+  "uid": "CLSCON-5f2a9c1e-7b3d-4e8a-9c6f-2d1146000005",
+  "tenant": "minol-gateway",
+  "maintenant": "minol",
+  "clsbox": "04B648120005",
+  "type": "sysstats",
+  "version": 1,
+  "meta": {
+    "tsDeviceCorrected": true
+  },
+  "ts": {
+    "server": 1786617001,
+    "datastore": 1786617001,
+    "converter": 1786617001,
+    "deviceOrig": 1786616989,
+    "device": 1786617001,
+    "expiresOn": "2026-08-13T10:30:01.3Z"
+  },
+  "data": {
+    "memfree": 335968,
+    "temp": 50273,
+    "rtt": -1,
+    "rebootcause": "reboot",
+    "idletime": 5873792.24,
+    "load5": 1.28,
+    "runable": "2/159",
+    "load1": 1.21,
+    "uptime": 1974786.52,
+    "load15": 1.32
+  },
+  "status": [
+    "conversion ok"
+  ],
+  "$comment": "Shape of a live record seen on 18 Sep 2026; uid and clsbox are synthesised, everything else is as observed. Two envelope members no document had seen before DL-146: meta.tsDeviceCorrected = true, and ts.deviceOrig = the clock the gateway actually sent (12 s behind ts.server) with ts.device REWRITTEN by Heimdal to equal ts.server. So ts.device is not always device-assigned (DL-106, nuanced) and the skew check of ADR-003 D9 sees Heimdal's corrected value. Must stay VALID: the envelope keeps additionalProperties true on the record and on ts (D14), and the Writer preserves both members verbatim in the passthrough column and never reads them. When Heimdal applies the correction is OPEN (Q15f) - other live records carry uncorrected skews of +3 s and -1 s."
+}

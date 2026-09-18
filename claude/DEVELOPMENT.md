@@ -83,7 +83,8 @@ The `openapi.yaml` we owe ZC goes in `docs/contracts/` alongside its design inpu
 Each application module builds its own Docker image — three images, answered (Q2).
 
 ### Why `stats-common`
-The envelope (`uid`, `tenant`, `maintenant`, `clsbox`, `type`, `ts`) is identical
+The envelope (`uid`, `tenant`, `maintenant`, `clsbox`, `type`, `ts`, and the
+passthrough members Heimdal adds — `status`, `version`, `meta`) is identical
 across all three modules, as are the exchange/queue/routing-key names. Defining
 them once prevents drift, and — for the topology constants specifically — prevents
 the `RESOURCE_LOCKED` failure that happens when two modules declare the same
@@ -400,7 +401,9 @@ semantics, so it is not an acceptable substitute here.
 Not a percentage target. These specifically must be covered:
 
 - Every validation rule, positive and negative *(STA-03A)*
-- **Tenant isolation, with `tenant ≠ maintenant` fixtures** *(STA-35A, STA-35B)*
+- **Tenant isolation, with `tenant ≠ maintenant` fixtures** *(STA-35A, STA-35B)* —
+  and remember they are *equal* on every live tenant but minol, so a production
+  sample is never an isolation test (DL-146)
 - Publisher-confirm timing: no 2xx before confirm; 503 when the broker is down *(STA-04A, STA-06A)*
 - Dead-letter path on write failure, per type *(STA-12A, STA-25A)*
 - Poison-message isolation: a bad message in one type does not stall another *(STA-10B)*
@@ -491,7 +494,8 @@ CREATE TABLE <stat_type> (
     record_version smallint    NOT NULL,
     -- typed payload columns; bigint for counters, never integer
     <payload columns>,
-    passthrough    jsonb,   -- ts.datastore / ts.converter / ts.expiresOn / status
+    passthrough    jsonb,   -- ts.datastore / ts.converter / ts.expiresOn (either spelling)
+                            -- / ts.deviceOrig / status / meta  (DL-146)
     data_extra     jsonb,   -- unmapped `data` members, DL-095. NEVER omit this
     PRIMARY KEY (ts_device, uid),
     CONSTRAINT <stat_type>_clsbox_canonical CHECK (clsbox ~ '^[0-9A-F]{12}$')
@@ -795,6 +799,7 @@ pinned, and the conventions it would have supplied are defined in ADR-001.
 | Ref | Blocks |
 |---|---|
 | **Q8b-2** | ZC's confirmation of the Keycloak realm/client/issuer/audience/role/claim. The proposal is live in the dev realm and every value is a property with no default, so confirming it is a config change — it blocks *hardening sign-off*, not development. |
+| **Q15e / Q15f / Q15g** | Three questions for Hasan from the first look at live data (DL-146, 18 Sep 2026): which spelling of `ts.expiresOn` the HTTP forward sends (string or `{"$date": …}` — both accepted); when Heimdal rewrites `ts.device` (`meta.tsDeviceCorrected`, `ts.deviceOrig` — both preserved); and where `netstats` records go, since **none exist in the datastore**. None blocks development; the last one blocks nothing until the fan-out reaches `netstats`. To look at live data yourself: `POST https://one.bmz.cloud/datastore-stats/aggregate` with a Mongo pipeline body and a UAA bearer — `$match` + `$limit` only, full scans 502, and the samples carry IMSIs so they stay out of the repo. |
 | ~~**Q13b**~~ | **ANSWERED 4 Sep 2026 (DL-104): gateways JITTER** across the cycle. Expected steady state ~1,333/s; DL-082's 13,333/s becomes **configured headroom**, and hardware is not sized down until a `ts.server mod 600` histogram over the first 24 h of ingest confirms it. **One reading inverts:** a cyclic queue-depth spike used to be the buffer working — under jitter it is evidence the answer is wrong. |
 | ~~**Q13c**~~ | **ANSWERED 4 Sep 2026 (DL-109):** Heimdal agrees the 2× cap. **Not one defence changes** — an agreement is a commitment, not a control; 503 backpressure, bounded prefetch and T-018's rate limit stay. T-049 unblocked. |
 | ~~**Q4b**~~ | **ANSWERED 4 Sep 2026 (DL-110): no IPv6, for now.** The schema stays IPv4-only and strict; the IPv4 `$def` failure emits a **distinct metered per-field code**, and a non-zero count on it reopens Q4b. |

@@ -54,6 +54,7 @@ class StatsEnvelopeTest {
                 valid.version(),
                 valid.ts(),
                 valid.data(),
+                valid.meta(),
                 valid.status());
 
         try (ValidatorFactory factory = Validation.buildDefaultValidatorFactory()) {
@@ -82,7 +83,7 @@ class StatsEnvelopeTest {
         assertThat(roundTrip).isEqualTo(record);
         assertThat(envelope.ts().converter()).isNotNull();
         assertThat(envelope.ts().datastore()).isNotNull();
-        assertThat(envelope.ts().expiresOn()).isEqualTo("2026-08-27T12:25:37.071Z");
+        assertThat(envelope.ts().expiresOn().asText()).isEqualTo("2026-08-27T12:25:37.071Z");
         assertThat(envelope.version()).isEqualTo(1);
         assertThat(envelope.status()).containsExactly("conversion ok");
     }

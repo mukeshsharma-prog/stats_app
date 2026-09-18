@@ -1,0 +1,26 @@
+{
+  "uid": "CLSCON-5f2a9c1e-7b3d-4e8a-9c6f-2d1146000003",
+  "tenant": "tenant-alpha",
+  "maintenant": "management-parent",
+  "clsbox": "04B648120003",
+  "type": "ltestats",
+  "version": 1,
+  "ts": {
+    "server": 1786617002,
+    "datastore": 1786617002,
+    "converter": 1786617002,
+    "device": 1786617002,
+    "expiresOn": "2026-08-13T10:30:02.664Z"
+  },
+  "data": {
+    "etxt": "unknown technology",
+    "rssi": "-94",
+    "plmn": "26203"
+  },
+  "status": [
+    "conversion ok"
+  ],
+  "$expect": "writer-dlq",
+  "$expectCode": "payload_schema",
+  "$comment": "Synthetic. etxt NEXT TO a partial measurement (rssi and plmn, no access_Technology). Matches NEITHER shape of the closed ltestats oneOf (DL-146): shapeUnknownTechnology forbids additional members, shapeMeasured requires access_Technology/operator/imsi/lac/cid. PAYLOAD failure: accepted by Input (the envelope is fine), dead-lettered by the WRITER (ADR-007 section 5). This is the ltestats counterpart of lorastats-dialect-unknown.json - the enumeration is closed at two, and half a measurement is not a known shape."
+}

@@ -32,7 +32,7 @@ built, and `stats-api` is still a stub.
 | `StatType`, `StatsEnvelope`, `Timestamps` + epoch converters | **`BUILT`** (T-001) |
 | `AmqpTopology` — names and declaration argument maps | **`BUILT`** (T-002) |
 | `ErrorCode`, `FieldError`, `ProblemDetails` (RFC 9457) | **`BUILT`** (T-003) |
-| `StatsSchemaValidator`, `ValidationResult` (Draft 2020-12) | **`BUILT`** (T-004) |
+| `StatsSchemaValidator`, `ValidationResult` (Draft 2020-12) | **`BUILT`** (T-004). Catalogue checked against 1,200 live records on 18 Sep 2026 — `ltestats` became a closed `oneOf` of two shapes and the envelope accepts `expiresOn` in both spellings (DL-146) |
 | `stats-input` — envelope gate, clock-skew policy, ingest metrics, controller | **`BUILT`** (T-013, T-059) |
 | `stats-input` — publish with confirms, mandatory/return, byte-identical publication | **`BUILT`** (T-014, T-015, T-016; DL-118, DL-119). `CONFIRMED` follows a broker ack with no return and nothing else; an unroutable message is a failed acceptance — 503 and `records_unroutable{type}` |
 | `stats-input` — auth seam and request limits | **`BUILT`** (T-017, T-018; DL-120, DL-121). The *mechanism* behind the auth seam is still Q8a-2; `mode=none` is unauthenticated by decision and refused under `prod` |
@@ -691,7 +691,9 @@ push, and **fails on a failed schema-fixture assertion** (DL-015).
 docs/schemas/fixtures/
   valid/      the happy paths, plus tenant-isolation pairs where
               tenant != maintenant  — a fixture with them equal proves
-              nothing about isolation (DL-060)
+              nothing about isolation (DL-060); since DL-146 also the
+              live shapes: 2G ltestats without rsrp/rsrq, etxt-only
+              ltestats, meta/ts.deviceOrig, expiresOn as {"$date": …}
   invalid/    missing fields, wrong types, ts.converter, ts in
               milliseconds, counter overflow, IPv6
   edge/       clock skew, late arrival, replay duplicate,
