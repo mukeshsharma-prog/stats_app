@@ -62,7 +62,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * value-preserving rather than encoding-preserving (ADR-003 D2), and DL-105 rule 2 is
  * what makes one API shape possible for a type that arrives in three.</p>
  */
-@Component
+@Component(LorastatsConsumerDescriptor.BATCH_WRITER_BEAN)
 public final class LorastatsBatchWriter implements StatsBatchWriter {
 
     public static final String DUPLICATE_METRIC = "records_duplicate_suppressed";

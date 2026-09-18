@@ -69,7 +69,9 @@ class LorastatsMigrationIntegrationTest {
                 jdbcTemplate.queryForList(
                         "SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank",
                         String.class);
-        assertThat(versions).containsExactly("1", "2", "3", "4", "5");
+        // The lorastats history is V1..V5, in order; later versions belong to later types
+        // (V6 is sysstats, T-035) and this test has no opinion about them.
+        assertThat(versions).startsWith("1", "2", "3", "4", "5");
     }
 
     /**

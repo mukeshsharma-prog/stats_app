@@ -7,14 +7,12 @@ import org.springframework.core.type.AnnotatedTypeMetadata;
 /** Enables this listener only for its production deployment or the local all-types mode. */
 final class LorastatsDeploymentCondition implements Condition {
 
-    static final String STAT_TYPE_PROPERTY = "stats.writer.stat-type";
-    static final String ALL_TYPES = "all";
+    static final String STAT_TYPE_PROPERTY = StatTypeDeployment.STAT_TYPE_PROPERTY;
+    static final String ALL_TYPES = StatTypeDeployment.ALL_TYPES;
 
     @Override
     public boolean matches(ConditionContext context, AnnotatedTypeMetadata metadata) {
-        String configured =
-                context.getEnvironment().getProperty(STAT_TYPE_PROPERTY, ALL_TYPES).trim();
-        return ALL_TYPES.equals(configured)
-                || LorastatsConsumerDescriptor.TYPE.wireName().equals(configured);
+        return StatTypeDeployment.serves(
+                context.getEnvironment(), LorastatsConsumerDescriptor.TYPE);
     }
 }

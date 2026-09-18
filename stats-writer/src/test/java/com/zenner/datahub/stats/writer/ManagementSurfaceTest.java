@@ -119,7 +119,14 @@ class ManagementSurfaceTest {
                 .contains(LorastatsBatchWriter.WRITE_FAILED_METRIC + "_total")
                 .contains("records_persisted_total{type=\"lorastats\"}")
                 .contains("records_postgres_errors_total{type=\"lorastats\"}")
-                .contains("type=\"lorastats\"");
+                .contains("type=\"lorastats\"")
+                // T-035: the second type's writer registers the same five series under
+                // its own label, unconditionally, so they export at zero from startup.
+                .contains("records_persisted_total{type=\"sysstats\"}")
+                .contains("records_duplicate_suppressed_total{type=\"sysstats\"}")
+                .contains("records_unmapped_data_field_total{type=\"sysstats\"}")
+                .contains("records_write_failed_total{type=\"sysstats\"}")
+                .contains("records_postgres_errors_total{type=\"sysstats\"}");
 
         String retried = sample(scrape.getBody(), WriterFailureMetrics.RETRIED);
         assertThat(retried)

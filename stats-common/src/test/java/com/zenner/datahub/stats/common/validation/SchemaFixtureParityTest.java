@@ -47,8 +47,8 @@ class SchemaFixtureParityTest {
     }
 
     @Test
-    void expandsToTheSameNinetyOutcomesAsThePythonOracle() {
-        assertThat(fixtureCases()).hasSize(90);
+    void expandsToTheSameNinetyOneOutcomesAsThePythonOracle() {
+        assertThat(fixtureCases()).hasSize(91);
         assertThat(fixtureCases())
                 .extracting(arguments -> (String) arguments.get()[0])
                 .noneMatch(description -> description.contains("malformed/"));
@@ -66,7 +66,7 @@ class SchemaFixtureParityTest {
      * {@code BIGINT} (DL-105 rule 3), and {@code "writer-skip"} on the five late-arrival
      * fixtures (D5b → DL-112, T-026), and {@code "writer-dlq"} again on the ltestats
      * record that is half a measurement (DL-146) — none of which are schema cases. So it
-     * reports 103 assertions where this test expands to 90 outcomes. That gap is
+     * reports 105 assertions where this test expands to 91 outcomes. That gap is
      * deliberate — do not "fix" either number to match the other.</p>
      *
      * <p>The marker count stayed at seven on 8 Sep 2026 while its composition changed
@@ -87,6 +87,11 @@ class SchemaFixtureParityTest {
      * still dead-letter, a lorastats dialect-B record with an integer extra member,
      * Heimdal's {@code meta}/{@code ts.deviceOrig}, and {@code expiresOn} as Extended
      * JSON. Thirteen markers now.</p>
+     *
+     * <p>90 → 91 on 19 Sep 2026 (DL-148): {@code valid/sysstats-timespan-overflow.json},
+     * the second type's {@code writer-range-reject} — schema-valid, refused by the Writer's
+     * {@code BIGINT} range check on the one digit-string sysstats sends. Fourteen markers;
+     * the Python gate reports 105.</p>
      */
     static List<Arguments> fixtureCases() {
         List<Path> files = new ArrayList<>();

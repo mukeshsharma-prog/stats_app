@@ -4541,3 +4541,83 @@ zero-traffic not dividing to an alert. `QueueAgeMetricsTest`, the poll-reset cas
 gate and controller tests for the stamp and the two Input observations. CI runs both
 rule files.
 
+---
+
+### DL-148 — `sysstats` is the second stat type: the fan-out is additive, and the three places it was not are fixed in the reference slice
+
+**19 September 2026** · `ENGINEERING` · STA-14, STA-14A, STA-21A/B/C, STA-22, STA-04C, ADR-003 D2/D7, ADR-007 §6, DL-115, DL-126, DL-133, DL-143 · T-035
+
+**Trigger.** T-033 was the fan-out's entry criterion and merged on 17 Sep 2026.
+`sysstats` goes first, not `ltestats` (blocked on D-12 P3): 300 of 300 live records
+validated on 18 Sep (DL-146), and it carries the one wire-type trap worth proving on
+the second type — `timespan` is the **string** `"300"` here and an integer everywhere else.
+
+**What was added, and nothing else was meant to change.** In `stats-writer`:
+`SysstatsConsumerDescriptor`, `SysstatsConsumerProperties`
+(`stats.consumer.sysstats.*`), `SysstatsDeploymentCondition`,
+`SysstatsConsumerConfiguration` (main queue, three tiers, DLQ, four bindings, container
+factory, consumer — all from `AmqpTopology`), `SysstatsConsumer`,
+`SysstatsMessageProcessor` (gate, then guard, then write — the T-057/T-026 order),
+`SysstatsBatchWriter`, and `V6__sysstats_table.sql`. The table has the whole V1–V5 shape
+from its first row: `PRIMARY KEY (ts_device, uid)`, `RANGE (ts_device)`, the two ADR-003
+indexes and not the unreachable V2 one, `passthrough`, `data_extra`, and the
+canonical-`clsbox` CHECK. Column types follow the wire: `memfree`/`temp`/`rtt` as
+`bigint`, the five real numbers as `double precision`, `runable` and the two strings as
+`text` — `runable` stored as the gateway's own `"2/139"` rather than split, so the API
+returns what was received — and `timespan` as `bigint` parsed from the digit string with
+the range check made against `BigInteger` **before** the narrowing conversion, exactly
+as `LorastatsDialects` does (DL-105 rule 3, STA-04C). An overflow, a `timespan` sent as a
+number, or a non-finite double is `unmappable` (DL-126) and dead-letters on attempt one;
+nothing is ever zeroed or truncated. Unknown members go to `data_extra` and are metered.
+The retention layer needed nothing: `PartitionMaintenance` discovers parent tables from
+the catalogue, so V6 alone gives `sysstats` bootstrap, pre-creation, the sweep and the
+guard. Fixtures: `valid/sysstats-timespan-overflow.json` (`writer-range-reject`) joins
+the set; the API contract already carried `SysstatsData`.
+
+**The design smell, raised and fixed.** The brief said: if this touches lorastats, that
+is the smell to raise. It did, in three places, and each one is a shared thing that had
+been living in the first type's file because there was no second type to notice:
+
+1. **`LorastatsMessageProcessor` injected `StatsBatchWriter` by interface.** With a
+   second implementation in the context that injection is ambiguous and the context
+   fails — *adding sysstats would have broken lorastats* in `all` mode, which is the
+   exact failure rule 6 forbids and `StatsMessageProcessorAvailability` already guards
+   for processors ("selection is by stat type, never the only bean"). Each writer now
+   declares its bean name from its descriptor (`<type>BatchWriter`) and each processor
+   qualifies on it. The interface stays, so G3's "replace the implementation without
+   changing consumers" still holds.
+2. **The two exchanges and the processor selector were beans of
+   `LorastatsConsumerConfiguration`.** A sibling that redeclared them would clash on the
+   bean name; one that did not would depend on the lorastats file existing. They moved
+   to `WriterAmqpConfiguration`, with the two four-line helpers that turn an
+   `AmqpTopology` definition into a Spring object, and each per-type configuration
+   declares exactly its own resources.
+3. **`stats.writer.stat-type` and `all` were constants on
+   `LorastatsDeploymentCondition`**, read by the guard and about to be read by the
+   sysstats condition. They are now `StatTypeDeployment`, with the one `serves(env, type)`
+   reading both conditions call; the lorastats constants stay as aliases.
+
+One test changed for the same reason: `LorastatsMigrationIntegrationTest` asserted the
+Flyway history was *exactly* V1–V5, which every later type would have broken; it now
+asserts V1–V5 lead it. `StatTypeFanOutTest` and `VersionIsNotADiscriminatorTest` gain
+the sysstats descriptor and writer as justified entries — the reviewed-decision point
+both guards exist to create. No lorastats *behaviour* changed; the T-050 line in
+`LorastatsConsumer` is DL-147's.
+
+**Verification.** The sysstats siblings of every lorastats test: descriptor, deployment
+condition, configuration, activation (both consumers in one `all` context, each
+activating only for its own deployment), consumer ACK ordering, processor ordering,
+column mapping against the normative schema, `SysstatsBatchWriterIntegrationTest`
+(the full and minimal production records, `"300"` → 300, `9223372036854775808` refused
+with nothing written and counted as `unmappable` not `write_failed`, the `BIGINT`
+maximum accepted, an integer `timespan` refused, cross-tenant duplicate suppressed and
+metered, `data_extra` residue, the DL-146 passthrough shape, canonical `clsbox`, and a
+full value-for-value round trip), `SysstatsMigrationIntegrationTest` (partition key,
+three indexes on parent and child, every column's type and nullability, the 23505
+duplicate and the 23514 CHECK), `SysstatsTopologyDeclarationTest` (T-032 for the
+second type, one declaration of each exchange), and
+`SysstatsPersistenceConsumerIntegrationTest` — both real consumers live in one context:
+a sysstats record committed and ACKed, a redelivery absorbed, and a poison sysstats
+payload in the **sysstats** DLQ on attempt one with a healthy lorastats record committed
+beside it and the lorastats DLQ untouched. `ManagementSurfaceTest` scrapes the sysstats
+series at zero from startup.

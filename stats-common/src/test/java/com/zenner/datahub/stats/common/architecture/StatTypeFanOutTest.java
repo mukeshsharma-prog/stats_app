@@ -48,7 +48,11 @@ class StatTypeFanOutTest {
                     + "LorastatsConsumerDescriptor.java",
             "T-019 requires one additive consumer artifact per type. The descriptor is "
                     + "the single identity point for that artifact; adding another type "
-                    + "adds a sibling descriptor and never edits this one.");
+                    + "adds a sibling descriptor and never edits this one.",
+            "stats-writer/src/main/java/com/zenner/datahub/stats/writer/consumer/"
+                    + "SysstatsConsumerDescriptor.java",
+            "The sysstats sibling of the above (T-035, DL-148): the one place the "
+                    + "sysstats identity is spelled in the Writer.");
 
 
     @Test

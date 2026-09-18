@@ -1,8 +1,6 @@
 package com.zenner.datahub.stats.writer.consumer;
 
 import com.zenner.datahub.stats.common.amqp.AmqpTopology;
-import com.zenner.datahub.stats.common.amqp.AmqpTopology.ExchangeDefinition;
-import com.zenner.datahub.stats.common.amqp.AmqpTopology.QueueDefinition;
 import com.zenner.datahub.stats.writer.metrics.QueueAgeMetrics;
 import com.zenner.datahub.stats.writer.retry.FailedDeliveryRouter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -14,7 +12,6 @@ import org.springframework.amqp.core.Queue;
 import org.springframework.amqp.core.TopicExchange;
 import org.springframework.amqp.rabbit.config.SimpleRabbitListenerContainerFactory;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.amqp.SimpleRabbitListenerContainerFactoryConfigurer;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -37,29 +34,20 @@ import org.springframework.context.annotation.Conditional;
  * and the dead-letter exchange that carries both — separated by routing key, because
  * one key returns a record for another attempt and the other retires it. Sharing a key
  * would turn every dead-letter into an infinite loop.</p>
+ *
+ * <p><strong>Only this type's resources are declared here.</strong> The two exchanges and
+ * the processor selector moved to {@link WriterAmqpConfiguration} when the second type
+ * arrived (T-035, DL-148): they are shared, and a sibling configuration must neither
+ * redeclare them nor depend on this file for them.</p>
  */
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties(LorastatsConsumerProperties.class)
 public class LorastatsConsumerConfiguration {
 
     @Bean
-    TopicExchange statsInputExchange() {
-        return topicExchange(AmqpTopology.inputExchange());
-    }
-
-    /**
-     * Carries two different journeys, told apart by routing key: an expired retry
-     * message bounces back to the main queue under the type's own key, and a retired
-     * record lands in the DLQ under {@code <type>.dlq} (ADR-002 §4).
-     */
-    @Bean
-    TopicExchange statsDeadLetterExchange() {
-        return topicExchange(AmqpTopology.deadLetterExchange());
-    }
-
-    @Bean
     Queue lorastatsMainQueue() {
-        return queue(AmqpTopology.mainQueueDefinition(LorastatsConsumerDescriptor.TYPE));
+        return WriterAmqpConfiguration.queue(
+                AmqpTopology.mainQueueDefinition(LorastatsConsumerDescriptor.TYPE));
     }
 
     @Bean
@@ -108,7 +96,8 @@ public class LorastatsConsumerConfiguration {
      */
     @Bean
     Queue lorastatsDeadLetterQueue() {
-        return queue(AmqpTopology.deadLetterQueueDefinition(LorastatsConsumerDescriptor.TYPE));
+        return WriterAmqpConfiguration.queue(
+                AmqpTopology.deadLetterQueueDefinition(LorastatsConsumerDescriptor.TYPE));
     }
 
     @Bean
@@ -120,24 +109,9 @@ public class LorastatsConsumerConfiguration {
     }
 
     private static Queue retryQueue(int tier, WriterAmqpProperties properties) {
-        return queue(
+        return WriterAmqpConfiguration.queue(
                 AmqpTopology.retryQueueDefinition(
                         LorastatsConsumerDescriptor.TYPE, tier, properties.delayForTier(tier)));
-    }
-
-    /** The four lines that turn a shared definition into a Spring AMQP object. */
-    private static TopicExchange topicExchange(ExchangeDefinition definition) {
-        return new TopicExchange(definition.name(), definition.durable(), definition.autoDelete());
-    }
-
-    /** As above, for queues. Both are what {@code AmqpDeclarationAssert} checks. */
-    private static Queue queue(QueueDefinition definition) {
-        return new Queue(
-                definition.name(),
-                definition.durable(),
-                definition.exclusive(),
-                definition.autoDelete(),
-                definition.arguments());
     }
 
     @Bean(name = LorastatsConsumer.CONTAINER_FACTORY)
@@ -159,12 +133,6 @@ public class LorastatsConsumerConfiguration {
                 container ->
                         container.setShutdownTimeout(properties.shutdownTimeout().toMillis()));
         return factory;
-    }
-
-    @Bean
-    StatsMessageProcessorAvailability statsMessageProcessorAvailability(
-            ObjectProvider<StatsMessageProcessor> processors) {
-        return new StatsMessageProcessorAvailability(processors);
     }
 
     /**

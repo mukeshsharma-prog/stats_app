@@ -1,7 +1,7 @@
 package com.zenner.datahub.stats.writer.consumer;
 
-import static com.zenner.datahub.stats.writer.consumer.LorastatsDeploymentCondition.ALL_TYPES;
-import static com.zenner.datahub.stats.writer.consumer.LorastatsDeploymentCondition.STAT_TYPE_PROPERTY;
+import static com.zenner.datahub.stats.writer.consumer.StatTypeDeployment.ALL_TYPES;
+import static com.zenner.datahub.stats.writer.consumer.StatTypeDeployment.STAT_TYPE_PROPERTY;
 
 import com.zenner.datahub.stats.common.model.StatType;
 import java.util.Arrays;

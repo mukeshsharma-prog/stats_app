@@ -18,7 +18,8 @@ class LorastatsConsumerActivationTest {
     private static final String LORASTATS = StatType.LORASTATS.wireName();
 
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
-            .withUserConfiguration(LorastatsConsumerConfiguration.class)
+            .withUserConfiguration(
+                    WriterAmqpConfiguration.class, LorastatsConsumerConfiguration.class)
             .withBean(io.micrometer.core.instrument.MeterRegistry.class,
                     io.micrometer.core.instrument.simple.SimpleMeterRegistry::new)
             .withBean(

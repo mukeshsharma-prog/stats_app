@@ -31,10 +31,10 @@ header to the DLQ copy (T-005), the read-only role is proved read-only *by Postg
 (T-009), the Writer exports its counters and the broker depths through a scrape that
 performs no I/O (T-027), and a dead-lettered record can be brought back under a guarded,
 per-type, rate-capped redrive that gives it exactly one more attempt (T-052;
-`docs/runbooks/dlq-redrive.md`). What is still missing before Phase 2 closes is the
-**watching**: DLQ depth and age alerting (T-060), and the alerts on
-`records_expired_on_arrival` and the retention gauge (T-050). Every counter is real, and
-nobody is looking at any of them. `stats-api` is a
+`docs/runbooks/dlq-redrive.md`). Since 17–19 Sep 2026 it is also **watched**: the DLQ
+(T-060, `ops/prometheus/dlq-alerts.yml`) and the main queues' oldest-message age, late
+arrival and upstream status (T-050, `ops/prometheus/writer-alerts.yml`). The fan-out has
+started: **`sysstats` is the second type end to end** (T-035). `stats-api` is a
 stub awaiting the OpenAPI confirmation (D-09). See `claude/PROJECT_STATUS_AND_PLAN.md`
 and `claude/FLOW.md` for what is BUILT versus SPECIFIED, and **`Stats_App_Tracker.xlsx`
 → the `Next Up` sheet** for the ranked answer to *what do I pick up now*.
@@ -326,14 +326,16 @@ before any shared deployment:
    (T-026, DL-133).** Skip the write, meter `records_expired_on_arrival{type}`, ACK.
    It is still a deliberate data-loss-by-design path — the signature is what makes it a
    decision rather than a defect — and the *alert* on that counter, which is the half
-   that separates a systemic gateway backlog from a harmless one-off, is **not built**:
-   it is T-050.
+   that separates a systemic gateway backlog from a harmless one-off, is **built**:
+   `StatsAppLateArrival` (T-050, DL-147).
 
 The most valuable open question is **Q13b — do gateways report on synchronised
 10-minute boundaries or jitter across them?** We design for the synchronised case
 (13,333/s, 10× average). Jitter would drop the peak, and the hardware, by 10×. It is
 also *measurable* rather than askable: a histogram of `ts.server mod 600` over 24 h
-answers it.
+answers it — and since T-050 (DL-147) that histogram exists,
+`records_ts_server_cycle_offset_seconds{type}` on `stats-input`, with the query in
+`ops/prometheus/README.md`. Reading its first 24 h is the next step, not building it.
 
 The one item that genuinely gates work is **ZC's confirmation of
 `docs/contracts/openapi.yaml`** — nine tasks sit behind it, essentially all of Phase 4.

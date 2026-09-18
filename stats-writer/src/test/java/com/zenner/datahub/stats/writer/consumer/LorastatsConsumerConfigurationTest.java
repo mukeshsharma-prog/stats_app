@@ -30,7 +30,7 @@ class LorastatsConsumerConfigurationTest {
 
     @Test
     void derivesTheDedicatedDurableQueueAndBindingFromSharedTopology() {
-        TopicExchange exchange = configuration.statsInputExchange();
+        TopicExchange exchange = new WriterAmqpConfiguration().statsInputExchange();
         Queue queue = configuration.lorastatsMainQueue();
         Binding binding = configuration.lorastatsMainBinding(queue, exchange);
 

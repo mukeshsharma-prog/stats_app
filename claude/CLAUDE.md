@@ -7,7 +7,8 @@ pointer file whose only content is an `@claude/CLAUDE.md` import. Edit this file
 not the pointer.
 
 > **Version 1.15 — 19 September 2026.** No decision in 1.14 changes. What changes is
-> that **the main queues are watched**. Governing entry: **DL-147** (T-050).
+> that **the main queues are watched and the fan-out has started**. Governing entries:
+> **DL-147** (T-050) and **DL-148** (T-035).
 >
 > * **T-050 was not a rules-only task.** The brief said every series it reads was built by
 >   T-027; three of four were. The oldest-message-age gauge did not exist — DL-144 had
@@ -22,10 +23,24 @@ not the pointer.
 >   to be set from the first 24 h (DL-128 residual). The `ts.server mod 600` histogram is
 >   **Input's** (`records_ts_server_cycle_offset_seconds`) — Input sees all five types,
 >   the Writer serves two — with `records_ts_device_corrected` beside it for Q15f.
-> * **Gates:** unchanged — 103 fixture assertions, 90 parity cases; `promtool` over both
->   rule files in CI.
-> * **What to do next:** **T-035 `sysstats`**, which T-033 being green permits. Set the
->   upstream-status threshold after the first 24 h.
+> * **`sysstats` is the second stat type (T-035).** Descriptor, properties, condition,
+>   configuration, consumer, processor, `SysstatsBatchWriter` and `V6__sysstats_table.sql`
+>   — the whole V1–V5 shape from the first row. `timespan` is the **string** `"300"` here
+>   and is range-checked against `BIGINT` *before* conversion; `runable` is stored as the
+>   gateway's own `"2/139"`. Retention needed nothing: it discovers parent tables.
+> * **The design smell was real, in three places, and is fixed in the reference slice.**
+>   `LorastatsMessageProcessor` injected `StatsBatchWriter` by *interface* — a second
+>   writer made that ambiguous and **adding sysstats would have broken lorastats** in
+>   `all` mode. Writers now declare `<type>BatchWriter` and processors qualify on it. The
+>   two exchanges and the processor selector moved out of the lorastats configuration
+>   into `WriterAmqpConfiguration`; `stats.writer.stat-type`/`all` moved off the lorastats
+>   condition into `StatTypeDeployment`. No lorastats *behaviour* changed.
+> * **Gates:** fixtures 103 → **105**, Java parity 90 → **91**, 86 fixture files, fourteen
+>   markers (`valid/sysstats-timespan-overflow.json`, `writer-range-reject`). Full build
+>   **674 tests, 0 failures** against Testcontainers; `promtool` over both rule files.
+> * **What to do next:** T-036 `omsstats` — copy the *sysstats* slice, which is the
+>   reference now that it is the one written after the shared beans were shared. T-051,
+>   T-054, T-055 remain unblocked. Set the upstream-status threshold after the first 24 h.
 >
 > **Version 1.14 — 18 September 2026 (later the same day).** No decision in 1.13
 > changes. What changes is that **the documents have now met live data** — Hasan opened
@@ -778,7 +793,7 @@ derived engineering decisions, is `docs/decisions/2B-ANSWERS-18AUG2026.md`. Read
 | Q8b | **Engineering proposal, live in the dev realm** | Realm `statsapp`, clients `stats-api`/`stats-input`/`stats-dev-cli`, roles `stats.readOnly` and `stats.ingest`, tenant claim **`tenant`, single-valued String**. Working realm at `docs/setup/keycloak-realm-statsapp.json`. Single-valued on purpose: a multi-valued claim turns isolation into `tenant IN (...)`, and one misconfigured user then reads several tenants with every test still green |
 | Q13a | ~~Assume synchronised 10-minute boundaries~~ — **amended 4 Sep 2026 (Q13b, DL-104): gateways JITTER** | Design target of **13,333/s** is now **configured headroom**, not the expected case; expected steady state is the average, ~1,333/s. Writer prefetch starts at 500; Writer is sized for drain (~2,000/s per type). **Alert on oldest message age, never on depth — unchanged.** But the reading inverts: a cyclic depth spike used to be the buffer working, and under jitter it is **evidence the answer is wrong**. Hardware is not sized down until the `ts.server mod 600` histogram over the first 24 h of ingest confirms it (T-050) |
 | Q13a (replay) | **Heimdal AGREES the 2× nominal cap (2,667/s)** — Q13c answered 4 Sep 2026, DL-109 | A 6-hour outage is 28.8M messages and about 3 hours of replay at that cap, holding total ingest at 4,000/s. **Not one defence changes: the agreement is a commitment, not a control.** 503 is the backpressure channel and is the mechanism working, not an incident. Replayed records are duplicates by definition and `ON CONFLICT DO NOTHING` absorbs them. T-049 unblocked |
-| Q11a | **Built**, then **rebuilt on production 29 Aug 2026 (ADR-007)**, reshaped again by T-063/T-064 on 8 Sep 2026, and **checked against 1,200 live records on 18 Sep 2026 (DL-146)**. **85** fixture files across `valid/`, `invalid/`, `edge/`, `malformed/` — 83 individual fixtures plus the two kept legacy bundles | `docs/schemas/fixtures/`, catalogued in `MANIFEST.md`. `docs/schemas/validate-fixtures.py` asserts **103** and exits non-zero for CI, over four `$expect` markers: `input-reject`, `writer-dlq`, `writer-range-reject` and `writer-skip`. The 18 Aug set found three real schema gaps; the 29 Aug production sample found that **four of the five payload schemas and every envelope field name were wrong**, and inverted four fixture assertions outright |
+| Q11a | **Built**, then **rebuilt on production 29 Aug 2026 (ADR-007)**, reshaped again by T-063/T-064 on 8 Sep 2026, **checked against 1,200 live records on 18 Sep 2026 (DL-146)**, and **+1 for the second type on 19 Sep 2026 (DL-148)**. **86** fixture files across `valid/`, `invalid/`, `edge/`, `malformed/` — 84 individual fixtures plus the two kept legacy bundles | `docs/schemas/fixtures/`, catalogued in `MANIFEST.md`. `docs/schemas/validate-fixtures.py` asserts **105** and exits non-zero for CI, over four `$expect` markers: `input-reject`, `writer-dlq`, `writer-range-reject` and `writer-skip`. The 18 Aug set found three real schema gaps; the 29 Aug production sample found that **four of the five payload schemas and every envelope field name were wrong**, and inverted four fixture assertions outright |
 
 ### Still needs ZC / Hasan
 
@@ -878,6 +893,7 @@ plan is not written against a repository that no longer exists. Full reasoning:
 | DL-139 | **The Datahub API guide is reconciled.** `maintenant` pinned down — it moves with `tenant` and equals it *(on every tenant but minol — corrected by DL-146)*, so only a deliberate fixture can ever catch a wrong filter; Q8a-3 (ForwardRule / `maxRetry` / basic auth) and D16 (tenant-move history) raised, not answered — **D16 since ratified, DL-142**; `["ok"]` added to the DL-108 residual; `clsbox = FFFFFFFFFFFF` means *synthetic / no gateway*. The platform's own `POST /datastore/aggregate/pageable` on `{clsbox, type, ts.device}` is a **parity oracle** for the API tests | — |
 | DL-146 | **Live data met the documents.** `ltestats` `data` is a closed `oneOf` — `measured` (`rsrp`/`rsrq` optional) and `unknown-technology` (`etxt` only) — after 2% of live traffic was found dead-lettering. `ts.expiresOn` accepted as string or `{"$date": …}`; `meta` and `ts.deviceOrig` preserved as passthrough. `maintenant ≠ tenant` on minol only. `netstats` absent from the datastore. Three questions raised (Q15e–Q15g), none answered. Gates 96 → 103, 84 → 90 | T-035, T-050 |
 | DL-147 | **The main queues are watched.** Input stamps the AMQP `timestamp`; `queue_oldest_message_age_seconds{type}` is sampled at delivery and zeroed by the poll on an empty queue; a retry re-entry is not sampled. `ops/prometheus/writer-alerts.yml`: aging (warning 300 s / critical 1,800 s, both `for: 5m`), **no consumer** and **consumer stalled** as the gauge's companions, stale-observation, `StatsAppLateArrival` on the hourly increase of `records_expired_on_arrival` (D5b), and `StatsAppUpstreamStatusNotOk` on a **provisional** 1 % ratio. The Q13b histogram `records_ts_server_cycle_offset_seconds{type}` and `records_ts_device_corrected{type}` are Input's. The management-API head timestamp was rejected for now (a credential and a client DL-137 declined); the stamp makes it addable later, and the DLQ's age with it | T-050 |
+| DL-148 | **`sysstats` is built, additively — and the three shared things that lived in the lorastats slice are shared now.** Writer beans are `<type>BatchWriter` and processors qualify on them (the interface injection was ambiguous with two writers); the exchanges and processor selector are `WriterAmqpConfiguration`; the deployment constants are `StatTypeDeployment`. `V6__sysstats_table.sql` has the CHECK, `data_extra`, `(ts_device, uid)` and the two ADR-003 indexes from its first row. `timespan` `"300"` → `bigint`, range-checked before conversion; an overflow is `unmappable`, never truncated. Fixture `valid/sysstats-timespan-overflow.json`. `SysstatsPersistenceConsumerIntegrationTest` runs both real consumers in one context | T-035, T-036 |
 
 > **What to do next lives in `Stats_App_Tracker.xlsx` → the `Next Up` sheet**, ranked
 > across both owners with the gate on each row. T-063, T-057 and T-064 were done on
@@ -886,10 +902,11 @@ plan is not written against a repository that no longer exists. Full reasoning:
 > 11 Sep 2026** — Phase 1 has no PARTIAL row left. **On 17 Sep 2026 six
 > branches merged: T-029, T-030, T-033 (the poison-isolation, crash-window and
 > outage-recovery drills), T-047 (DL-140), T-053 (DL-143) and T-060 (DL-144).** In one
-> line: ~~**T-050 first** — the DLQ is watched, the main queues are not~~ — **done
-> 19 Sep 2026 (DL-147)** — then **T-035 `sysstats`**, which T-033 being green now
-> permits — not `ltestats`, which is blocked on D-12 P3. T-051, T-054 and T-055 are
-> unblocked — they measure what T-025 built.
+> line: ~~**T-050 first** — the DLQ is watched, the main queues are not — then **T-035
+> `sysstats`**~~ — **both done 19 Sep 2026 (DL-147, DL-148).** Next is **T-036
+> `omsstats`**, copied from the *sysstats* slice; `ltestats` stays blocked on D-12 P3.
+> T-051, T-054 and T-055 are unblocked — they measure what T-025 built. The
+> upstream-status threshold is set after the first 24 h of ingest, not before.
 
 ### Ours to decide — decide deliberately, record as an ADR, do not escalate
 

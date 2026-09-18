@@ -56,7 +56,12 @@ class VersionIsNotADiscriminatorTest {
                     + "LorastatsBatchWriter.java",
             "Stores it verbatim as the record_version column — the passthrough mapping "
                     + "required by ADR-007. Its only conditional is a SMALLINT range check "
-                    + "before conversion, which is a width guard, not a dialect branch.");
+                    + "before conversion, which is a width guard, not a dialect branch.",
+            "stats-writer/src/main/java/com/zenner/datahub/stats/writer/persistence/"
+                    + "SysstatsBatchWriter.java",
+            "The sysstats sibling (T-035, DL-148): the same record_version passthrough "
+                    + "and the same SMALLINT width guard. sysstats has one dialect, so "
+                    + "there is nothing here a version could even select between.");
 
     @Test
     void noMainSourceOutsideThePassthroughMappingReadsTheEnvelopeVersion() {

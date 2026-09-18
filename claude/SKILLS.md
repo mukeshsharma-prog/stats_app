@@ -33,9 +33,26 @@ an existing stat type's code, **stop** — that violates STA-14/STA-22.
 - [ ] **T-033 is green.** The broker/database outage drill is Phase 3's entry criterion:
       fan out before the reference slice is proven and you get five divergent
       implementations to reconcile
-- [ ] You have read the reference slice you are copying — `LorastatsConsumer`,
-      `LorastatsMessageProcessor`, `LorastatsDeploymentCondition`,
-      `LorastatsBatchWriter`, and `V1__lorastats_table.sql` … `V5__…_clsbox_canonical_case.sql`
+- [ ] You have read the reference slice you are copying — **copy the `sysstats` slice**
+      (T-035, DL-148): `SysstatsConsumerDescriptor`, `SysstatsConsumerProperties`,
+      `SysstatsDeploymentCondition`, `SysstatsConsumerConfiguration`, `SysstatsConsumer`,
+      `SysstatsMessageProcessor`, `SysstatsBatchWriter` and `V6__sysstats_table.sql`. It is
+      the slice written *after* the shared beans were shared, so it declares exactly its
+      own resources; `lorastats` reached the same shape across V1–V5 and three later
+      corrections. Three things are shared and must NOT be redeclared or copied:
+      `WriterAmqpConfiguration` (the two exchanges, the processor selector, the two
+      declaration helpers), `StatTypeDeployment` (the `stats.writer.stat-type` reading),
+      and the type-agnostic `PayloadGate` / `RetentionGuard`
+- [ ] Your writer declares its bean as `@Component(<Type>ConsumerDescriptor.BATCH_WRITER_BEAN)`
+      and your processor injects `StatsBatchWriter` with `@Qualifier` on that name. An
+      unqualified `StatsBatchWriter` injection is ambiguous the moment a second writer
+      exists and fails the context in `all` mode — this is how adding sysstats would have
+      broken lorastats (DL-148)
+- [ ] Your consumer calls `queueAge.observe(TYPE, message)` at listener entry, before any
+      work — the oldest-message-age sample T-050's alerts read (DL-147)
+- [ ] Add your descriptor to `StatTypeFanOutTest.JUSTIFIED_SPECIAL_CASES` and your writer
+      to `VersionIsNotADiscriminatorTest.JUSTIFIED_READS`, each with its reason — that is
+      the reviewed-decision point both guards exist to create
 
 ### Steps
 
@@ -281,6 +298,12 @@ being written.
 - [ ] If the alert did not fire, fix the alert threshold. **Alert on DLQ depth > 0 and
       on oldest-message age — never on main-queue depth**, which spikes every cycle by
       design *(Q13a)*. The DLQ has no TTL, so nothing disappears while you decide.
+      **Both exist since T-060/T-050 (DL-144, DL-147):** `ops/prometheus/dlq-alerts.yml`
+      and `ops/prometheus/writer-alerts.yml`. Read the three main-queue rules as one
+      alert — `StatsAppMainQueueAging` is sampled at delivery and cannot move when nothing
+      is delivered, which is what `StatsAppMainQueueNoConsumer` and
+      `StatsAppConsumerStalled` are for. If `StatsAppLateArrival` fires *during* a
+      redrive, stop: that is the ~90-day trap above, observed.
 
 ---
 

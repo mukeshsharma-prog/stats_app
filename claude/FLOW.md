@@ -48,7 +48,7 @@ built, and `stats-api` is still a stub.
 | `stats-writer` — all three `lorastats` dialects normalised to one row | **`BUILT`** (T-063; DL-127). Structural detection, range-checked coercion before conversion, closed at three. The dialect is the metric label `records_lorastats_dialect{dialect}`, never a column |
 | `stats-writer` — a non-OK upstream `status` metered and stored | **`BUILT`** (T-064; DL-128). `records_upstream_status_not_ok{type}`, `WARN`, never a dead-letter. An *absent* status is not counted |
 | `stats-writer` — retention: `DETACH PARTITION … CONCURRENTLY` then `DROP TABLE` | **`BUILT`** (T-025; DL-132). Never row deletion. One daily maintenance pass — pre-create, *then* retain — per type, staggered, behind the same advisory lock. **Every run finalises a detach an earlier run left pending**, because an interrupted detach wedges every later one while ingestion carries on looking healthy |
-| `stats-writer` — late arrival: skip, meter, ACK | **`BUILT`** (T-026; DL-133). `RetentionGuard` reads the **same cutoff** as the sweep, so a record can never be admitted into a partition retention has just dropped. `records_expired_on_arrival{type}` + `WARN`. **Never dead-lettered.** The *alert* on that counter is still T-050 |
+| `stats-writer` — late arrival: skip, meter, ACK | **`BUILT`** (T-026; DL-133). `RetentionGuard` reads the **same cutoff** as the sweep, so a record can never be admitted into a partition retention has just dropped. `records_expired_on_arrival{type}` + `WARN`. **Never dead-lettered.** The *alert* on that counter is `StatsAppLateArrival` (T-050, DL-147) |
 | `stats-writer`, `stats-input` — structured logging with correlation | **`BUILT`** (T-005; DL-134). `traceId` minted at Input → `X-Trace-Id` + AMQP `correlationId`; `uid` → `messageId`; Writer restores both *before* parsing. Every application log statement carries an `event` key or the build fails |
 | Database roles proved, not declared | **`BUILT`** (T-009; DL-135). `stats_ro` cannot `INSERT`/`UPDATE`/`DELETE`/`TRUNCATE`/`CREATE` — SQLSTATE `42501`, asserted against PostgreSQL 17 on a table created *after* bootstrap. Compose blanks the database variables in `stats-input` |
 | `stats-writer` — operational metrics | **`BUILT`** (T-027; DL-136, DL-137). `records_consumed`, `records_persisted`, `records_processing_duration`, `records_postgres_errors`; `queue_depth`, `dlq_depth`, `consumer_availability` polled and cached, NaN on a failed poll. Contract: `docs/contracts/writer-metrics-v1.md` |
@@ -70,12 +70,13 @@ than dead-lettered (T-026). Since **10–11 Sep 2026** the path is *observable* 
 *operable*: every delivery is correlated end to end (T-005), the read-only role is
 proved read-only by the database (T-009), the Writer exports its counters and the broker
 depths (T-027), and a record can be brought back from the DLQ under a guarded procedure
-(T-052). **What is still missing** is the *watching*: T-060's DLQ depth and age alerting,
-and T-050's alert on `records_expired_on_arrival` — both queues, every counter and the
-redrive are real, and nobody is looking at any of it. The ranked order is
-`Stats_App_Tracker.xlsx` → `Next Up`. Phase 2 finishes it
-end to end for `lorastats` first (DL-030 rationale; see
-`CODE_START_CHECKLIST.md` §B).
+(T-052). Since **17–19 Sep 2026** it is *watched*: T-060 alerts on the DLQ (DL-144) and
+T-050 on the main queues' oldest-message age, late arrival and upstream status
+(DL-147) — the age is sampled at delivery from a timestamp Input now stamps on every
+publish. And since **19 Sep 2026 the fan-out has started**: `sysstats` is the second
+type end to end (T-035, DL-148), consumed beside `lorastats` by its own listener into its
+own table. The ranked order is `Stats_App_Tracker.xlsx` → `Next Up`. Phase 2 finished
+`lorastats` first (DL-030 rationale; see `CODE_START_CHECKLIST.md` §B).
 
 ---
 
@@ -360,13 +361,15 @@ unrepresentable, not merely documented (DL-034).
 > three-dialect normalisation and the non-OK `status` counter (T-057, T-063, T-064;
 > DL-126…DL-128); and since 10 Sep 2026 — **retention and late arrival**
 > (T-025, T-026; DL-132, DL-133). This module is now feature-complete for
-> `lorastats`.
+> `lorastats`, and since 19 Sep 2026 serves `sysstats` the same way (T-035, DL-148).
 >
 > The arm is **no longer idle**: a payload that fails its per-type schema, a counter
 > that will not fit a `BIGINT`, and a fourth dialect nobody has explained all throw
 > `PermanentFailureException` and reach the DLQ on the first attempt, skipping the
-> tiers. What still does not exist is anyone **watching**: T-060 for the DLQ, T-050
-> for `records_expired_on_arrival`.
+> tiers. Both are watched since 17–19 Sep 2026: T-060 for the DLQ (DL-144), T-050 for
+> the main queues, `records_expired_on_arrival` and upstream status (DL-147).
+> `sysstats` runs the same flow through its own consumer, gate, guard and writer
+> since T-035 (DL-148) — the gate and the guard are shared, the writer is not.
 
 ### 4.1 Per-message flow
 
@@ -421,7 +424,8 @@ consume from app_statsstore.<type>      one deployment per type,
   │                       record is admitted into a partition that has
   │                       just been dropped.
   │                       (D5b, DL-112, DL-133; T-026)  ✔ BUILT 10 Sep 2026
-  │                       The ALERT on that counter is still T-050.
+  │                       ALERT: StatsAppLateArrival on its hourly increase
+  │                       (T-050, DL-147)  ✔ BUILT 19 Sep 2026
   │
   ├─ 4. INSERT            INSERT INTO <type> (…, schema_version, received_at)
   │                       VALUES (…)
@@ -455,7 +459,7 @@ G3).
 | Transient database error | Do **not** ACK. Publish to `retry.<tier>`, confirm that publish, then ACK the original (§3.3) |
 | Retries exhausted | Publish to `.dlq`, confirm, then ACK. Log ERROR, alert |
 | Duplicate `(ts_device, uid)` | Not a failure — `DO NOTHING`, meter, commit, ACK |
-| `ts_device` past retention | Skip, meter `records_expired_on_arrival{type}`, `WARN`, ACK. **Never a dead-letter** (`BUILT`, DL-133). Alerting is T-050 |
+| `ts_device` past retention | Skip, meter `records_expired_on_arrival{type}`, `WARN`, ACK. **Never a dead-letter** (`BUILT`, DL-133). Alerted by `StatsAppLateArrival` (`BUILT`, DL-147) |
 | Counter exceeds `BIGINT` | Reject to DLQ. Never truncate silently |
 | Partition missing | **Insert fails.** Pre-creation is on the critical path (§4.4) |
 
@@ -719,7 +723,7 @@ what happens if the control is removed.
 | 4 | ACK the original, then publish to retry | Publish → **confirm** → then ACK | Crash in the window loses it silently |
 | 5 | DLQ expiry | **No TTL, ever** — unrepresentable in the API | The last remaining copy of the record is deleted on a timer |
 | 6 | Duplicate suppressed with no counter | `records_duplicate_suppressed{type}` | A cross-tenant `uid` collision becomes invisible |
-| 7 | Late arrival, no live partition | Skip + meter + ACK — **BUILT 10 Sep 2026 (T-026, DL-133)**; the **alert** on `records_expired_on_arrival` is still T-050 | Either a silent drop, or a write into a partition that does not exist. Q15b (DL-106) confirms `ts.device` is genuine device time, so this path is real |
+| 7 | Late arrival, no live partition | Skip + meter + ACK — **BUILT 10 Sep 2026 (T-026, DL-133)**; the **alert** on `records_expired_on_arrival` is **BUILT 19 Sep 2026 (T-050, DL-147)** | Either a silent drop, or a write into a partition that does not exist. Q15b (DL-106) confirms `ts.device` is genuine device time, so this path is real |
 | 8 | Counter wider than `BIGINT` | Range-check before conversion | Silent value corruption, no error anywhere |
 | 9 | In-flight transformation of any kind | **Byte-identical publication** | Per-partition duplicate suppression stops working, silently |
 | 10 | Unsorted pagination | Fixed `(ts_device DESC, uid DESC)` | A row returned twice or skipped entirely, with no error |
