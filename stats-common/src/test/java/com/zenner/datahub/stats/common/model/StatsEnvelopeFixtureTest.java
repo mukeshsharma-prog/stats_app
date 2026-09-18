@@ -50,10 +50,14 @@ class StatsEnvelopeFixtureTest {
      * last two are the ones this round-trip test exists for: before DL-146 the typed
      * view dropped {@code meta} and {@code deviceOrig} silently and threw on the
      * object-form {@code expiresOn}.</p>
+     *
+     * <p>One more on 19 Sep 2026 with T-035 (DL-148): the sysstats {@code timespan}
+     * overflow record, schema-valid and refused by the Writer, so the typed view must
+     * still bind it losslessly.</p>
      */
     @Test
-    void expandsTheValidDirectoryToFortyFiveRecords() {
-        assertThat(validRecords()).hasSize(45);
+    void expandsTheValidDirectoryToFortySixRecords() {
+        assertThat(validRecords()).hasSize(46);
     }
 
     static List<Arguments> validRecords() {

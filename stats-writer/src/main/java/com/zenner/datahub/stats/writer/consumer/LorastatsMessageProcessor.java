@@ -13,6 +13,7 @@ import java.util.Objects;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.amqp.core.Message;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Conditional;
 import org.springframework.stereotype.Component;
 
@@ -43,8 +44,17 @@ public final class LorastatsMessageProcessor implements StatsMessageProcessor {
     private final RetentionGuard retentionGuard;
     private final StatsBatchWriter writer;
 
+    /**
+     * The writer is resolved by <em>this type's</em> bean name, not by "the only
+     * {@link StatsBatchWriter}". With a second type in the context that injection is
+     * ambiguous and the context fails — adding sysstats would have broken lorastats,
+     * which is the exact failure rule 6 forbids and {@link StatsMessageProcessorAvailability}
+     * already guards against for processors (T-035, DL-148).
+     */
     public LorastatsMessageProcessor(
-            PayloadGate gate, RetentionGuard retentionGuard, StatsBatchWriter writer) {
+            PayloadGate gate,
+            RetentionGuard retentionGuard,
+            @Qualifier(LorastatsConsumerDescriptor.BATCH_WRITER_BEAN) StatsBatchWriter writer) {
         this.gate = Objects.requireNonNull(gate, "gate");
         this.retentionGuard = Objects.requireNonNull(retentionGuard, "retentionGuard");
         this.writer = Objects.requireNonNull(writer, "writer");

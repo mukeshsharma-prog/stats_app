@@ -16,6 +16,13 @@ public final class LorastatsConsumerDescriptor {
 
     static final String PROPERTY_PREFIX = "stats.consumer." + WIRE_NAME;
 
+    /**
+     * The bean name of this type's {@code StatsBatchWriter}, spelled once. The writer
+     * declares it and the processor qualifies on it, so a second type's writer in the
+     * same context is not an ambiguity (DL-148).
+     */
+    public static final String BATCH_WRITER_BEAN = WIRE_NAME + "BatchWriter";
+
     private LorastatsConsumerDescriptor() {
         throw new AssertionError("Descriptor must not be instantiated");
     }

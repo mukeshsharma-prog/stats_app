@@ -24,9 +24,11 @@ them, they win.
 The deadline is a task, not a date.
 
 **IMSI exists in exactly one place — `ltestats.data.imsi` — and `ltestats` is not built
-yet.** `T-034 (fan out: ltestats)` is `TODO`, and `lorastats` is the only type with a
-table. So today there is no IMSI, no cell ID and no IP address anywhere in the running
-system: not in PostgreSQL, not in a log, not in a dead-letter queue.
+yet.** `T-034 (fan out: ltestats)` is `TODO`; `lorastats` and, since 19 Sep 2026,
+`sysstats` (T-035, DL-148) are the types with a table. So today there is no IMSI, no cell
+ID and no IP address anywhere in the running system: not in PostgreSQL, not in a log,
+not in a dead-letter queue. `sysstats` adds `rebootcause` and `wan_if` as stored free
+text — the low-likelihood vector the row below already names, now real.
 
 Every item below is therefore still a free configuration choice. That stops being true
 the moment T-034 lands, because of an interaction nobody has written down:
@@ -146,9 +148,9 @@ types is carried **entirely by the envelope** (§3).
 
 | Type | Fields | Note |
 |---|---|---|
-| `lorastats` | `rx_nr_pkts`, `rx_crc_missing`, `rx_crc_bad`, `rx_short_pkt`, `tx_success`, `tx_failed`, `tx_peek`, `tx_peek_index_zero`, `tx_override`, `tx_busy`, `tx_dequeue_error`, `tx_type_beacon`, `chip_comm_error`, `util_fopen_failed`, `fsk_received`, `rx_type_arol`, `timespan` | Radio counters. **BUILT** — the only type with a table today |
+| `lorastats` | `rx_nr_pkts`, `rx_crc_missing`, `rx_crc_bad`, `rx_short_pkt`, `tx_success`, `tx_failed`, `tx_peek`, `tx_peek_index_zero`, `tx_override`, `tx_busy`, `tx_dequeue_error`, `tx_type_beacon`, `chip_comm_error`, `util_fopen_failed`, `fsk_received`, `rx_type_arol`, `timespan` | Radio counters. **BUILT** |
 | `omsstats` | `rx_nr_pkts`, `rx_valid_nr_pkts`, `rx_crc_bad`, `device_count`, `timespan` | `device_count` is the number of metering devices behind the gateway — commercially meaningful, not personal |
-| `sysstats` | `memfree`, `uptime`, `idletime`, `load1`, `load5`, `load15`, `runable`, `temp`, `rtt`, `wan_if`, `rebootcause`, `timespan` | Host health. `rebootcause` is free-form text — a low-likelihood leak vector, worth a look but not a classification question |
+| `sysstats` | `memfree`, `uptime`, `idletime`, `load1`, `load5`, `load15`, `runable`, `temp`, `rtt`, `wan_if`, `rebootcause`, `timespan` | Host health. **BUILT 19 Sep 2026 (T-035, DL-148)** — `rebootcause` and `wan_if` are stored as `text`. `rebootcause` is free-form — a low-likelihood leak vector, worth a look but not a classification question |
 
 ---
 
