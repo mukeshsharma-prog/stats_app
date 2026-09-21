@@ -247,7 +247,7 @@ services:
   # === Observability — `observability` profile ===============================
   # Not Stats App deployables and not needed to run the stack: a Prometheus that
   # scrapes the three modules and the PostgreSQL exporter, evaluating the rule files
-  # in ops/prometheus. The exporter
+  # in ops/prometheus, and a Grafana with ops/grafana provisioned (T-056). The exporter
   # is what makes the archiver alert in postgres-alerts.yml evaluable at all (T-051).
   #
   #   docker compose --profile apps --profile observability up -d
@@ -290,6 +290,25 @@ services:
       - prometheus-data:/prometheus
     ports:
       - "9090:9090"
+
+  grafana:
+    profiles: ["observability"]
+    image: grafana/grafana:11.6.0
+    container_name: stats-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      # Datasource and dashboard provider; the dashboards are generated JSON
+      # (ops/grafana/build-dashboards.py) and are read-only in the UI on purpose.
+      - ../ops/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../ops/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+    ports:
+      - "3000:3000"
 
 volumes:
   postgres-data:

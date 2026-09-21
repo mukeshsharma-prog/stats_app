@@ -5238,3 +5238,50 @@ scale with rows, the validation of a reader-blocked detach does.
 
 **Consequence.** `ops/drills/README.md` indexes the Phase 5 drills with their measured
 numbers; T-051, T-054 and T-055 run in every build.
+
+### DL-158 — Dashboards are generated and gated, and every series they read exports from startup
+
+**21 September 2026** · `OPERATIONS` · NFR-05, DL-136, DL-137, DL-147, DL-151, DL-156 · T-056
+
+**Trigger.** T-056: per-type throughput, errors, latency, queue depth, DLQ depth,
+readiness; owners named. Its note carried two rules (aggregate broker gauges with `max`;
+render the poll status beside them) and one gap: six Writer series were asserted only at
+the registry, never at `/actuator/prometheus` by their exported names.
+
+**Decision.**
+
+1. **Three dashboards** — Writer (throughput, errors, latency, queues, retention,
+   readiness), Input (the two doors, HTTP outcomes, the Q13b heatmap), PostgreSQL (the
+   archiver) — **generated** by `ops/grafana/build-dashboards.py` into committed JSON and
+   provisioned read-only by the Compose `observability` profile, which gains Grafana.
+   Owners are named in `ops/grafana/README.md`: an owner is who the same series page and
+   who answers "what does this mean", not who edits JSON.
+2. **`ops/grafana/check-dashboards.py` gates in CI**: the JSON matches the generator;
+   every metric name in every panel *and every alert rule* is a series the code exports
+   (string literals in main source plus Micrometer suffixes, one composed name with its
+   reason) or a named infrastructure series; no `sum` over a shared gauge (DL-137).
+   Mutation-tested: a stale JSON, a typo'd series and a `sum by (type) (queue_depth)`
+   are each a failing build. A panel over a series that does not exist renders as an
+   empty graph — indistinguishable from "nothing happened" — which is the one thing a
+   dashboard must never say by accident.
+3. **The six series export from startup, and are asserted at the endpoint.**
+   `records_payload_rejected{type,reason}` and `records_upstream_status_not_ok{type}` were
+   created on first event; `records_expired_on_arrival`, the two retention counters and
+   the age gauge were registered by the startup maintenance pass, which a deployment that
+   hands partition DDL to a separate job (`pre-create-on-startup=false`) never runs. Both
+   now register **per type at writer construction** — a deployed type is exactly one with
+   a writer — so they export at zero (the gate's closed `reason` set is three series, not
+   a cardinality risk) or `NaN` (DL-156) from the first scrape. `ManagementSurfaceTest`
+   asserts all seven by exported name, `NaN` included.
+
+**Rejected.** *Hand-written JSON* — 32 panels of it, unreviewable, and the two rules would
+be re-derived per panel. *A dashboard `sum` over `dlq_depth` "because there is one broker"*
+— there are N replicas polling it. *Pre-registering `records_dead_lettered{reason}` and
+`records_retried{tier}`* — `reason` is an exception class name and cannot be enumerated;
+the README says so and points at `dlq_depth`. *A confirm-latency panel now* — Input exports
+no such histogram until T-048; a panel over a missing series is the defect the checker
+exists for.
+
+**Residual.** Grafana and `postgres_exporter` images could not be pulled on 21 Sep (no
+registry access), so the dashboards were validated by the checker and by reading, not by
+rendering; first render is the first task on a networked machine.

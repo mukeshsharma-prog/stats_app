@@ -120,6 +120,11 @@ reports `ltestats` every ~29 minutes, not 10 (DL-146).
 Beside it, `records_ts_device_corrected{type}` counts records Heimdal flagged with
 `meta.tsDeviceCorrected` (DL-146) — the number to put beside Q15f. Neither is alerted on.
 
+## Dashboards
+
+`ops/grafana/` holds the three generated Grafana dashboards (T-056, DL-158) and
+`check-dashboards.py`, which also validates every metric name in the rule files here.
+
 ## Validate
 
 Syntax and behaviour, with the pinned Prometheus tool image (CI runs the same two commands):

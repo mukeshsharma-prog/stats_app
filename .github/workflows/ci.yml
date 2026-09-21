@@ -67,6 +67,12 @@ jobs:
             prom/prometheus:v3.5.0 \
             test rules dlq-alerts.test.yml writer-alerts.test.yml postgres-alerts.test.yml
 
+      # T-056 (DL-158). The dashboards are generated; every series a panel or a rule
+      # reads must be one the code or a named exporter exports; shared gauges are
+      # aggregated with max, never sum (DL-137).
+      - name: Validate Grafana dashboards and rule series
+        run: python ops/grafana/check-dashboards.py
+
       # DL-117. Catches OpenAPI defects a YAML parse cannot see — an unquoted
       # description containing a comma silently becomes an extra schema key.
       # Version pinned: an unpinned linter can start failing CI on a release we

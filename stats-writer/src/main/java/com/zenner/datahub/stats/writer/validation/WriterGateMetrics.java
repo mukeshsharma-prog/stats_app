@@ -3,6 +3,7 @@ package com.zenner.datahub.stats.writer.validation;
 import com.zenner.datahub.stats.common.model.StatType;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
+import java.util.List;
 import java.util.Objects;
 import org.springframework.stereotype.Component;
 
@@ -62,6 +63,22 @@ public class WriterGateMetrics {
     }
 
     /**
+     * Registers this type's gate series up front so each exports at zero from startup
+     * (T-056, DL-158). A counter that first appears on its first event is absent from
+     * the scrape until then, and {@code rate()} of an absent series is absent too — a
+     * dashboard cannot tell "no rejections" from "this replica exports no such series",
+     * and that is the distinction an operator reads it for. The {@code reason} set is
+     * closed (DL-126), so registering every value is three series, not a cardinality risk.
+     */
+    public void registerFor(StatType statType) {
+        Objects.requireNonNull(statType, "statType");
+        for (String reason : List.of(REASON_PAYLOAD_SCHEMA, REASON_TYPE_MISMATCH, REASON_UNMAPPABLE)) {
+            payloadRejectedCounter(statType, reason);
+        }
+        upstreamStatusNotOkCounter(statType);
+    }
+
+    /**
      * One refusal at the gate, tagged with what caused it.
      *
      * <p>The {@code reason} tag is not decoration. "The payload does not match its
@@ -75,12 +92,15 @@ public class WriterGateMetrics {
      * cardinality problem the way a free-text reason would.</p>
      */
     public void payloadRejected(StatType statType, String reason) {
-        Counter.builder(PAYLOAD_REJECTED)
+        payloadRejectedCounter(statType, reason).increment();
+    }
+
+    private Counter payloadRejectedCounter(StatType statType, String reason) {
+        return Counter.builder(PAYLOAD_REJECTED)
                 .description("Records refused by the Writer's gate and dead-lettered without a retry")
                 .tag("type", statType.wireName())
                 .tag("reason", reason)
-                .register(meterRegistry)
-                .increment();
+                .register(meterRegistry);
     }
 
     /**
@@ -89,12 +109,15 @@ public class WriterGateMetrics {
      * from an unbounded vocabulary we do not control is a Prometheus cardinality bomb.
      */
     public void upstreamStatusNotOk(StatType statType) {
-        Counter.builder(UPSTREAM_STATUS_NOT_OK)
+        upstreamStatusNotOkCounter(statType).increment();
+    }
+
+    private Counter upstreamStatusNotOkCounter(StatType statType) {
+        return Counter.builder(UPSTREAM_STATUS_NOT_OK)
                 .description(
                         "Records stored whose upstream status was not exactly "
                                 + "[\"conversion ok\"]")
                 .tag("type", statType.wireName())
-                .register(meterRegistry)
-                .increment();
+                .register(meterRegistry);
     }
 }

@@ -132,7 +132,22 @@ class ManagementSurfaceTest {
                 .contains("records_duplicate_suppressed_total{type=\"omsstats\"}")
                 .contains("records_unmapped_data_field_total{type=\"omsstats\"}")
                 .contains("records_write_failed_total{type=\"omsstats\"}")
-                .contains("records_postgres_errors_total{type=\"omsstats\"}");
+                .contains("records_postgres_errors_total{type=\"omsstats\"}")
+                // T-056 (DL-158): the six series the dashboards read that were asserted
+                // only at the registry, plus DL-156's timestamp — at the ENDPOINT, by
+                // their exported names. The gate's counters are registered per type at
+                // writer construction; the retention series at the startup pass.
+                .contains("records_payload_rejected_total{reason=\"payload_schema\",type=\"lorastats\"}")
+                .contains("records_payload_rejected_total{reason=\"type_mismatch\",type=\"sysstats\"}")
+                .contains("records_payload_rejected_total{reason=\"unmappable\",type=\"omsstats\"}")
+                .contains("records_upstream_status_not_ok_total{type=\"lorastats\"}")
+                .contains("records_upstream_status_not_ok_total{type=\"omsstats\"}")
+                .contains("records_expired_on_arrival_total{type=\"lorastats\"}")
+                .contains("retention_partitions_dropped_total{type=\"lorastats\"}")
+                .contains("retention_orphans_dropped_total{type=\"lorastats\"}")
+                // NaN until the first sweep on this replica (DL-156), and exported as such.
+                .contains("retention_oldest_partition_age_days{type=\"lorastats\"} NaN")
+                .contains("retention_last_sweep_timestamp_seconds{type=\"lorastats\"} NaN");
 
         String retried = sample(scrape.getBody(), WriterFailureMetrics.RETRIED);
         assertThat(retried)

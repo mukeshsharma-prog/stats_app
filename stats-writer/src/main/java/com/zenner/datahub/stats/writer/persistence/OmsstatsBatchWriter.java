@@ -10,6 +10,7 @@ import com.zenner.datahub.stats.common.model.Timestamps;
 import com.zenner.datahub.stats.writer.consumer.OmsstatsConsumerDescriptor;
 import com.zenner.datahub.stats.writer.log.SafeFailure;
 import com.zenner.datahub.stats.writer.log.WriterLogContext;
+import com.zenner.datahub.stats.writer.retention.RetentionMetrics;
 import com.zenner.datahub.stats.writer.retry.PermanentFailureException;
 import com.zenner.datahub.stats.writer.validation.ValidatedRecord;
 import com.zenner.datahub.stats.writer.validation.WriterGateMetrics;
@@ -112,12 +113,18 @@ public final class OmsstatsBatchWriter implements StatsBatchWriter {
             WriterBatchProperties properties,
             ObjectMapper objectMapper,
             MeterRegistry meterRegistry,
-            WriterGateMetrics gateMetrics) {
+            WriterGateMetrics gateMetrics,
+            RetentionMetrics retentionMetrics) {
         this.jdbc = Objects.requireNonNull(jdbc, "jdbc");
         this.transactions = Objects.requireNonNull(transactions, "transactions");
         this.properties = Objects.requireNonNull(properties, "properties");
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
         this.gateMetrics = Objects.requireNonNull(gateMetrics, "gateMetrics");
+        // The gate's and retention's series for this type export at zero from startup
+        // too (DL-158): a deployed type is exactly one with a writer, and a series that
+        // waits for its first event or its first maintenance pass is absent until then.
+        gateMetrics.registerFor(TYPE);
+        Objects.requireNonNull(retentionMetrics, "retentionMetrics").registerFor(TYPE);
         Objects.requireNonNull(meterRegistry, "meterRegistry");
         // The same five series the lorastats writer registers, under this type's label,
         // all registered up front so each exports at zero from startup.

@@ -6,6 +6,22 @@ It is still auto-loaded every session: the repository-root `CLAUDE.md` is a
 pointer file whose only content is an `@claude/CLAUDE.md` import. Edit this file,
 not the pointer.
 
+> **Version 1.24 — 22 September 2026 (small hours).** No decision in 1.23 changes. What
+> changes is that **the dashboards exist, are generated and gated, and every series they
+> read exports from startup**. Governing entry: **DL-158** (T-056).
+>
+> * Three dashboards from `ops/grafana/build-dashboards.py` — Writer, Input, PostgreSQL —
+>   provisioned read-only by the Compose `observability` profile (now with Grafana).
+>   Owners named in `ops/grafana/README.md`. `check-dashboards.py` runs in CI: JSON
+>   matches the generator, every metric in every panel *and every alert rule* is a
+>   series something exports, no `sum` over a shared gauge (DL-137).
+> * **Six series were registry-only, and two of them did not exist until their first
+>   event.** The gate's and retention's series now register per type at writer
+>   construction and export at zero or `NaN` from the first scrape;
+>   `ManagementSurfaceTest` asserts all seven by exported name.
+> * **What to do next:** T-048 — the burst load test, which also adds the
+>   publisher-confirm histogram the Input dashboard is waiting for.
+>
 > **Version 1.23 — 21 September 2026 (night, later still).** No decision in 1.22 changes.
 > What changes is that **`DETACH CONCURRENTLY` is measured against a live writer, with a
 > control that can block**. Governing entry: **DL-157** (T-055).
@@ -1111,6 +1127,7 @@ plan is not written against a repository that no longer exists. Full reasoning:
 | DL-150 | **A Writer log line never repeats a key the MDC scope owns.** Seven `WARN` sites were being dropped by the ECS encoder since T-005 — silently after the fourth. `WriterLogsDoNotShadowMdcKeysTest` fails the build; `EcsEncoderDropsDuplicateKeysTest` pins why | T-005 (amended), every fan-out task |
 | DL-151 | **Two ingest doors, one handler; device-scoped read paths in the contract.** `/internal/stats` and `/external/stats` share everything but the `source` label; `/{type}/{clsbox}/{from}[/{to}]` is tenant-scoped, open-ended, empty-200 on a foreign gateway, contract-only. Residual: no tenant binding on the external door | T-013/T-017/T-018 (amended), **T-067**, **T-068** |
 | DL-152 | **Documents and tracker reconciled** to DL-145…DL-151; ADR-006 amended — 404 is the `uid` lookup's answer, the empty page is the device list's; T-067/T-068/T-069 exist | — |
+| DL-158 | **Dashboards generated and gated; every series exports from startup.** Writer / Input / PostgreSQL from `build-dashboards.py`; `check-dashboards.py` in CI (series exist, no `sum` over a shared gauge); gate + retention series registered per type at writer construction; the six registry-only series asserted at `/actuator/prometheus` | T-056 |
 | DL-157 | **`DETACH CONCURRENTLY` measured against a live writer, with a control.** Sweep 17 ms / worst insert 1.9 ms; behind an open reader the sweep waits 1.56 s and 13,436 inserts continue; plain `DETACH` stalls inserts 1,515 ms; `inhdetachpending` zero after every phase | T-055 |
 | DL-156 | **Lock contention drilled between two replicas and two processes; a sweep that never runs is visible.** Two pools, twenty simultaneous rounds, pools clean afterwards; the compose drill ran green. Retention gauges `NaN` until the first sweep; `retention_last_sweep_timestamp_seconds{type}` stamped last; `StatsAppRetentionSweepMissing` (26 h, `max by (type)`, never-ran arm). Found: the stack Writer had not swept for 29 h and read `0.0` | T-054, T-056 |
 | DL-155 | **Per-partition restore drilled and timed; WAL archiving on and watched.** Runbook `docs/runbooks/partition-restore.md` (load-then-attach; a plain `pg_restore` attaches first, loads in view, exits 1). Drill: 200k rows, **1.23 s**, attach 1 ms, writer never blocked. Compose: `archive_mode=on`, `archive_timeout=300`, archive directory owned before start (root-owned volume = silent archiver failure). `postgres-alerts.yml`: failing / stale / disabled / exporter down | T-051 |

@@ -12,6 +12,7 @@ import com.zenner.datahub.stats.common.model.Timestamps;
 import com.zenner.datahub.stats.writer.consumer.LorastatsConsumerDescriptor;
 import com.zenner.datahub.stats.writer.persistence.LorastatsDialects.Dialect;
 import com.zenner.datahub.stats.writer.persistence.LorastatsDialects.Normalised;
+import com.zenner.datahub.stats.writer.retention.RetentionMetrics;
 import com.zenner.datahub.stats.writer.validation.ValidatedRecord;
 import com.zenner.datahub.stats.writer.validation.WriterGateMetrics;
 import io.micrometer.core.instrument.Counter;
@@ -141,9 +142,15 @@ public final class LorastatsBatchWriter implements StatsBatchWriter {
             WriterBatchProperties properties,
             ObjectMapper objectMapper,
             MeterRegistry meterRegistry,
-            WriterGateMetrics gateMetrics) {
+            WriterGateMetrics gateMetrics,
+            RetentionMetrics retentionMetrics) {
         this.jdbc = Objects.requireNonNull(jdbc, "jdbc");
         this.gateMetrics = Objects.requireNonNull(gateMetrics, "gateMetrics");
+        // The gate's and retention's series for this type export at zero from startup
+        // too (DL-158): a deployed type is exactly one with a writer, and a series that
+        // waits for its first event or its first maintenance pass is absent until then.
+        gateMetrics.registerFor(TYPE);
+        Objects.requireNonNull(retentionMetrics, "retentionMetrics").registerFor(TYPE);
         this.transactions = Objects.requireNonNull(transactions, "transactions");
         this.properties = Objects.requireNonNull(properties, "properties");
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
