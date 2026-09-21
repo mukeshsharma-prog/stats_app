@@ -25,7 +25,7 @@ flow, because a specified flow and a running one are not the same claim.
 ### What exists today (21 September 2026)
 
 `stats-common` is complete, `stats-writer` and `stats-input` are substantially
-built — two stat types end to end, watched, and run end to end on the Compose stack —
+built — three stat types end to end, watched, and run end to end on the Compose stack —
 and `stats-api` is still a stub with a contract that now carries three operations.
 
 | Component | Status |
@@ -61,6 +61,7 @@ and `stats-api` is still a stub with a contract that now carries three operation
 | DLQ alerting | **`BUILT`** (T-060; DL-144). `ops/prometheus/dlq-alerts.yml` — depth > 0, continuously non-empty 7 d / 12 d, gated on `broker_metrics_collection_success` |
 | Main-queue watching — oldest-message age, no consumer, consumer stalled, late arrival, upstream status | **`BUILT`** (T-050; DL-147). Input stamps the AMQP `timestamp`; `queue_oldest_message_age_seconds{type}` is sampled at delivery and zeroed by the poll on an empty queue. The Q13b histogram `records_ts_server_cycle_offset_seconds{type}` is Input's |
 | `sysstats` — the second stat type end to end | **`BUILT`** (T-035; DL-148). Own queue set, consumer, gate-then-guard processor, `V6__sysstats_table.sql` with the `CHECK`, `data_extra` and both ADR-003 indexes; `timespan` `"300"` range-checked before conversion. The shared beans a second type needs live in `WriterAmqpConfiguration` / `StatTypeDeployment`, not in the lorastats slice |
+| `omsstats` — the third stat type end to end | **`BUILT`** (T-036; DL-153, 21 Sep 2026). A copy of the sysstats slice that moved nothing shared: own queue set, consumer, gate-then-guard processor, `V7__omsstats_table.sql` with the `CHECK`, `data_extra` and both ADR-003 indexes. `ts.converter` preserved in `passthrough`, no normalisation column (ADR-004); an integer wider than `BIGINT` is `unmappable` before conversion (`valid/omsstats-counter-overflow.json`). `demo.sh` step 1 posts it |
 | Partition pre-creation covers the **whole** retention window | **`BUILT`** (DL-149). Every pass — startup and daily — ensures `[cutoffDay, today + pre-create-days]` from `RetentionWindow`. Before this, a valid in-window record older than first deployment had no partition and dead-lettered as *permanent* (window 15) |
 | No Writer log line repeats a key the MDC scope owns | **`BUILT`** (DL-150). `WriterLogsDoNotShadowMdcKeysTest` fails the build; `EcsEncoderDropsDuplicateKeysTest` pins why. Seven `WARN` sites had been silently dropped by the ECS encoder since T-005 |
 | End-to-end demo against the Compose stack | **`BUILT`** (T-069; `docker/demo.sh`, 20 Sep 2026). Ten steps, each naming the rule it proves; found DL-149 and DL-150 on its first run |

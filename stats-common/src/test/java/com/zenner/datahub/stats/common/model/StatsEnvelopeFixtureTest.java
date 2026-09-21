@@ -54,10 +54,14 @@ class StatsEnvelopeFixtureTest {
      * <p>One more on 19 Sep 2026 with T-035 (DL-148): the sysstats {@code timespan}
      * overflow record, schema-valid and refused by the Writer, so the typed view must
      * still bind it losslessly.</p>
+     *
+     * <p>One more on 21 Sep 2026 with T-036 (DL-153): the omsstats counter overflow, a JSON
+     * integer wider than 64 bits — the typed view must hold it as a {@code BigInteger} node
+     * rather than wrap it, or the Writer's range check would have nothing to refuse.</p>
      */
     @Test
-    void expandsTheValidDirectoryToFortySixRecords() {
-        assertThat(validRecords()).hasSize(46);
+    void expandsTheValidDirectoryToFortySevenRecords() {
+        assertThat(validRecords()).hasSize(47);
     }
 
     static List<Arguments> validRecords() {

@@ -61,7 +61,11 @@ class VersionIsNotADiscriminatorTest {
                     + "SysstatsBatchWriter.java",
             "The sysstats sibling (T-035, DL-148): the same record_version passthrough "
                     + "and the same SMALLINT width guard. sysstats has one dialect, so "
-                    + "there is nothing here a version could even select between.");
+                    + "there is nothing here a version could even select between.",
+            "stats-writer/src/main/java/com/zenner/datahub/stats/writer/persistence/"
+                    + "OmsstatsBatchWriter.java",
+            "The omsstats sibling (T-036, DL-153): the same record_version passthrough "
+                    + "and the same SMALLINT width guard, and again one dialect.");
 
     @Test
     void noMainSourceOutsideThePassthroughMappingReadsTheEnvelopeVersion() {

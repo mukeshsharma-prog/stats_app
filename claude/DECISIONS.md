@@ -4898,3 +4898,92 @@ noted in the tracker rather than done silently here.
 windows (12 silent), 86 fixture files, 105 assertions, 91 Java parity cases, 689 tests,
 69 tasks, 34 traps. The next entry that adds a loss window, a fixture or a trap has
 seven places to update; the tracker's Notes row for this entry lists them.
+
+### DL-153 — `omsstats` is the third stat type: a copy of the sysstats slice, and the copy needed nothing shared to move
+
+**21 September 2026** · `ENGINEERING` · STA-14, STA-14A, STA-21A/B/C, STA-22, STA-04C, ADR-003 D2/D7, ADR-004 (as amended by ADR-007 §2), ADR-007 §6, DL-115, DL-126, DL-148, DL-149, DL-150 · T-036
+
+**Trigger.** T-036 is the next row on `Next Up` since DL-148: the fan-out's second copy,
+and the first made from the *sysstats* slice rather than from lorastats. `omsstats` has the
+simplest payload of the five — five required integers, no optional member, no string-typed
+number — and the one rule worth proving on it is ADR-004's: `ts.converter` arrives on
+every production record and is **accepted, preserved and never acted on**. The old
+acceptance criterion on this row (*"a record carrying `ts.converter` is rejected"*) was
+reversed on 29 Aug 2026 because it would have rejected 100 % of ingest; the row's job now
+is to show that accepting the field is not the same as normalising on it.
+
+**What was added, and nothing else changed.** In `stats-writer`:
+`OmsstatsConsumerDescriptor`, `OmsstatsConsumerProperties` (`stats.consumer.omsstats.*`),
+`OmsstatsDeploymentCondition`, `OmsstatsConsumerConfiguration` (main queue, three tiers,
+DLQ, four bindings, container factory, consumer — all from `AmqpTopology`),
+`OmsstatsConsumer` (with the DL-147 `queueAge.observe` line at entry),
+`OmsstatsMessageProcessor` (gate, then guard, then write; `@Qualifier` on
+`omsstatsBatchWriter`), `OmsstatsBatchWriter`, and `V7__omsstats_table.sql` — the V6
+shape from the first row: `PRIMARY KEY (ts_device, uid)`, `RANGE (ts_device)`, the two
+ADR-003 indexes and not the unreachable V2 one, `passthrough`, `data_extra`, the
+canonical-`clsbox` CHECK, and every payload column a `NOT NULL bigint`. There is
+deliberately **no converter or normalised-timestamp column**: `ts.converter` lives inside
+`passthrough` beside `ts.datastore`, `ts.expiresOn`, `ts.deviceOrig`, `status` and `meta`,
+and `ts_server`/`ts_device` hold exactly the wire values — `OmsstatsMigrationIntegrationTest`
+asserts no column name contains *converter* or *normal*, and
+`OmsstatsBatchWriterIntegrationTest` asserts second-for-second that neither stored clock
+moved toward the converter value. The demo (`docker/demo.sh` step 1) posts the production
+omsstats record and prints its `passthrough.ts`, so the preserved-not-applied rule is
+visible against the real stack.
+
+**The parse is per type, and this type's trap is the absence of one.** `timespan` is an
+integer here; the string `"300"` is sysstats' spelling. A copy that kept the sysstats
+digit-string parser would refuse every production omsstats record with `unmappable` —
+so `OmsstatsColumnMappingTest` asserts against the normative schema that every member's
+wire type is `integer`, and the writer refuses `"300"` as a mapping failure rather than
+guessing (`refusesATimespanSentAsAStringRatherThanGuessing`). The range check is the same
+rule as DL-105 rule 3 in its integer form: Jackson holds a literal wider than 64 bits as a
+`BigInteger` node and `canConvertToLong()` is false, so the check is made **before** any
+narrowing and an overflow is `unmappable` (DL-126), dead-lettered on attempt one, never
+wrapped or truncated (STA-04C). `valid/omsstats-counter-overflow.json`
+(`writer-range-reject`, `$expectCode: bigint_overflow`) pins it — the third overflow
+fixture and the first whose overflow is a JSON *integer* rather than a digit string,
+which the two string-typed ones could not cover. Gates 105 → **107**, Java parity 91 →
+**92**, valid records 46 → **47**, files 86 → **87**, markers 14 → **15**.
+
+**Nothing shared moved this time.** DL-148 predicted that the sysstats slice, written after
+`WriterAmqpConfiguration`, `StatTypeDeployment` and the `<type>BatchWriter` qualifier were
+lifted out of lorastats, would copy cleanly. It did: no lorastats or sysstats main source
+changed, no test of either type changed, and the retention layer needed nothing
+(`PartitionMaintenance` discovers parent tables from the catalogue, so V7 alone gives
+omsstats bootstrap, whole-window pre-creation, the sweep and the guard — DL-149). The two
+things the tracker note said the copy must *not* re-add were not re-added: no per-type
+pre-creation, and no `addKeyValue` of a key `WriterLogContext` owns —
+`WriterLogsDoNotShadowMdcKeysTest` passes over the new processor and writer. The only
+edits outside the new files are the additive ones every type makes: the two guard
+whitelists (`StatTypeFanOutTest`, `VersionIsNotADiscriminatorTest`), the properties
+block, `ManagementSurfaceTest`'s five scraped series under `type="omsstats"`, the fixture
+counts, and the demo step. That is what STA-14A asks for, and it is the first fan-out row
+that met it without a design-smell paragraph.
+
+**Rejected.** *Sharing `requiredLong`/`optionalLong` between the sysstats and omsstats
+writers now* — it is the right thing and it is **T-062**'s, the next row: extracting one
+range-checked coercion helper for all three writers and the two unbuilt types in one
+change, rather than a second helper today and a third under T-062. *A `timespan >= 0`
+CHECK on the table* — the schema says `minimum: 0` and the gate enforces it before the
+writer; a table CHECK would make the two gates disagree about whose refusal it is.
+*Adding `omsstats` to `stats-api`* — Phase 4 is held on D-09 (DL-152); the contract
+already carries `OmsstatsData`.
+
+**Verification.** The omsstats siblings of every sysstats test — 64 tests: descriptor,
+deployment condition (`sysstats` and `all` and nothing else), configuration, activation
+(**three** consumers in one `all` context; a sysstats deployment creates no omsstats
+consumer and a lorastats deployment creates neither), consumer ACK ordering, processor
+ordering, column mapping against the normative schema,
+`OmsstatsBatchWriterIntegrationTest` (the production record; `ts.converter` preserved with
+both clocks unmoved; `expiresOn` as `{"$date": …}` verbatim; the overflow fixture refused
+with nothing written and counted as `unmappable` not `write_failed`; the `BIGINT` maximum
+accepted; `"300"` refused; cross-tenant duplicate suppressed and metered; `data_extra`
+residue; canonical `clsbox`; a full value-for-value round trip),
+`OmsstatsMigrationIntegrationTest` (V7, partition key, three indexes on parent and child,
+sixteen columns' type and nullability, no converter column, 23505 and 23514),
+`OmsstatsTopologyDeclarationTest`, and `OmsstatsPersistenceConsumerIntegrationTest` —
+all three real consumers live: an omsstats record committed and ACKed with its
+passthrough intact, a redelivery absorbed, a poison omsstats payload in the **omsstats**
+DLQ on attempt one with a lorastats record committed beside it. `ManagementSurfaceTest`
+scrapes the omsstats series at zero from startup; `validate-fixtures.py` reports 107.

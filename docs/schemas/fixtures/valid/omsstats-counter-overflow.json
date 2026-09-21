@@ -1,0 +1,28 @@
+{
+  "uid": "CLSCON-3e8f1a7c-2b64-4d9e-a1f0-5c7036000001",
+  "tenant": "mzc",
+  "maintenant": "zenner-managed",
+  "clsbox": "04B648110442",
+  "type": "omsstats",
+  "version": 1,
+  "ts": {
+    "server": 1787833537,
+    "datastore": 1787833537,
+    "converter": 1787833537,
+    "device": 1787833537,
+    "expiresOn": "2026-08-27T12:25:37.071Z"
+  },
+  "data": {
+    "rx_nr_pkts": 9223372036854775808,
+    "rx_valid_nr_pkts": 105,
+    "rx_crc_bad": 528,
+    "timespan": 1800,
+    "device_count": 16
+  },
+  "status": [
+    "conversion ok"
+  ],
+  "$comment": "SYNTHETIC (T-036, DL-153). The production omsstats record with rx_nr_pkts one above the signed BIGINT maximum, written as a JSON INTEGER - this is the integer-typed sibling of the two string-typed overflow fixtures (lorastats dialect B, sysstats timespan). The omsstats schema types every payload member as integer and states no maximum, and JSON Schema's integer has no width, so 9223372036854775808 is SCHEMA-VALID - which is why it lives in valid/. The column is bigint. The Writer binds each member through a range check made BEFORE any narrowing conversion (Jackson holds the wider literal as a BigInteger node; canConvertToLong() is false), so the record dead-letters as unmappable on its first attempt (DL-126, STA-04C): nothing is written, nothing wraps, nothing is truncated. This is the case the 8 Sep and 19 Sep fixtures could not cover: an overflow that arrives as a number rather than as a digit string, on a type with no string coercion at all. $expect is writer-range-reject rather than writer-dlq because the record does NOT fail its per-type schema.",
+  "$expect": "writer-range-reject",
+  "$expectCode": "bigint_overflow"
+}

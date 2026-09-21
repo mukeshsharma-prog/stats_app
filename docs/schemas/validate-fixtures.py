@@ -79,7 +79,7 @@ TYPES = ("sysstats", "lorastats", "ltestats", "omsstats", "netstats")
 # green, which would have hidden exactly the regression the 29 Aug 2026 production
 # sample caught. Changing this number is a deliberate act that belongs in the same
 # commit as the fixture change, with the reason in claude/DECISIONS.md.
-EXPECTED_ASSERTIONS = 105
+EXPECTED_ASSERTIONS = 107
 
 
 def load_registry():

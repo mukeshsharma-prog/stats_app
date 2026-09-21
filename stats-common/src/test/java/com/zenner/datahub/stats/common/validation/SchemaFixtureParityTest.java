@@ -47,8 +47,8 @@ class SchemaFixtureParityTest {
     }
 
     @Test
-    void expandsToTheSameNinetyOneOutcomesAsThePythonOracle() {
-        assertThat(fixtureCases()).hasSize(91);
+    void expandsToTheSameNinetyTwoOutcomesAsThePythonOracle() {
+        assertThat(fixtureCases()).hasSize(92);
         assertThat(fixtureCases())
                 .extracting(arguments -> (String) arguments.get()[0])
                 .noneMatch(description -> description.contains("malformed/"));
@@ -66,7 +66,7 @@ class SchemaFixtureParityTest {
      * {@code BIGINT} (DL-105 rule 3), and {@code "writer-skip"} on the five late-arrival
      * fixtures (D5b → DL-112, T-026), and {@code "writer-dlq"} again on the ltestats
      * record that is half a measurement (DL-146) — none of which are schema cases. So it
-     * reports 105 assertions where this test expands to 91 outcomes. That gap is
+     * reports 107 assertions where this test expands to 92 outcomes. That gap is
      * deliberate — do not "fix" either number to match the other.</p>
      *
      * <p>The marker count stayed at seven on 8 Sep 2026 while its composition changed
@@ -92,6 +92,12 @@ class SchemaFixtureParityTest {
      * the second type's {@code writer-range-reject} — schema-valid, refused by the Writer's
      * {@code BIGINT} range check on the one digit-string sysstats sends. Fourteen markers;
      * the Python gate reports 105.</p>
+     *
+     * <p>91 → 92 on 21 Sep 2026 (DL-153): {@code valid/omsstats-counter-overflow.json},
+     * the third type's {@code writer-range-reject} and the first that overflows as a JSON
+     * <em>integer</em> rather than a digit string — schema-valid because JSON Schema's
+     * {@code integer} has no width, refused by the Writer before the narrowing conversion.
+     * Fifteen markers; the Python gate reports 107.</p>
      */
     static List<Arguments> fixtureCases() {
         List<Path> files = new ArrayList<>();

@@ -52,7 +52,11 @@ class StatTypeFanOutTest {
             "stats-writer/src/main/java/com/zenner/datahub/stats/writer/consumer/"
                     + "SysstatsConsumerDescriptor.java",
             "The sysstats sibling of the above (T-035, DL-148): the one place the "
-                    + "sysstats identity is spelled in the Writer.");
+                    + "sysstats identity is spelled in the Writer.",
+            "stats-writer/src/main/java/com/zenner/datahub/stats/writer/consumer/"
+                    + "OmsstatsConsumerDescriptor.java",
+            "The omsstats sibling (T-036, DL-153): the one place the omsstats identity "
+                    + "is spelled in the Writer.");
 
 
     @Test

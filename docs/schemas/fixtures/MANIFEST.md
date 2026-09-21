@@ -1,17 +1,26 @@
 # Fixture catalogue
 
 Built 18 August 2026 in answer to Q11a. **Rebuilt on the production wire format 29 August 2026
-(ADR-007).** 86 fixture files — 84 individual fixtures plus the two combined bundles
+(ADR-007).** 87 fixture files — 85 individual fixtures plus the two combined bundles
 (`valid/approved-types.json` and `invalid/validation-failures.json`), which are kept so nothing that
 already references them breaks.
 
-Run `python3 ../validate-fixtures.py` from `docs/schemas/` to assert the whole set. It checks 105
+Run `python3 ../validate-fixtures.py` from `docs/schemas/` to assert the whole set. It checks 107
 assertions and exits non-zero on any mismatch, so CI can gate on it.
 
-Those 105 are **91 schema cases plus 14 `$expect` markers** — 5 `input-reject`, 2 `writer-dlq`,
-2 `writer-range-reject` and 5 `writer-skip`. The Java parity test (`SchemaFixtureParityTest`)
-mirrors the 91 schema cases only, so the two numbers differing is correct and deliberate — do not
+Those 107 are **92 schema cases plus 15 `$expect` markers** — 5 `input-reject`, 2 `writer-dlq`,
+3 `writer-range-reject` and 5 `writer-skip`. The Java parity test (`SchemaFixtureParityTest`)
+mirrors the 92 schema cases only, so the two numbers differing is correct and deliberate — do not
 "fix" one to match the other.
+
+**+1 on 21 September 2026 — the third type (T-036, DL-153).** `valid/omsstats-counter-overflow.json`
+is the third `writer-range-reject`, and the first whose overflow arrives as a JSON **integer** rather
+than a digit string: `rx_nr_pkts` at `9223372036854775808` on a type whose schema types every member
+as `integer` and states no maximum. JSON Schema's `integer` has no width, so the record is schema-valid;
+the column is `bigint`, so the Writer refuses it before the narrowing conversion and writes nothing.
+It exists because the two earlier overflow fixtures both go through a *string* parser, and a type with
+no string coercion at all still has this line to hold. Markers **14 → 15**, assertions **105 → 107**,
+files **86 → 87**.
 
 **+1 on 19 September 2026 — the second type (T-035, DL-148).** `valid/sysstats-timespan-overflow.json`
 is to `sysstats` what `lorastats-dialect-string-overflow.json` is to `lorastats`: schema-valid, nineteen
@@ -138,6 +147,7 @@ there is unrecoverable data loss where a dead-letter is a redrive.
 | `sysstats-production-full.json` | Real production record carrying every optional field, with `timespan` as the **string** `"300"` |
 | `sysstats-timespan-overflow.json` | **`$expect: writer-range-reject`** (DL-148). The full production record with `timespan` at `"9223372036854775808"` — one above the signed `BIGINT` maximum, still nineteen digits, so the schema **admits** it. The Writer refuses it before conversion (STA-04C) and writes nothing. Lives in `valid/` because that is what it is |
 | `omsstats-production.json` | Real production record. The one type SRS v1.0 got right |
+| `omsstats-counter-overflow.json` | **`$expect: writer-range-reject`** (DL-153). The production record with `rx_nr_pkts` at the JSON integer `9223372036854775808` — one above the signed `BIGINT` maximum; the schema has no maximum and JSON Schema's `integer` has no width, so it **admits** it. The Writer refuses it before conversion (STA-04C) and writes nothing. Lives in `valid/` because that is what it is |
 | `netstats-production-healthy.json` | Real production record, both interfaces up, with `driver`, `mtu`, `fail_count` |
 | `netstats-production-wwan-down.json` | Real production record — a `wwan` that never came up: `need_init`, `fail_count`, `last_forced_reset`, and **no address at all**. The reason the interface required-set is now `tx`/`rx`. Also the only sampled record where `ts.device != ts.server` |
 | `approved-types.json`, `netstats-supplied-sample.json` | Pre-existing bundles, retained |

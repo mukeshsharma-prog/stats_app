@@ -54,13 +54,15 @@ docker ps --format '  {{.Names}}: {{.Status}}' | grep -E 'stats-(postgres|rabbit
 echo "  partitioned tables: $(psq "select string_agg(relname, ', ' order by relname) from pg_class where relkind='p'")"
 echo "  lorastats partitions: $(psq "select min(relname)||' .. '||max(relname)||' ('||count(*)||')' from pg_class where relname ~ '^lorastats_[0-9_]+$'")"
 
-hr "1. Happy path — sysstats (T-035) and two lorastats dialects. 2xx ONLY after publisher confirm (rule 8)"
+hr "1. Happy path — sysstats (T-035), omsstats (T-036, ts.converter preserved, never applied) and two lorastats dialects. 2xx ONLY after publisher confirm (rule 8)"
 postnow "$FX/valid/sysstats-production-minimal.json"
+postnow "$FX/valid/omsstats-production.json"          # ts.converter on every record: stored in passthrough, no normalisation (ADR-004)
 postnow "$FX/valid/lorastats-production-canonical.json"
 postnow "$FX/valid/lorastats-dialect-prefixed.json"     # dialect C -> the SAME row shape (DL-127)
 sleep 3
-echo "  rows:  $(psq "select 'sysstats='||count(*) from sysstats")  $(psq "select 'lorastats='||count(*) from lorastats")"
-psq "select type, clsbox, tenant, to_char(ts_device,'YYYY-MM-DD HH24:MI:SS') ts_device, tableoid::regclass partition from (select 'sysstats' type, clsbox, tenant, ts_device, tableoid from sysstats union all select 'lorastats', clsbox, tenant, ts_device, tableoid from lorastats) t order by 1, 4 desc limit 6" | sed 's/^/  /'
+echo "  rows:  $(psq "select 'sysstats='||count(*) from sysstats")  $(psq "select 'omsstats='||count(*) from omsstats")  $(psq "select 'lorastats='||count(*) from lorastats")"
+psq "select type, clsbox, tenant, to_char(ts_device,'YYYY-MM-DD HH24:MI:SS') ts_device, tableoid::regclass partition from (select 'sysstats' type, clsbox, tenant, ts_device, tableoid from sysstats union all select 'omsstats', clsbox, tenant, ts_device, tableoid from omsstats union all select 'lorastats', clsbox, tenant, ts_device, tableoid from lorastats) t order by 1, 4 desc limit 8" | sed 's/^/  /'
+psq "select 'omsstats passthrough: '||(passthrough->'ts')::text from omsstats order by ts_device desc limit 1" | sed 's/^/  /'
 metric 'records_persisted_total'
 metric 'records_lorastats_dialect_total'
 

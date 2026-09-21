@@ -6,6 +6,27 @@ It is still auto-loaded every session: the repository-root `CLAUDE.md` is a
 pointer file whose only content is an `@claude/CLAUDE.md` import. Edit this file,
 not the pointer.
 
+> **Version 1.19 — 21 September 2026 (evening).** No decision in 1.18 changes. What changes
+> is that **`omsstats` is the third stat type end to end, and the fan-out copied cleanly**.
+> Governing entry: **DL-153** (T-036).
+>
+> * **The sysstats slice was the right reference.** Every omsstats file is a sibling of a
+>   sysstats file; no lorastats or sysstats source or test changed. `V7__omsstats_table.sql`
+>   has the V6 shape from its first row. `ts.converter` — on 100 % of production omsstats
+>   records — is preserved in `passthrough` and there is **no converter or normalised
+>   column** (ADR-004 as amended by ADR-007 §2); the migration test asserts the absence.
+> * **This type's wire-type trap is the absence of one.** Every member is an integer;
+>   `"300"` is sysstats' spelling and is refused here as `unmappable`. An integer wider
+>   than `BIGINT` is schema-valid (JSON Schema's `integer` has no width) and is refused
+>   **before** conversion — `valid/omsstats-counter-overflow.json`, the first overflow
+>   fixture that arrives as a number rather than a digit string.
+> * **Gates:** fixtures 105 → **107**, Java parity 91 → **92**, 87 fixture files, fifteen
+>   markers. Full build **755 tests, 0 failures**. `docker/demo.sh` step 1 posts omsstats.
+> * **What to do next:** **T-062** — one range-checked coercion helper for the three
+>   writers and the two unbuilt types (deliberately not done inside T-036, DL-153
+>   *Rejected*). Then T-034 `ltestats`, which stays **blocked on D-12 P3** — the IMSI and
+>   `lac`/`cid` treatment must be signed before it merges.
+>
 > **Version 1.18 — 21 September 2026 (later the same day).** No decision in 1.17 changes.
 > What changes is that **every document and the tracker now say what 1.14–1.17 say**.
 > Governing entry: **DL-152**.
@@ -1017,6 +1038,7 @@ plan is not written against a repository that no longer exists. Full reasoning:
 | DL-150 | **A Writer log line never repeats a key the MDC scope owns.** Seven `WARN` sites were being dropped by the ECS encoder since T-005 — silently after the fourth. `WriterLogsDoNotShadowMdcKeysTest` fails the build; `EcsEncoderDropsDuplicateKeysTest` pins why | T-005 (amended), every fan-out task |
 | DL-151 | **Two ingest doors, one handler; device-scoped read paths in the contract.** `/internal/stats` and `/external/stats` share everything but the `source` label; `/{type}/{clsbox}/{from}[/{to}]` is tenant-scoped, open-ended, empty-200 on a foreign gateway, contract-only. Residual: no tenant binding on the external door | T-013/T-017/T-018 (amended), **T-067**, **T-068** |
 | DL-152 | **Documents and tracker reconciled** to DL-145…DL-151; ADR-006 amended — 404 is the `uid` lookup's answer, the empty page is the device list's; T-067/T-068/T-069 exist | — |
+| DL-153 | **`omsstats` is built, additively, from the sysstats slice — and nothing shared moved.** `V7__omsstats_table.sql` with the CHECK, `data_extra`, `(ts_device, uid)` and the two ADR-003 indexes; every payload column a `NOT NULL bigint`; `ts.converter` preserved in `passthrough`, no normalisation column (ADR-004). An integer wider than `BIGINT` is `unmappable` before conversion; `"300"` is refused, not guessed. Fixture `valid/omsstats-counter-overflow.json`. The coercion helper is deliberately left to T-062 | T-036, T-062 |
 
 > **What to do next lives in `Stats_App_Tracker.xlsx` → the `Next Up` sheet**, ranked
 > across both owners with the gate on each row. T-063, T-057 and T-064 were done on
@@ -1026,8 +1048,9 @@ plan is not written against a repository that no longer exists. Full reasoning:
 > branches merged: T-029, T-030, T-033 (the poison-isolation, crash-window and
 > outage-recovery drills), T-047 (DL-140), T-053 (DL-143) and T-060 (DL-144).** In one
 > line: ~~**T-050 first** — the DLQ is watched, the main queues are not — then **T-035
-> `sysstats`**~~ — **both done 19 Sep 2026 (DL-147, DL-148).** Next is **T-036
-> `omsstats`**, copied from the *sysstats* slice; `ltestats` stays blocked on D-12 P3.
+> `sysstats`**~~ — **both done 19 Sep 2026 (DL-147, DL-148).** ~~Next is **T-036
+> `omsstats`**, copied from the *sysstats* slice~~ — **done 21 Sep 2026 (DL-153)**; next is
+> **T-062**, then `ltestats`, which stays blocked on D-12 P3.
 > T-051, T-054 and T-055 are unblocked — they measure what T-025 built. The
 > upstream-status threshold is set after the first 24 h of ingest, not before.
 

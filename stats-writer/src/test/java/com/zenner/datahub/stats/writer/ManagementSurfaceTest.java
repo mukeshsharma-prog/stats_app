@@ -126,7 +126,13 @@ class ManagementSurfaceTest {
                 .contains("records_duplicate_suppressed_total{type=\"sysstats\"}")
                 .contains("records_unmapped_data_field_total{type=\"sysstats\"}")
                 .contains("records_write_failed_total{type=\"sysstats\"}")
-                .contains("records_postgres_errors_total{type=\"sysstats\"}");
+                .contains("records_postgres_errors_total{type=\"sysstats\"}")
+                // T-036: the third type, the same five series, exported at zero from startup.
+                .contains("records_persisted_total{type=\"omsstats\"}")
+                .contains("records_duplicate_suppressed_total{type=\"omsstats\"}")
+                .contains("records_unmapped_data_field_total{type=\"omsstats\"}")
+                .contains("records_write_failed_total{type=\"omsstats\"}")
+                .contains("records_postgres_errors_total{type=\"omsstats\"}");
 
         String retried = sample(scrape.getBody(), WriterFailureMetrics.RETRIED);
         assertThat(retried)
