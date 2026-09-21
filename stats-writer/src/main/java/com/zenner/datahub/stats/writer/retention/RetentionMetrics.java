@@ -7,7 +7,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.springframework.stereotype.Component;
 
 /**
@@ -27,6 +27,17 @@ import org.springframework.stereotype.Component;
  * {@link #PARTITIONS_DROPPED}, and a counter that has stopped moving looks exactly like a
  * counter with nothing to do. The age gauge climbs instead: past the configured window it
  * is unambiguous, and it is what T-050 should alert on.</p>
+ *
+ * <h2>Never observed is NaN, never zero (DL-156)</h2>
+ *
+ * <p>Both gauges are {@code NaN} until the first completed sweep on this replica. The
+ * first stack run (21 Sep 2026) found the daily pass had not run for 29 hours — the host
+ * had slept through the cron slot — and the age gauge read {@code 0.0}: a healthy number,
+ * from a sweep that had never happened. A gauge at zero is indistinguishable from a
+ * partition zero days old; a gauge at {@code NaN} says "nobody has looked". That is DL-137's
+ * rule for the broker gauges, applied here. {@link #LAST_SWEEP_TIMESTAMP} is the companion
+ * that makes "no sweep for a day" alertable at all: under ADR-003 D8 only the replica that
+ * wins the lock sets it, so a rule aggregates with {@code max by (type)}.</p>
  */
 @Component
 public class RetentionMetrics {
@@ -59,8 +70,16 @@ public class RetentionMetrics {
      */
     public static final String OLDEST_PARTITION_AGE_DAYS = "retention_oldest_partition_age_days";
 
+    /**
+     * Unix time of the last completed sweep on this replica, {@code NaN} until there has
+     * been one. The series an alert reads to say "the sweep has stopped" — the age gauge
+     * cannot, because a sweep that never ran leaves it exactly where it was.
+     */
+    public static final String LAST_SWEEP_TIMESTAMP = "retention_last_sweep_timestamp_seconds";
+
     private final MeterRegistry meterRegistry;
-    private final Map<StatType, AtomicInteger> oldestPartitionAge = new ConcurrentHashMap<>();
+    private final Map<StatType, AtomicReference<Double>> oldestPartitionAge = new ConcurrentHashMap<>();
+    private final Map<StatType, AtomicReference<Double>> lastSweep = new ConcurrentHashMap<>();
 
     public RetentionMetrics(MeterRegistry meterRegistry) {
         this.meterRegistry = Objects.requireNonNull(meterRegistry, "meterRegistry");
@@ -80,6 +99,7 @@ public class RetentionMetrics {
         partitionsDroppedCounter(type);
         orphansDroppedCounter(type);
         oldestPartitionAgeHolder(type);
+        lastSweepHolder(type);
     }
 
     /** One record skipped, not stored, and acknowledged (D5b). */
@@ -106,7 +126,12 @@ public class RetentionMetrics {
      * whose sweep never ran.</p>
      */
     public void oldestPartitionAgeDays(StatType type, int ageInDays) {
-        oldestPartitionAgeHolder(type).set(ageInDays);
+        oldestPartitionAgeHolder(type).set((double) ageInDays);
+    }
+
+    /** A sweep ran to completion on this replica at {@code epochSeconds}. */
+    public void sweepCompleted(StatType type, long epochSeconds) {
+        lastSweepHolder(type).set((double) epochSeconds);
     }
 
     private Counter expiredOnArrivalCounter(StatType type) {
@@ -135,15 +160,32 @@ public class RetentionMetrics {
                 .register(meterRegistry);
     }
 
-    private AtomicInteger oldestPartitionAgeHolder(StatType type) {
+    private AtomicReference<Double> oldestPartitionAgeHolder(StatType type) {
         return oldestPartitionAge.computeIfAbsent(
                 type,
                 key -> {
-                    AtomicInteger holder = new AtomicInteger();
-                    Gauge.builder(OLDEST_PARTITION_AGE_DAYS, holder, AtomicInteger::doubleValue)
+                    AtomicReference<Double> holder = new AtomicReference<>(Double.NaN);
+                    Gauge.builder(OLDEST_PARTITION_AGE_DAYS, holder, AtomicReference::get)
                             .description(
                                     "Age in days of the oldest live partition at the last "
-                                            + "completed sweep; climbs when retention stops")
+                                            + "completed sweep; climbs when retention stops; "
+                                            + "NaN until the first sweep on this replica")
+                            .tag("type", key.wireName())
+                            .register(meterRegistry);
+                    return holder;
+                });
+    }
+
+    private AtomicReference<Double> lastSweepHolder(StatType type) {
+        return lastSweep.computeIfAbsent(
+                type,
+                key -> {
+                    AtomicReference<Double> holder = new AtomicReference<>(Double.NaN);
+                    Gauge.builder(LAST_SWEEP_TIMESTAMP, holder, AtomicReference::get)
+                            .description(
+                                    "Unix time of the last completed retention sweep on this "
+                                            + "replica; NaN until there has been one. Aggregate "
+                                            + "across replicas with max by (type)")
                             .tag("type", key.wireName())
                             .register(meterRegistry);
                     return holder;

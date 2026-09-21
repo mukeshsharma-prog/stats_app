@@ -5137,3 +5137,69 @@ be verified on the first live scrape.
 rows per type, and PITR replay on a scratch instance — not the steps here — is where a
 real restore spends its hour. The nightly per-partition dump job the runbook's first source
 assumes is operations' to schedule; the drill's step 1 is the command it runs.
+
+### DL-156 — Advisory-lock contention is drilled between two replicas and two processes; a sweep that never runs is now visible
+
+**21 September 2026** · `ENGINEERING` / `OPERATIONS` · ADR-003 D3/D8, STA-23C, DL-132, DL-137 · T-054
+
+**Trigger.** T-054: `PartitionRetentionIntegrationTest` proved a replica that loses the lock
+changes nothing, but it held the lock from a second connection of the *same* pool. The
+lock is session-level, so the unit PostgreSQL distinguishes is the pool. And D8 runs N
+replicas per type, so two replicas firing the same cron at the same second is the
+production default.
+
+**Decision — the drill, in two halves.**
+
+1. **`AdvisoryLockContentionIntegrationTest`** builds two complete maintenance stacks —
+   each its own `HikariDataSource`, `PartitionMaintenance`, registry and clock — against
+   one database. Four cases: (a) replica B's cron fires while A is mid-maintenance
+   (deterministic, A holds the lock on one of *its* sessions behind a latch): B skips both
+   halves at `DEBUG`, drops nothing, and does the work on its next run; (b) **twenty
+   simultaneous rounds** behind a barrier: every partition dropped exactly once across
+   both registries, no `retention_failed` or `partition_precreation_failed`, no line at
+   `WARN` or above — and in all twenty rounds the loser genuinely had to skip, because
+   whole-window pre-creation (DL-149) holds the lock long enough to collide; (c) the
+   failure path: work that throws leaves no advisory lock behind and the other replica
+   runs immediately; (d) **the pools are clean**: every physical connection of both pools
+   is borrowed and checked — session `TimeZone` back to the server default, auto-commit on,
+   no backend of either pool idle in transaction. That last assertion is the one the
+   tracker asked for by name: a session-level lock leaked on a pooled connection outlives
+   the borrow and starves the type on every replica.
+2. **`ops/drills/t054-advisory-lock-contention.sh`** — the literal two-*process* reading:
+   two extra Writer containers from the stack's own image, both serving lorastats with the
+   cron at the top of every minute, two ticks against the live Compose PostgreSQL. **Run
+   21 Sep 2026: on both ticks the replicas collided; each won once and lost once
+   (`ensured=1 skipped=1` on both, retention `applied`/`no-op` versus `skipped`); no
+   failure, no ERROR, no advisory lock held afterwards, no drill backend idle in
+   transaction.**
+
+**What the drill found on the live stack, and the fix.** The stack's own Writer had
+logged nothing for 29 hours — including the 03:30 UTC pass it should log at INFO — while
+`retention_oldest_partition_age_days` read `0.0` and readiness was UP. Cause: the host had
+slept across the cron slot, and a paused Docker VM freezes the JVM's monotonic scheduler
+delay, so the pass never fired. A laptop artefact — but it exposed a gap the T-054 note
+predicts: a **leaked lock** would produce the same picture, and nothing would report it.
+`retention_oldest_partition_age_days` was registered at zero and set only by a completed
+sweep, so a sweep that never runs reads as a partition zero days old. DL-137's rule for
+the broker gauges — *never observed is NaN, never zero* — now applies here: both retention
+gauges are `NaN` until the replica's first completed sweep, and the sweep stamps a new
+`retention_last_sweep_timestamp_seconds{type}` as its **last** act (a run that dies
+half-way reports nothing). `StatsAppRetentionSweepMissing` (critical, `for: 30m`) reads
+it `max by (type)` — only the lock winner stamps it, and `max` ignores `NaN` unless every
+replica is `NaN`, which the second arm catches once `process_uptime_seconds` exceeds a
+schedule period plus slack. Three `promtool` scenarios, including a replica that never
+wins staying quiet beside one that sweeps. The retention integration test asserts `NaN`
+before the first sweep, the stamp after it, and that the loser does not stamp.
+
+**Rejected.** *Two Spring contexts in one JVM* for half 1 — heavier, and no closer to what
+the lock distinguishes than two pools. *A polled "last sweep" reader* — DL-132 rejected
+polling for the age gauge for the same reason it would be wrong here: a poll reports a
+healthy number from a replica whose sweep never ran. *Alerting on the age gauge alone* — a
+never-run sweep leaves it wherever it was; only a timestamp the sweep itself writes can say
+"stopped". *Treating the host-sleep finding as a product defect* — it is not one; it is
+recorded in `DEVELOPMENT.md` §3.1 as a local gotcha, and the alert is what covers the
+production causes.
+
+**Verification.** `AdvisoryLockContentionIntegrationTest` (4), the drill script's eight
+checks against the live stack, `PartitionRetentionIntegrationTest` (+2 assertions),
+`promtool test rules writer-alerts.test.yml` (8 rules, 3 new scenarios), full build.

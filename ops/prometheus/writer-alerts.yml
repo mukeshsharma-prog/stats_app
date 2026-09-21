@@ -154,3 +154,37 @@ groups:
             ours. The 1% threshold is PROVISIONAL until the first 24 h of ingest set it —
             see ops/prometheus/README.md.
           runbook: claude/SKILLS.md#skill-4--diagnose-a-stuck-or-growing-queue
+
+      # ---- Retention sweep not running (T-054, DL-156) ---------------------------
+      # The sweep runs once a day per type behind a SESSION-level advisory lock. Two
+      # things stop it with no other symptom: a lock leaked by a dead replica's pooled
+      # connection (which starves EVERY replica of that type until the connection is
+      # evicted), and a scheduler that never fires (the first stack run found 29 hours
+      # without a pass and every gauge reading healthy). retention_oldest_partition_age_days
+      # cannot catch either — a sweep that never ran leaves it where it was — so the sweep
+      # stamps retention_last_sweep_timestamp_seconds on completion and this rule reads
+      # it. Only the replica that wins the lock stamps it (D8), hence max by (type); the
+      # gauge is NaN until a replica's first sweep, and max ignores NaN unless every
+      # replica is NaN — which is the "never ran anywhere" case, caught by the second arm
+      # once the process has been up longer than a schedule period plus slack.
+      - alert: StatsAppRetentionSweepMissing
+        expr: >-
+          (time() - max by (type) (retention_last_sweep_timestamp_seconds) > 93600)
+          or
+          (
+            (max by (type) (retention_last_sweep_timestamp_seconds) != max by (type) (retention_last_sweep_timestamp_seconds))
+            and on () (max(process_uptime_seconds) > 93600)
+          )
+        for: 30m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Stats App {{ $labels.type }}: no completed retention sweep in over 26 hours"
+          description: >-
+            No Writer replica has completed a retention sweep for {{ $labels.type }} in
+            more than 26 hours (the schedule is daily). Ingestion is unaffected and every
+            other counter reads healthy; the only symptom is storage that stops going
+            down. Check pg_locks for an advisory lock held by a session that is not
+            running maintenance (a leaked lock starves every replica — trap 27's sibling),
+            pg_inherits.inhdetachpending, and that the scheduler thread is alive.
+          runbook: claude/SKILLS.md#skill-5--change-a-retention-window

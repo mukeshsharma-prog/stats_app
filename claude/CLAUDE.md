@@ -6,6 +6,25 @@ It is still auto-loaded every session: the repository-root `CLAUDE.md` is a
 pointer file whose only content is an `@claude/CLAUDE.md` import. Edit this file,
 not the pointer.
 
+> **Version 1.22 — 21 September 2026 (night, later).** No decision in 1.21 changes. What
+> changes is that **lock contention between replicas is drilled, and a sweep that never
+> runs can no longer look healthy**. Governing entry: **DL-156** (T-054).
+>
+> * **Two pools are two replicas** as far as a session-level lock is concerned.
+>   `AdvisoryLockContentionIntegrationTest` runs twenty simultaneous rounds; every
+>   partition dropped once, the loser skipped at DEBUG in all twenty, no errors, and
+>   every pooled connection of both replicas checked clean afterwards. The two-process
+>   reading, `ops/drills/t054-advisory-lock-contention.sh`, ran green on the live stack.
+> * **The stack's own Writer had not swept for 29 hours and read healthy.** The host
+>   slept through the cron slot (a laptop artefact) — but the gap it exposed is real: a
+>   leaked lock gives the same picture. `retention_oldest_partition_age_days` is now
+>   `NaN` until the first sweep (DL-137's rule), the sweep stamps
+>   `retention_last_sweep_timestamp_seconds{type}` as its last act, and
+>   `StatsAppRetentionSweepMissing` pages after 26 h with no completed sweep on any
+>   replica — including the never-ran case.
+> * **What to do next:** T-055 (DETACH CONCURRENTLY latency against a live writer),
+>   T-056, T-048.
+>
 > **Version 1.21 — 21 September 2026 (night).** No decision in 1.20 changes. What changes
 > is that **the per-partition restore is rehearsed, timed and written down, and WAL
 > archiving is on and watched**. Governing entry: **DL-155** (T-051).
@@ -1081,6 +1100,7 @@ plan is not written against a repository that no longer exists. Full reasoning:
 | DL-150 | **A Writer log line never repeats a key the MDC scope owns.** Seven `WARN` sites were being dropped by the ECS encoder since T-005 — silently after the fourth. `WriterLogsDoNotShadowMdcKeysTest` fails the build; `EcsEncoderDropsDuplicateKeysTest` pins why | T-005 (amended), every fan-out task |
 | DL-151 | **Two ingest doors, one handler; device-scoped read paths in the contract.** `/internal/stats` and `/external/stats` share everything but the `source` label; `/{type}/{clsbox}/{from}[/{to}]` is tenant-scoped, open-ended, empty-200 on a foreign gateway, contract-only. Residual: no tenant binding on the external door | T-013/T-017/T-018 (amended), **T-067**, **T-068** |
 | DL-152 | **Documents and tracker reconciled** to DL-145…DL-151; ADR-006 amended — 404 is the `uid` lookup's answer, the empty page is the device list's; T-067/T-068/T-069 exist | — |
+| DL-156 | **Lock contention drilled between two replicas and two processes; a sweep that never runs is visible.** Two pools, twenty simultaneous rounds, pools clean afterwards; the compose drill ran green. Retention gauges `NaN` until the first sweep; `retention_last_sweep_timestamp_seconds{type}` stamped last; `StatsAppRetentionSweepMissing` (26 h, `max by (type)`, never-ran arm). Found: the stack Writer had not swept for 29 h and read `0.0` | T-054, T-056 |
 | DL-155 | **Per-partition restore drilled and timed; WAL archiving on and watched.** Runbook `docs/runbooks/partition-restore.md` (load-then-attach; a plain `pg_restore` attaches first, loads in view, exits 1). Drill: 200k rows, **1.23 s**, attach 1 ms, writer never blocked. Compose: `archive_mode=on`, `archive_timeout=300`, archive directory owned before start (root-owned volume = silent archiver failure). `postgres-alerts.yml`: failing / stale / disabled / exporter down | T-051 |
 | DL-154 | **One wire-number coercion, and the build refuses a second.** `WireNumbers` — `requiredInteger`/`optionalInteger`, `requiredDigitString`/`optionalDigitString(Sign)`, `parseDigitString` — range-checks against `BigInteger` before conversion; every refusal is permanent and names only the field. Found on extraction: a lorastats integer overflow was *retried* (35½ min) before dead-lettering, and the dialect-B coercion accepted a negative string. `WireNumbersIsTheOnlyCoercionTest` scans the persistence package | T-062, T-034, T-037 |
 | DL-153 | **`omsstats` is built, additively, from the sysstats slice — and nothing shared moved.** `V7__omsstats_table.sql` with the CHECK, `data_extra`, `(ts_device, uid)` and the two ADR-003 indexes; every payload column a `NOT NULL bigint`; `ts.converter` preserved in `passthrough`, no normalisation column (ADR-004). An integer wider than `BIGINT` is `unmappable` before conversion; `"300"` is refused, not guessed. Fixture `valid/omsstats-counter-overflow.json`. The coercion helper is deliberately left to T-062 | T-036, T-062 |

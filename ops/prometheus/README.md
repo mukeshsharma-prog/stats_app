@@ -9,7 +9,7 @@ property that pretends to configure an external evaluator.
 | File | Task | Watches |
 |---|---|---|
 | `dlq-alerts.yml` | T-060 (DL-144) | `dlq_depth` — non-empty now, for 7 days, for 12 days |
-| `writer-alerts.yml` | T-050 (DL-147) | `queue_oldest_message_age_seconds`, `consumer_availability`, `queue_depth` + `records_consumed`, `broker_metrics_collection_success`, `records_expired_on_arrival`, `records_upstream_status_not_ok` |
+| `writer-alerts.yml` | T-050 (DL-147), T-054 (DL-156) | `queue_oldest_message_age_seconds`, `consumer_availability`, `queue_depth` + `records_consumed`, `broker_metrics_collection_success`, `records_expired_on_arrival`, `records_upstream_status_not_ok`, `retention_last_sweep_timestamp_seconds` + `process_uptime_seconds` |
 | `postgres-alerts.yml` | T-051 (DL-155) | `pg_stat_archiver_failed_count`, `pg_stat_archiver_last_archive_age`, `pg_settings_archive_mode`, `pg_up` — the WAL archiver, i.e. whether RPO ≤ 5 min (ADR-003 D5, DL-111) is actually being met |
 
 `prometheus.yml` is the scrape configuration the Compose `observability` profile mounts
@@ -169,4 +169,18 @@ Series names are `postgres_exporter`'s built-in `pg_stat_archiver` collector (v0
 21 Sep machine (no registry access), so the rules were unit-tested with `promtool` against
 the documented names and not yet against a live `/metrics`. The runbook they point at is
 `docs/runbooks/partition-restore.md`.
+
+## Retention sweep missing — T-054's alert
+
+`StatsAppRetentionSweepMissing` (critical, `for: 30m`) fires when no replica has completed
+a retention sweep for a type in over 26 hours. It reads
+`retention_last_sweep_timestamp_seconds{type}`, which the sweep stamps as its last act
+(DL-156), aggregated `max by (type)` because only the lock winner stamps it (ADR-003 D8).
+The gauge is `NaN` until a replica's first sweep; `max` ignores `NaN` unless every replica
+is `NaN`, and that case — the sweep has never run anywhere — is the rule's second arm,
+gated on `process_uptime_seconds > 26h` so a fresh deployment is not paged before its
+first scheduled pass. Two causes it exists for, neither with any other symptom: an
+advisory lock leaked by a dead replica's pooled connection (which starves every replica of
+that type), and a scheduler that never fires — the first Compose run went 29 hours without
+a pass while every gauge read healthy, because the host had slept through the cron slot.
 

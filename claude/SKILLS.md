@@ -375,7 +375,11 @@ CONCURRENTLY` followed by `DROP TABLE`.
    them (DL-149). `SELECT count(*) FROM pg_inherits WHERE inhparent = '<type>'::regclass`
    should read `retention-days + pre-create-days + 1`
 6. Watch `retention_oldest_partition_age_days{type}`. In a healthy deployment it sits
-   just under the configured window; climbing past it means the sweep has stopped
+   just under the configured window; climbing past it means the sweep has stopped.
+   **It is `NaN` until the first sweep** (DL-156) — a `NaN` a day after deployment means
+   the sweep has never run, and `StatsAppRetentionSweepMissing` will say so; check
+   `retention_last_sweep_timestamp_seconds{type}` (`max by (type)`) and `pg_locks` for an
+   advisory lock held by a session that is not running maintenance
 7. Record the value and the reason for it
 
 ### Cautions

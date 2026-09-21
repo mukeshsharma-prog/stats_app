@@ -138,6 +138,9 @@ public class PartitionRetention {
 
         int orphansDropped = sweepOrphans(type, connection);
         publishOldestPartitionAge(type, connection);
+        // The one series that can say "the sweep has stopped" (DL-156). Set last, so a
+        // run that died before this line reports nothing rather than a false completion.
+        metrics.sweepCompleted(type, window.now().getEpochSecond());
 
         return new RetentionResult(true, dropped, orphansDropped, finalised, cutoffDay);
     }

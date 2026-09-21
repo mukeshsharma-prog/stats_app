@@ -135,6 +135,13 @@ nothing else wrong is the known trap (a root-owned archive directory); the compo
 owns the directory before the server starts, and `ops/prometheus/postgres-alerts.yml`
 pages on it.
 
+**A laptop gotcha (DL-156):** the Writer's daily maintenance cron (`stats.retention.schedule`,
+03:30 UTC) does not fire while the Mac sleeps — a paused Docker VM freezes the JVM's
+monotonic scheduler delay — so a stack left up overnight can go a day without a sweep
+and still read healthy. `retention_last_sweep_timestamp_seconds{type}` on
+`/actuator/prometheus` says when the last one ran (`NaN` = never on this replica);
+`ops/drills/t054-advisory-lock-contention.sh` fires the cron on demand.
+
 The `observability` profile adds Prometheus (9090) and `postgres_exporter` (9187)
 scraping the modules and evaluating every rule file in `ops/prometheus`:
 

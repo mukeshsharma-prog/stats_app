@@ -305,6 +305,8 @@ class PartitionRetentionIntegrationTest {
             assertThat(result.lockAcquired()).isFalse();
             assertThat(result.changedAnything()).isFalse();
             assertThat(partitionExists(droppableDay)).isTrue();
+            // The loser did not sweep, so it must not say it did (DL-156).
+            assertThat(gauge(RetentionMetrics.LAST_SWEEP_TIMESTAMP)).isNaN();
         }
     }
 
@@ -316,8 +318,17 @@ class PartitionRetentionIntegrationTest {
     void publishesTheAgeOfTheOldestSurvivingPartition() {
         createPartition(droppableDay);
         createPartition(boundaryDay);
+        // DL-156: before the first sweep neither gauge claims anything. A zero here read
+        // as "healthy" on a replica whose daily pass had not run for 29 hours.
+        assertThat(gauge(RetentionMetrics.OLDEST_PARTITION_AGE_DAYS)).isNaN();
+        assertThat(gauge(RetentionMetrics.LAST_SWEEP_TIMESTAMP)).isNaN();
+        long before = java.time.Instant.now().getEpochSecond();
 
         retention.sweep(TYPE);
+
+        assertThat(gauge(RetentionMetrics.LAST_SWEEP_TIMESTAMP))
+                .as("the completed sweep stamped its time")
+                .isBetween((double) before, (double) java.time.Instant.now().getEpochSecond() + 1);
 
         assertThat(
                         registry.get(RetentionMetrics.OLDEST_PARTITION_AGE_DAYS)
@@ -473,5 +484,9 @@ class PartitionRetentionIntegrationTest {
 
     private double counter(String name) {
         return registry.get(name).tag("type", TYPE.wireName()).counter().count();
+    }
+
+    private double gauge(String name) {
+        return registry.get(name).tag("type", TYPE.wireName()).gauge().value();
     }
 }

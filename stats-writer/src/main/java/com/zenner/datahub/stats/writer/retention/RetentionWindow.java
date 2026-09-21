@@ -105,6 +105,11 @@ public class RetentionWindow {
         return day.isBefore(cutoffDay(type));
     }
 
+    /** The instant on the one clock every retention decision reads. */
+    public java.time.Instant now() {
+        return clock.instant();
+    }
+
     /** Today, in UTC. Partition bounds are UTC, so the comparison has to be. */
     public LocalDate today() {
         return LocalDate.now(clock.withZone(ZoneOffset.UTC));

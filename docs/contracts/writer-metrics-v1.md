@@ -74,6 +74,17 @@ Retention health is **not** polled from here. The sweep reports
 DL-132); a gauge sampled on a timer would keep reporting a healthy number from a replica
 whose sweep never ran.
 
+**Since DL-156 (T-054) the same rule this document gives the broker gauges applies to the
+retention gauges: never observed is `NaN`, never zero.** `retention_oldest_partition_age_days`
+is `NaN` until the first completed sweep on that replica — the first stack run found a
+replica that had not swept for 29 hours reading `0.0`, a healthy number from a sweep that
+never happened. The sweep also stamps **`retention_last_sweep_timestamp_seconds{type}`**
+(Unix time, `NaN` until the replica's first completed sweep) as its last act, so a sweep that
+died half-way reports nothing. Under ADR-003 D8 only the replica that wins the advisory lock
+stamps it, so read it as `max by (type)` — `max` ignores `NaN` unless every replica is `NaN`,
+which is the "never ran anywhere" case `StatsAppRetentionSweepMissing` catches on its
+second arm.
+
 ## Not here: the Q13b histogram
 
 `records_ts_server_cycle_offset_seconds{type}` — `ts.server mod 600` in twenty
