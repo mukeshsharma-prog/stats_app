@@ -5203,3 +5203,38 @@ production causes.
 **Verification.** `AdvisoryLockContentionIntegrationTest` (4), the drill script's eight
 checks against the live stack, `PartitionRetentionIntegrationTest` (+2 assertions),
 `promtool test rules writer-alerts.test.yml` (8 rules, 3 new scenarios), full build.
+
+### DL-157 — `DETACH CONCURRENTLY` against a live writer is measured, with a control that can block
+
+**21 September 2026** · `OPERATIONS` · ADR-003 D1, STA-23C, DL-132 · T-055
+
+**Trigger.** T-055: *"Measure. A plain detach takes an ACCESS EXCLUSIVE lock against the
+writer."* The sweep has used `CONCURRENTLY` since T-025 on the strength of the
+documentation; nothing had watched a writer while it ran.
+
+**Decision.** `DetachConcurrentlyLatencyIntegrationTest` runs a writer inserting into the
+live day as fast as the round trip allows, recording every statement's latency, and a
+sampler counting backends waiting on a lock ten times a second — distinguishing waiting
+*inserts* from the waiting DDL — across four phases: baseline; the real sweep dropping a
+300,000-row day; the real sweep with a reader holding an open transaction on the parent
+(the case the tracker warns turns a measurement into a mis-diagnosis); and a **control**, a
+plain `DETACH` behind the same reader. The control is what makes the test honest: if it
+did not stall the writer, "the sweep did not stall the writer" would prove nothing.
+
+**Measured.** Baseline worst insert 5.4 ms. Sweep: 17 ms, worst insert 1.9 ms, nothing
+waiting. Sweep behind the reader: the sweep waited 1.56 s — `DETACH CONCURRENTLY` waits for
+transactions that reference the partition — while **13,436 inserts continued**, worst 13 ms,
+no insert ever queued; the one waiter was the detach itself. Control: worst insert
+**1,515 ms**, an insert seen waiting on the parent's lock. Assertions: the sweep's worst
+insert under five times the baseline's in both phases, no insert waiting in phase 3, the
+control's worst insert at least the reader's hold minus slack and an insert waiting in
+phase 4, and — every phase — `pg_inherits.inhdetachpending` at zero (trap 27).
+
+**Rejected.** *Measuring only the sweep's duration* — phase 3 shows it is the wrong
+number: 1.56 s for a 17 ms job, and the cause was the harness's reader. *Skipping the
+control* — see above. *A bigger day* — 300,000 rows is enough for the detach to be
+non-trivial (the drop is a catalogue operation either way); the lock behaviour does not
+scale with rows, the validation of a reader-blocked detach does.
+
+**Consequence.** `ops/drills/README.md` indexes the Phase 5 drills with their measured
+numbers; T-051, T-054 and T-055 run in every build.
