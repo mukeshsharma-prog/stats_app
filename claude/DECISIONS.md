@@ -5060,3 +5060,80 @@ non-digit spelling, sign, absent/null, no value in any message, permanence via t
 recognises the four shapes); `LorastatsDialectsTest`, `LorastatsBatchWriterIntegrationTest`
 (+ permanence), `SysstatsBatchWriterIntegrationTest`, `OmsstatsBatchWriterIntegrationTest`
 and the three `ColumnMappingTest`s unchanged in outcome.
+
+### DL-155 — The per-partition restore is rehearsed, timed and written down; WAL archiving is on and watched
+
+**21 September 2026** · `OPERATIONS` · ADR-003 D1/D5, DL-111 (RPO ≤ 5 min, RTO 1 h per partition), DL-132, DL-149 · T-051
+
+**Trigger.** T-051 unblocked in full on 10 Sep (T-025 built the partitions it restores) and
+was the first Phase 5 row on `Next Up`. D5a is signed at *RTO 1 h per partition*, and a
+target nobody measures is not a target.
+
+**What was found before anything was written.** Three things a runbook written from the
+documentation alone would have got wrong, each checked against PostgreSQL 17 in a
+container before the procedure was recorded:
+
+1. **A plain `pg_restore` of a partition dump works and reports failure.** `pg_dump -t
+   <partition>` orders its entries `CREATE TABLE`, `ATTACH PARTITION`, `COPY`, then the
+   child's `PRIMARY KEY` and `CREATE INDEX`. Restored as-is the empty child is attached
+   to the live parent *first* — PostgreSQL creates the child's indexes at that moment —
+   the rows load one by one into a partition the API can already read, and the dump's
+   own index statements then fail: *"multiple primary keys … are not allowed"*,
+   *"relation … already exists"*, **"errors ignored on restore: 2", exit 1**. Correct data,
+   alarming exit, a half-visible day for the length of the load.
+2. **Attach without a matching CHECK scans every row under the lock.** With one, the
+   attach is a catalogue change: **0.66 ms** on a 600,000-row day in the probe, **1 ms** in
+   the drill.
+3. **A fresh Compose volume is root-owned, so archiving fails silently.** `archive_mode=on`
+   with the archive on a new named volume: `failed_count=7`, `archived_count=0`, nothing
+   else wrong anywhere. The archiver retries forever and reports only in
+   `pg_stat_archiver`.
+
+**Decision.**
+
+1. **`docs/runbooks/partition-restore.md`** — the ADR-003 D5 shape, load-then-attach:
+   `pg_restore -l`, drop the `TABLE ATTACH` and `INDEX ATTACH` TOC entries, restore the
+   child standalone (indexes built after the load), verify every row is inside the day
+   the name says (the same invariant `PartitionRetention` checks before it drops), add a
+   CHECK matching the bound, `ATTACH PARTITION` (takes `SHARE UPDATE EXCLUSIVE` on the
+   parent — inserts continue), drop the scaffolding, then four post-attach checks
+   (parent count, `inhdetachpending = false`, three valid attached indexes, no leftover
+   constraint). Four preconditions, the first of which is the trap the tracker carried in:
+   pause the sweep or confirm the day is inside `RetentionWindow`, or the next
+   maintenance pass drops the evidence. Two sources — the nightly per-partition dump and
+   PITR to a scratch instance — converge on one `.dump` file, so the procedure is the same.
+2. **`PartitionRestoreDrillIntegrationTest`** — the runbook's commands run inside the real
+   PostgreSQL 17 container against a 200,000-row `lorastats` day, with a writer inserting
+   into the neighbouring day throughout. Asserts every step-7 check, zero writer failures,
+   no insert slower than one second, and the total under one hour; prints the timing table.
+   **Measured: 1.229 s end to end** (dump 0.29 s, standalone restore 0.88 s, attach 1 ms);
+   6,517 concurrent inserts, p99 0.3 ms, worst 55 ms, none failed. The runbook's numbers
+   are the drill's output, and the drill runs in every build, so they cannot drift apart.
+3. **WAL archiving on in Compose** — `archive_mode=on`, `archive_timeout=300`, the archive
+   on its own `postgres-wal-archive` volume, and the entrypoint wrapped to `chown` that
+   directory before the stock entrypoint runs (finding 3). Verified: `archived_count`
+   advancing, segments present on the volume.
+4. **`ops/prometheus/postgres-alerts.yml`** — `StatsAppWalArchiveFailing` (failures in
+   each of five minutes, critical), `StatsAppWalArchiveStale` (nothing archived for 15 min
+   while `archive_mode` is on — a *hanging* command counts no failure, critical),
+   `StatsAppWalArchiveDisabled` (30 min, warning) and `StatsAppPostgresExporterDown`
+   (`pg_up == 0`; without it the other three go silent rather than fire). Five `promtool`
+   scenarios, including the measured root-owned-volume failure and a scratch instance
+   with archiving off that must not page. Wired into CI beside the other two files.
+5. **A Compose `observability` profile** — `postgres_exporter` (read-only identity, mapped
+   inside the container because the compose file carries no `${…}` by design) and a
+   Prometheus scraping the three modules and the exporter with all three rule files.
+   Grafana joins it under T-056.
+
+**Rejected.** *Restoring inside PGDATA or with the row-by-row `pg_restore`* — finding 1.
+*Skipping the CHECK because the drill's day is small* — finding 2 is the difference between
+a millisecond and minutes on a 23-million-row production day, and the RTO depends on it.
+*A `postgres_exporter` sidecar in the default profile* — it is observability, not the
+stack; and its image could not be pulled on 21 Sep (no registry access), so the rules are
+tested against the documented series names and flagged in `ops/prometheus/README.md` to
+be verified on the first live scrape.
+
+**Residual.** The drill measures a 200k-row day on a laptop; a production day is ~23M
+rows per type, and PITR replay on a scratch instance — not the steps here — is where a
+real restore spends its hour. The nightly per-partition dump job the runbook's first source
+assumes is operations' to schedule; the drill's step 1 is the command it runs.

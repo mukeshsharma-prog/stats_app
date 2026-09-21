@@ -6,6 +6,26 @@ It is still auto-loaded every session: the repository-root `CLAUDE.md` is a
 pointer file whose only content is an `@claude/CLAUDE.md` import. Edit this file,
 not the pointer.
 
+> **Version 1.21 — 21 September 2026 (night).** No decision in 1.20 changes. What changes
+> is that **the per-partition restore is rehearsed, timed and written down, and WAL
+> archiving is on and watched**. Governing entry: **DL-155** (T-051).
+>
+> * **`docs/runbooks/partition-restore.md`** is the ADR-003 D5 shape — load the child
+>   standalone, add a CHECK matching the bound, `ATTACH` in one statement — because a
+>   plain `pg_restore` of a partition dump attaches the empty child *first*, loads it
+>   row by row in full view of the API, and then exits 1 on its own index statements.
+> * **Measured, not assumed:** `PartitionRestoreDrillIntegrationTest` restores a
+>   200,000-row day and re-attaches it in **1.23 s** (attach: 1 ms) with a writer
+>   inserting into the neighbouring day throughout — 6,517 inserts, none failed, worst
+>   55 ms. RTO is 1 h. The drill runs in every build; the runbook quotes its output.
+> * **RPO ≤ 5 min is configured and alerted.** Compose runs `archive_mode=on`,
+>   `archive_timeout=300` on its own volume — with the archive directory `chown`ed
+>   first, because a fresh named volume is root-owned and archiving then fails with no
+>   symptom but `pg_stat_archiver.failed_count`. `ops/prometheus/postgres-alerts.yml`
+>   pages on a failing or stalled archiver; five `promtool` scenarios; in CI.
+> * **What to do next:** T-054, T-055 (measure the built sweep), T-056 (dashboards —
+>   the `observability` profile now exists to host them), T-048.
+>
 > **Version 1.20 — 21 September 2026 (evening, later).** No decision in 1.19 changes.
 > What changes is that **the `BIGINT` range check exists once**. Governing entry:
 > **DL-154** (T-062).
@@ -1061,6 +1081,7 @@ plan is not written against a repository that no longer exists. Full reasoning:
 | DL-150 | **A Writer log line never repeats a key the MDC scope owns.** Seven `WARN` sites were being dropped by the ECS encoder since T-005 — silently after the fourth. `WriterLogsDoNotShadowMdcKeysTest` fails the build; `EcsEncoderDropsDuplicateKeysTest` pins why | T-005 (amended), every fan-out task |
 | DL-151 | **Two ingest doors, one handler; device-scoped read paths in the contract.** `/internal/stats` and `/external/stats` share everything but the `source` label; `/{type}/{clsbox}/{from}[/{to}]` is tenant-scoped, open-ended, empty-200 on a foreign gateway, contract-only. Residual: no tenant binding on the external door | T-013/T-017/T-018 (amended), **T-067**, **T-068** |
 | DL-152 | **Documents and tracker reconciled** to DL-145…DL-151; ADR-006 amended — 404 is the `uid` lookup's answer, the empty page is the device list's; T-067/T-068/T-069 exist | — |
+| DL-155 | **Per-partition restore drilled and timed; WAL archiving on and watched.** Runbook `docs/runbooks/partition-restore.md` (load-then-attach; a plain `pg_restore` attaches first, loads in view, exits 1). Drill: 200k rows, **1.23 s**, attach 1 ms, writer never blocked. Compose: `archive_mode=on`, `archive_timeout=300`, archive directory owned before start (root-owned volume = silent archiver failure). `postgres-alerts.yml`: failing / stale / disabled / exporter down | T-051 |
 | DL-154 | **One wire-number coercion, and the build refuses a second.** `WireNumbers` — `requiredInteger`/`optionalInteger`, `requiredDigitString`/`optionalDigitString(Sign)`, `parseDigitString` — range-checks against `BigInteger` before conversion; every refusal is permanent and names only the field. Found on extraction: a lorastats integer overflow was *retried* (35½ min) before dead-lettering, and the dialect-B coercion accepted a negative string. `WireNumbersIsTheOnlyCoercionTest` scans the persistence package | T-062, T-034, T-037 |
 | DL-153 | **`omsstats` is built, additively, from the sysstats slice — and nothing shared moved.** `V7__omsstats_table.sql` with the CHECK, `data_extra`, `(ts_device, uid)` and the two ADR-003 indexes; every payload column a `NOT NULL bigint`; `ts.converter` preserved in `passthrough`, no normalisation column (ADR-004). An integer wider than `BIGINT` is `unmappable` before conversion; `"300"` is refused, not guessed. Fixture `valid/omsstats-counter-overflow.json`. The coercion helper is deliberately left to T-062 | T-036, T-062 |
 
@@ -1257,6 +1278,7 @@ only `README.md` (the index) and a `CLAUDE.md` pointer that imports this file.
 | `docs/contracts/build-html.sh` | Renders **both** contracts onto one page, `stats-api-v1-draft.html` — generated, never committed (DL-117); CI uploads it as a workflow artifact |
 | `docs/contracts/amqp-topology-v1.md` | Exchange, per-type queues, retry/DLQ, redrive |
 | `docs/contracts/writer-metrics-v1.md` | **Every Writer metric, its labels and its measurement boundary** — what `records_persisted` does and does not count, why a failed broker poll is NaN, how replicas aggregate (DL-136, DL-137) |
+| `docs/runbooks/partition-restore.md` | **The per-partition restore procedure** — load-then-attach, four preconditions (pause the sweep first), four post-attach checks, measured timings from the drill that runs in every build (T-051, DL-155) |
 | `docs/runbooks/dlq-redrive.md` | **The DLQ redrive procedure** — access, one-record pilot, audit line, stop conditions, and the 90-day trap made checkable against `records_expired_on_arrival` (DL-138) |
 | `docs/contracts/openapi.yaml` | **The API contract.** OpenAPI 3.1, GET-only: `/v1/stats/{type}` (tenant-wide list), `/v1/stats/{type}/{clsbox}/{from}[/{to}]` (one gateway, DL-151) and `/v1/stats/{type}/{uid}`. Draft pending ZC confirmation; gates Phase 4 |
 | `docs/contracts/openapi-v1-design.md` | Design input for the above. Converted 21 Aug 2026 — the YAML wins where they differ |

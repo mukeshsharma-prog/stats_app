@@ -1,0 +1,30 @@
+# Prometheus for the Compose `observability` profile (T-051, T-056).
+#
+# Scrapes the three modules' /actuator/prometheus and postgres_exporter, and evaluates
+# every rule file in this directory. Targets are the Compose service names; on any other
+# deployment replace them with service discovery and keep the rule files as they are.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 1m
+
+rule_files:
+  - /etc/prometheus/rules/dlq-alerts.yml
+  - /etc/prometheus/rules/writer-alerts.yml
+  - /etc/prometheus/rules/postgres-alerts.yml
+
+scrape_configs:
+  - job_name: stats-input
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["stats-input:8081"]
+  - job_name: stats-writer
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["stats-writer:8082"]
+  - job_name: stats-api
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["stats-api:8083"]
+  - job_name: postgres
+    static_configs:
+      - targets: ["postgres-exporter:9187"]

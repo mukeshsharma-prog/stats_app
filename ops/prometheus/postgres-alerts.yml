@@ -1,0 +1,86 @@
+# PostgreSQL archiver alerts — the RPO <= 5 min half of ADR-003 D5 (DL-111; T-051, DL-155).
+#
+# Evaluated from postgres_exporter's scrape (the `observability` Compose profile, or the
+# platform's exporter on a managed instance). RPO <= 5 min is only true while archived WAL
+# is actually reaching the archive: archive_mode=on with archive_timeout=300 ships a
+# segment at least every five minutes -- but an archive_command that fails (a full disk,
+# a permission on a fresh volume, an unreachable bucket) is retried forever by the
+# archiver and reported NOWHERE except pg_stat_archiver. The database keeps running,
+# every Writer counter reads healthy, and the recovery point quietly stops moving.
+# These rules are what turns that into a page.
+#
+# Series (postgres_exporter built-in pg_stat_archiver collector):
+#   pg_stat_archiver_failed_count       counter of failed archive attempts
+#   pg_stat_archiver_last_archive_age   seconds since the last WAL segment was archived
+#   pg_settings_archive_mode            1 when archive_mode=on
+#   pg_up                               1 when the exporter can reach the server
+groups:
+  - name: stats-app-postgres
+    rules:
+      # The archiver is failing. One failure is retried; a failure that keeps happening
+      # for five minutes is a recovery point that is no longer moving.
+      - alert: StatsAppWalArchiveFailing
+        expr: increase(pg_stat_archiver_failed_count[5m]) > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL WAL archiving is failing ({{ $value | humanize }} failures in 5m)"
+          description: >-
+            archive_command has failed repeatedly for five minutes. Every WAL segment since
+            the last success is still on the primary's disk and nowhere else: the recovery
+            point is stuck and RPO <= 5 min (DL-111) is not being met. Check
+            pg_stat_archiver.last_failed_wal and the server log for the command's stderr;
+            a fresh volume owned by root and a full archive disk are the two known causes.
+          runbook: docs/runbooks/partition-restore.md
+
+      # Nothing has been archived for longer than three archive_timeouts. With
+      # archive_timeout=300 the age never legitimately exceeds ~600 s; 900 s is stuck.
+      # Gated on archive_mode so a deliberately unarchived instance (a local scratch
+      # database) does not page anyone.
+      - alert: StatsAppWalArchiveStale
+        expr: pg_stat_archiver_last_archive_age > 900 and on (instance) pg_settings_archive_mode == 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL has not archived a WAL segment for {{ $value | humanizeDuration }}"
+          description: >-
+            archive_mode is on and archive_timeout ships a segment at least every five
+            minutes, so the last archived segment should never be more than ~10 minutes
+            old. It is older than 15 minutes: the archiver is stalled, or archive_command
+            is hanging rather than failing (a network archive target that accepts the
+            connection and never answers). The recovery point is not moving.
+          runbook: docs/runbooks/partition-restore.md
+
+      # Archiving is switched off on an instance that carries retained data. This is a
+      # configuration alert, not an incident: it says RPO <= 5 min is not configured.
+      - alert: StatsAppWalArchiveDisabled
+        expr: pg_settings_archive_mode == 0
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PostgreSQL archive_mode is off on {{ $labels.instance }}"
+          description: >-
+            Continuous WAL archiving is the mechanism behind RPO <= 5 min (ADR-003 D5,
+            DL-111). With it off, the only backup is whatever base backup or per-partition
+            dump last ran, and docs/runbooks/partition-restore.md cannot deliver a
+            point-in-time day. Expected on a throwaway local database; never in a shared
+            deployment.
+          runbook: docs/runbooks/partition-restore.md
+
+      # The exporter cannot reach the server. Without this the three rules above go
+      # silent rather than firing -- an absent series compares equal to nothing.
+      - alert: StatsAppPostgresExporterDown
+        expr: pg_up == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "postgres_exporter cannot reach PostgreSQL on {{ $labels.instance }}"
+          description: >-
+            Every PostgreSQL rule in this file is blind while pg_up is 0. Either the
+            server is down -- in which case the Writer's readiness probe and
+            records_postgres_errors are already saying so -- or the exporter's read-only
+            credential is wrong.

@@ -1,0 +1,158 @@
+rule_files:
+  - postgres-alerts.yml
+
+evaluation_interval: 1m
+
+tests:
+  # ---- Healthy: archiving on, segments shipping every five minutes, no failures ----
+  - name: a healthy archiver raises nothing
+    interval: 1m
+    input_series:
+      - series: 'pg_up{instance="pg"}'
+        values: '1x40'
+      - series: 'pg_settings_archive_mode{instance="pg"}'
+        values: '1x40'
+      - series: 'pg_stat_archiver_failed_count{instance="pg"}'
+        values: '3x40'
+      # age climbs to ~300 s then resets as each timeout ships a segment
+      - series: 'pg_stat_archiver_last_archive_age{instance="pg"}'
+        values: '0+60x4 0+60x4 0+60x4 0+60x4 0+60x4 0+60x4 0+60x4 0+60x4'
+    alert_rule_test:
+      - eval_time: 40m
+        alertname: StatsAppWalArchiveFailing
+        exp_alerts: []
+      - eval_time: 40m
+        alertname: StatsAppWalArchiveStale
+        exp_alerts: []
+      - eval_time: 40m
+        alertname: StatsAppWalArchiveDisabled
+        exp_alerts: []
+      - eval_time: 40m
+        alertname: StatsAppPostgresExporterDown
+        exp_alerts: []
+
+  # ---- The measured failure: a root-owned archive directory on a fresh volume ------
+  - name: an archive_command that keeps failing is critical after five minutes
+    interval: 1m
+    input_series:
+      - series: 'pg_up{instance="pg"}'
+        values: '1x20'
+      - series: 'pg_settings_archive_mode{instance="pg"}'
+        values: '1x20'
+      - series: 'pg_stat_archiver_failed_count{instance="pg"}'
+        values: '0+1x20'
+      - series: 'pg_stat_archiver_last_archive_age{instance="pg"}'
+        values: '0+60x20'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: StatsAppWalArchiveFailing
+        exp_alerts: []
+      - eval_time: 12m
+        alertname: StatsAppWalArchiveFailing
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              instance: pg
+            exp_annotations:
+              summary: "PostgreSQL WAL archiving is failing (5 failures in 5m)"
+              description: >-
+                archive_command has failed repeatedly for five minutes. Every WAL segment since
+                the last success is still on the primary's disk and nowhere else: the recovery
+                point is stuck and RPO <= 5 min (DL-111) is not being met. Check
+                pg_stat_archiver.last_failed_wal and the server log for the command's stderr;
+                a fresh volume owned by root and a full archive disk are the two known causes.
+              runbook: docs/runbooks/partition-restore.md
+
+  # ---- A hanging archive_command: no failures counted, the age just climbs -----------
+  - name: an archiver that has shipped nothing for fifteen minutes is stale, but only when archiving is on
+    interval: 1m
+    input_series:
+      - series: 'pg_up{instance="pg"}'
+        values: '1x30'
+      - series: 'pg_settings_archive_mode{instance="pg"}'
+        values: '1x30'
+      - series: 'pg_stat_archiver_failed_count{instance="pg"}'
+        values: '0x30'
+      - series: 'pg_stat_archiver_last_archive_age{instance="pg"}'
+        values: '0+60x30'
+      # a scratch instance with archiving off and a huge age must NOT page
+      - series: 'pg_up{instance="scratch"}'
+        values: '1x30'
+      - series: 'pg_settings_archive_mode{instance="scratch"}'
+        values: '0x30'
+      - series: 'pg_stat_archiver_last_archive_age{instance="scratch"}'
+        values: '86400x30'
+    alert_rule_test:
+      - eval_time: 14m
+        alertname: StatsAppWalArchiveStale
+        exp_alerts: []
+      - eval_time: 21m
+        alertname: StatsAppWalArchiveStale
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              instance: pg
+            exp_annotations:
+              summary: "PostgreSQL has not archived a WAL segment for 21m 0s"
+              description: >-
+                archive_mode is on and archive_timeout ships a segment at least every five
+                minutes, so the last archived segment should never be more than ~10 minutes
+                old. It is older than 15 minutes: the archiver is stalled, or archive_command
+                is hanging rather than failing (a network archive target that accepts the
+                connection and never answers). The recovery point is not moving.
+              runbook: docs/runbooks/partition-restore.md
+      - eval_time: 21m
+        alertname: StatsAppWalArchiveFailing
+        exp_alerts: []
+
+  # ---- Archiving off for half an hour is a configuration warning ---------------------
+  - name: archive_mode off is a warning after thirty minutes
+    interval: 1m
+    input_series:
+      - series: 'pg_up{instance="pg"}'
+        values: '1x40'
+      - series: 'pg_settings_archive_mode{instance="pg"}'
+        values: '0x40'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: StatsAppWalArchiveDisabled
+        exp_alerts: []
+      - eval_time: 35m
+        alertname: StatsAppWalArchiveDisabled
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              instance: pg
+            exp_annotations:
+              summary: "PostgreSQL archive_mode is off on pg"
+              description: >-
+                Continuous WAL archiving is the mechanism behind RPO <= 5 min (ADR-003 D5,
+                DL-111). With it off, the only backup is whatever base backup or per-partition
+                dump last ran, and docs/runbooks/partition-restore.md cannot deliver a
+                point-in-time day. Expected on a throwaway local database; never in a shared
+                deployment.
+              runbook: docs/runbooks/partition-restore.md
+
+  # ---- The exporter is blind ---------------------------------------------------------
+  - name: an unreachable server pages once, through pg_up, rather than going silent
+    interval: 1m
+    input_series:
+      - series: 'pg_up{instance="pg"}'
+        values: '1 1 1 0 0 0 0 0 0 0 0 0'
+    alert_rule_test:
+      - eval_time: 11m
+        alertname: StatsAppPostgresExporterDown
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              instance: pg
+            exp_annotations:
+              summary: "postgres_exporter cannot reach PostgreSQL on pg"
+              description: >-
+                Every PostgreSQL rule in this file is blind while pg_up is 0. Either the
+                server is down -- in which case the Writer's readiness probe and
+                records_postgres_errors are already saying so -- or the exporter's read-only
+                credential is wrong.
+      - eval_time: 11m
+        alertname: StatsAppWalArchiveStale
+        exp_alerts: []

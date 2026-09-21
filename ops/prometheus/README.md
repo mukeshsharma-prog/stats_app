@@ -1,7 +1,7 @@
 # Prometheus alert rules
 
-Two rule files, both loaded by Prometheus and evaluated from the Writer's existing
-`/actuator/prometheus` scrape. Grafana reads the Prometheus alert state for visibility and
+Three rule files, all loaded by Prometheus: two evaluated from the Writer's existing
+`/actuator/prometheus` scrape, one from `postgres_exporter`. Grafana reads the Prometheus alert state for visibility and
 the platform configuration routes notifications to the approved contact points. Nothing in
 either file inspects, consumes or requeues a message, and there is no application
 property that pretends to configure an external evaluator.
@@ -10,6 +10,12 @@ property that pretends to configure an external evaluator.
 |---|---|---|
 | `dlq-alerts.yml` | T-060 (DL-144) | `dlq_depth` — non-empty now, for 7 days, for 12 days |
 | `writer-alerts.yml` | T-050 (DL-147) | `queue_oldest_message_age_seconds`, `consumer_availability`, `queue_depth` + `records_consumed`, `broker_metrics_collection_success`, `records_expired_on_arrival`, `records_upstream_status_not_ok` |
+| `postgres-alerts.yml` | T-051 (DL-155) | `pg_stat_archiver_failed_count`, `pg_stat_archiver_last_archive_age`, `pg_settings_archive_mode`, `pg_up` — the WAL archiver, i.e. whether RPO ≤ 5 min (ADR-003 D5, DL-111) is actually being met |
+
+`prometheus.yml` is the scrape configuration the Compose `observability` profile mounts
+(`docker compose --profile apps --profile observability up -d`): the three modules and
+`postgres_exporter`, evaluating all three rule files. On any other deployment replace the
+static targets and keep the rules.
 
 Every rule aggregates replica observations with `max by (type)` — each Writer replica
 polls the same broker queue (DL-137) — or sums per-replica counters, which are genuinely
@@ -124,14 +130,14 @@ docker run --rm \
   --volume "$PWD/ops/prometheus:/work:ro" \
   --workdir /work \
   prom/prometheus:v3.5.0 \
-  check rules dlq-alerts.yml writer-alerts.yml
+  check rules dlq-alerts.yml writer-alerts.yml postgres-alerts.yml
 
 docker run --rm \
   --entrypoint promtool \
   --volume "$PWD/ops/prometheus:/work:ro" \
   --workdir /work \
   prom/prometheus:v3.5.0 \
-  test rules dlq-alerts.test.yml writer-alerts.test.yml
+  test rules dlq-alerts.test.yml writer-alerts.test.yml postgres-alerts.test.yml
 ```
 
 `writer-alerts.test.yml` covers: a healthy queue raising nothing; warning without
@@ -140,3 +146,27 @@ rule firing instead; no consumer after two minutes; a stalled consumer versus a 
 on an empty queue; late arrival firing for an hour and clearing; the ratio breaching
 after its pending hour; and a baseline below threshold, with zero traffic not dividing
 into an alert.
+
+## WAL archiver — the RPO half of ADR-003 D5
+
+`postgres-alerts.yml` exists because the failure it watches has no other symptom. With
+`archive_mode=on` the archiver retries a failing `archive_command` forever and reports it
+only in `pg_stat_archiver`: the database runs, every Writer counter reads healthy, and the
+recovery point quietly stops moving. Measured on 21 Sep 2026: a fresh Compose volume is
+created root-owned, so the postgres user could not write the archive — `failed_count=7`,
+`archived_count=0`, nothing anywhere else. `docker-compose.yml` now owns the directory
+before the server starts; the rule is what catches the next cause.
+
+| Rule | Fires when | Severity |
+|---|---|---|
+| `StatsAppWalArchiveFailing` | `archive_command` has failed at least once in each of the last five minutes | critical |
+| `StatsAppWalArchiveStale` | nothing archived for 15 min while `archive_mode` is on — a hanging command counts no failure, the age just climbs | critical |
+| `StatsAppWalArchiveDisabled` | `archive_mode` off for 30 min — a configuration warning, expected on a scratch database | warning |
+| `StatsAppPostgresExporterDown` | `pg_up == 0` for 5 min — every rule above is blind while this is true | warning |
+
+Series names are `postgres_exporter`'s built-in `pg_stat_archiver` collector (v0.15+).
+**Verify them on the first real scrape**: the exporter image could not be pulled on the
+21 Sep machine (no registry access), so the rules were unit-tested with `promtool` against
+the documented names and not yet against a live `/metrics`. The runbook they point at is
+`docs/runbooks/partition-restore.md`.
+

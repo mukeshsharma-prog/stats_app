@@ -126,6 +126,22 @@ Brings up:
 | RabbitMQ | 5672 / 15672 | Management UI on 15672, `guest`/`guest` |
 | Keycloak | 8080 | Dev mode, realm imported at startup |
 
+PostgreSQL runs with **continuous WAL archiving on** (`archive_mode=on`,
+`archive_timeout=300`, archive on its own `postgres-wal-archive` volume) — the RPO ≤ 5 min
+half of ADR-003 D5 (T-051, DL-155). Check it is actually shipping with
+`docker exec stats-postgres psql -U stats -d statsdb -c 'select * from pg_stat_archiver'`:
+`failed_count` must be 0 and `last_archived_time` recent. A non-zero `failed_count` with
+nothing else wrong is the known trap (a root-owned archive directory); the compose file
+owns the directory before the server starts, and `ops/prometheus/postgres-alerts.yml`
+pages on it.
+
+The `observability` profile adds Prometheus (9090) and `postgres_exporter` (9187)
+scraping the modules and evaluating every rule file in `ops/prometheus`:
+
+```bash
+docker compose --profile apps --profile observability up -d
+```
+
 ### 3.2 Verify
 
 ```bash
