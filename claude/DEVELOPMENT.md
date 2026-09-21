@@ -131,8 +131,21 @@ Brings up:
 ```bash
 docker compose ps                                   # all healthy
 curl http://localhost:15672                         # RabbitMQ management UI
-psql -h localhost -U stats -d statsdb -c "select 1"
+docker exec stats-postgres psql -U stats -d statsdb -c "select 1"
 ```
+
+Two things that break the loop on a developer machine, both found on 19 Sep 2026:
+
+* **Go through `docker exec` for `psql`.** A Homebrew or Postgres.app server on the host
+  binds `127.0.0.1:5432` *ahead of* Docker's port mapping, so `psql -h localhost` reaches
+  the wrong server and fails with `role "stats" does not exist` — which looks exactly like
+  a broken init script. `docker exec stats-postgres psql -U stats -d statsdb` cannot be
+  misrouted.
+* **Keep `.env` `source`-safe.** Boot does not read `.env`, so for `bootRun` you
+  `set -a; source .env; set +a` — and an unquoted value containing `(`
+  (`STATS_REALM_DISPLAY_NAME`) aborts that `source` in bash and zsh, leaving every
+  variable after it unset. Docker Compose reads the same file fine, which is why it goes
+  unnoticed. Quote it, as `.env.example` does.
 
 ### 3.3 Run the modules
 
@@ -151,6 +164,16 @@ tables to exist.
 
 ### 3.4 Smoke test
 
+**The end-to-end demo is `docker/demo.sh`.** With the `apps` profile up it runs ten
+steps — happy path across two stat types, a three-weeks-late record (DL-149), duplicate
+suppression, the two validation gates with their two different consequences, late
+arrival, non-OK upstream status, the ops gauges, both security boundaries, and the broker
+going down and coming back — printing the live response, counters and rows for each, and
+naming the rule every step proves. Run it after any change to the consume path; it is the
+one place all of §5's rules are exercised together against real infrastructure.
+
+The manual version of its first step:
+
 ```bash
 # 1. Send a record.
 #    approved-types.json is a map keyed by stat type, so extract one record.
@@ -163,7 +186,7 @@ curl -X POST http://localhost:8081/stats \
 #    → http://localhost:15672 → Queues → app_statsstore.lorastats
 
 # 3. Confirm it was stored
-psql -h localhost -U stats -d statsdb -c "select count(*) from lorastats"
+docker exec stats-postgres psql -U stats -d statsdb -c "select count(*) from lorastats"
 
 # 4. Read it back (needs a token — see §6)
 curl http://localhost:8083/v1/stats/lorastats \
@@ -267,6 +290,9 @@ stats.retention.stagger=PT30S
 # pre-creation and THEN retention, so tomorrow's partition exists before
 # yesterday's is dropped.
 stats.retention.partition-granularity=daily
+# Days AHEAD. Every pass also ensures every retained day BEHIND today, back to the
+# cutoff (DL-149) — so a record from a gateway back after weeks offline has a
+# partition on a deployment a minute old. That half is not configurable.
 stats.retention.pre-create-days=7
 stats.retention.schedule=0 30 3 * * *        # Spring 6-field cron, off-peak
 stats.retention.pre-create-on-startup=true

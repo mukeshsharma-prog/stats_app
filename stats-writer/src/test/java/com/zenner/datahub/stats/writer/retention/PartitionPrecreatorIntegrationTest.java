@@ -167,7 +167,7 @@ class PartitionPrecreatorIntegrationTest {
                                 precreator.ensurePartitions(
                                         StatType.LORASTATS,
                                         LocalDate.of(2098, 7, 1),
-                                        RetentionProperties.MAX_PRE_CREATE_DAYS + 1))
+                                        RetentionProperties.MAX_ENSURED_DAYS + 1))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("must not exceed");
     }

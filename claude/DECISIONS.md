@@ -4621,3 +4621,105 @@ a sysstats record committed and ACKed, a redelivery absorbed, and a poison sysst
 payload in the **sysstats** DLQ on attempt one with a healthy lorastats record committed
 beside it and the lorastats DLQ untouched. `ManagementSurfaceTest` scrapes the sysstats
 series at zero from startup.
+
+### DL-149 — Partition pre-creation covers the whole retention window, not only the days ahead
+
+**20 September 2026** · `ENGINEERING` · STA-23A, STA-23B, STA-23C, STA-25A, ADR-003 D1/D3, DL-096, DL-132, DL-133 · found by the first end-to-end demo against the compose stack
+
+**Trigger.** The first demo posted the production-dated fixtures (27 Aug 2026, 23 days
+old) into a stack rebuilt that morning. Input returned 200 for every one; the Writer
+dead-lettered every one at `attempt=1, permanent=true` with SQLSTATE `23514` —
+PostgreSQL's *no partition of relation … found for row*. Pre-creation was **forward
+only**: `[today, today + pre-create-days]`. `RetentionGuard` only handles records
+*past* the window. A valid record inside the window but before the deployment's first
+day — a gateway back from three weeks offline, the path §6 of `CLAUDE.md` and STA-23B
+call normal — had nowhere to go, and `DataIntegrityViolationException` is permanent, so
+it went straight to a DLQ that never expires, where a redrive re-derives the identical
+failure. `records_persisted` stayed at zero and `records_write_failed` moved; nothing
+said *why*, and the row it names is the one ops most wants after an outage.
+
+**Decision.** Every maintenance pass — the startup one (DL-096) and the daily one —
+ensures partitions for **`[cutoffDay, today + pre-create-days]`**, both ends from
+`RetentionWindow`. `PartitionMaintenance` computes the range; `PartitionPrecreator`
+gains no new behaviour, only a wider bound (`MAX_ENSURED_DAYS`). This makes the
+`RetentionWindow` contract symmetric: the guard admits exactly the days that have a
+partition, and the sweep drops strictly before the same day, so the two halves of one
+pass cannot fight over a partition even when the pass straddles midnight UTC.
+
+**Why this and not the alternatives.** *Lazy creation on the first `23514`* was
+already rejected by DL-096 — DDL on the consume path, racing across replicas, in the
+one code path that is already failing. *A `DEFAULT` partition* was rejected by ADR-003's
+late-arrival analysis — it degrades pruning and grows unwatched. *Treating `23514` as
+transient* would push the record through three tiers to the same DLQ, slower. *Doing
+nothing because production will have grown its own history* is wrong twice: the window
+before first deployment is 90 days of exactly this loss, and a scheduled run missed for
+longer than `pre-create-days` leaves a permanent hole afterwards — which the daily
+backfill now closes on the next pass. The cost is ~`retention-days` empty partitions
+per type, each a catalogue entry with two empty indexes; pruning ignores them and the
+sweep drops them on schedule. Empty partitions are free; a lost record is a lost record.
+
+**What the demo does instead, and why it is not the fix.** `docker/demo.sh` still
+re-stamps the valid fixtures to *now*, because a fixture dated 27 Aug 2026 will be past
+the window by late November and the demo has to keep working. It also posts one record
+re-stamped to `ts.device = now − 21 d`, which is the DL-149 case demonstrated on
+purpose.
+
+**Tests.** `PartitionMaintenanceTest` now verifies the exact range handed to the
+precreator — cutoff day, `retentionDays + preCreateDays` — including under a host zone
+twelve hours ahead of UTC. `PartitionBootstrapIntegrationTest` boots the real module
+against real PostgreSQL with a 30-day window and asserts 38 partitions, that a record
+measured 21 days ago inserts on a deployment minutes old, and that the cutoff day itself
+is retained. 73 retention tests, 0 failures.
+
+**Residual.** None open. One observation: the fixture set's 29 Aug production
+timestamps are now a *feature* of the demo rather than a hazard — but any new
+integration test that posts them raw into a fresh context depends on this entry.
+
+### DL-150 — A Writer log line never repeats a key the delivery's MDC scope owns; the guard fails the build
+
+**20 September 2026** · `ENGINEERING` · NFR-02, ADR-001, DL-114, DL-124, DL-134, T-005, T-066 · found by the same demo
+
+**Trigger.** Four lines of `Appender [CONSOLE] failed to append.
+java.lang.IllegalStateException: Duplicate nested pairs added under 'uid'` in the
+Writer's console, then silence. Not four dropped lines: logback reports the first
+**four** appender failures to its status manager and then stops reporting them, while
+continuing to drop. Seven statements on the consume path added `uid` — some also
+`statType` and `clsbox` — with `addKeyValue` while `WriterLogContext` (DL-134) already
+had the same keys in the MDC for the whole delivery. Spring Boot's ECS formatter writes
+both sets into one JSON object and refuses the duplicate. **Every `payload_rejected`,
+`expired_on_arrival`, `upstream_status_not_ok` and `write_failed` line the Writer has
+emitted since T-005 was discarded**, with every counter reading correctly and the
+`dead_lettered` line — which never repeated a key — arriving normally beside the gap.
+
+**Why no test caught it.** A test logger has no ECS encoder; the statements "worked"
+under `StructuredLoggingContractTest`, which checks for an `event` key and does not
+render. The failure exists only under the production appender, in a process nobody
+reads the logback status of. That is the definition of a rule that has to be enforced
+where the code is written.
+
+**Decision.** The six MDC keys — `traceId`, `uid`, `statType`, `tenant`, `clsbox`,
+`errorCode` — are the scope's to set (`WriterLogContext.open`, `bindRecord`,
+`errorCode`) and no `stats-writer` statement adds them as a key-value pair. The seven
+sites are corrected; the lines lose nothing, because the scope was already carrying
+the same value. `WriterLogsDoNotShadowMdcKeysTest` in `stats-common`'s architecture
+package scans the module: the four delivery-only keys are forbidden everywhere;
+`statType` and `errorCode` are allowed only in the three files that provably run on
+the scheduler or poll thread with no delivery open (`PartitionMaintenance`,
+`PartitionRetention`, `OperationalMetrics`), each listed with its reason.
+`EcsEncoderDropsDuplicateKeysTest` in `stats-writer` characterises the mechanism
+against the real `StructuredLogEncoder` in `ecs` format, so the guard's justification
+is executable: if a Boot release ever stops throwing on a duplicate member, that test
+fails first and the guard can be reconsidered.
+
+**Rejected.** *Renaming the pairs* (`recordUid`) — two names for one value on one line
+is the drift DL-134 removed. *Customising the formatter to prefer one side* — a
+formatter that silently resolves duplicates hides the next collision instead of
+reporting it. *Dropping the MDC in favour of pairs* — the scope exists so that
+statements in code that never sees the envelope (the retry router, the ACK path) still
+carry the identifiers.
+
+**Residual.** `stats-input` has its own MDC context (`IngestLogContext`) and one
+`addKeyValue("uid", …)` in `InputAmqpConfiguration` — outside any request scope, on the
+confirm callback thread, so it does not collide today. The guard is scoped to the
+Writer because that is where the encoder is ECS; extending it to Input when Input
+adopts structured console output is a one-line change to `MODULE`.

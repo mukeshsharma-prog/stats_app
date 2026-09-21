@@ -8,7 +8,6 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Objects;
 import org.slf4j.Logger;
@@ -30,6 +29,16 @@ import org.springframework.stereotype.Component;
  * and ordering them explicitly is what stops a badly timed run from dropping yesterday
  * before tomorrow exists. Two separately scheduled tasks on one cron would have left the
  * order to whatever the scheduler happened to register first.</p>
+ *
+ * <p><strong>Pre-creation covers the whole retention window, not just the days ahead
+ * (DL-149).</strong> The range ensured on every pass is {@code [cutoffDay, today +
+ * pre-create-days]}, both ends from {@link RetentionWindow} — the same cutoff the sweep
+ * drops on and the guard admits on. Ahead-only pre-creation left every retained day
+ * before first deployment, and every day a scheduled run missed, without a partition;
+ * a valid record for such a day — a gateway back from three weeks offline, exactly the
+ * path STA-23B says is normal — failed its INSERT with SQLSTATE 23514 and was
+ * dead-lettered as <em>permanent</em>, where a redrive re-derives the same verdict
+ * forever. Empty partitions are catalogue entries; a lost record is a lost record.</p>
  *
  * <p><strong>Two callers, two failure policies, on purpose.</strong>
  * {@link #ensureBeforeIngestion()} runs at startup and lets the failure escape, so
@@ -55,6 +64,7 @@ public class PartitionMaintenance {
     private final PartitionPrecreator precreator;
     private final PartitionRetention retention;
     private final RetentionProperties properties;
+    private final RetentionWindow window;
     private final RetentionMetrics metrics;
     private final Clock clock;
 
@@ -65,12 +75,14 @@ public class PartitionMaintenance {
             PartitionPrecreator precreator,
             PartitionRetention retention,
             RetentionProperties properties,
+            RetentionWindow window,
             RetentionMetrics metrics,
             Clock clock,
             @Value("${stats.writer.stat-type:" + ALL_TYPES + "}") String configuredStatType) {
         this.precreator = Objects.requireNonNull(precreator, "precreator");
         this.retention = Objects.requireNonNull(retention, "retention");
         this.properties = Objects.requireNonNull(properties, "properties");
+        this.window = Objects.requireNonNull(window, "window");
         this.metrics = Objects.requireNonNull(metrics, "metrics");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.selectedType = parseSelectedType(configuredStatType);
@@ -159,9 +171,14 @@ public class PartitionMaintenance {
     }
 
     private void ensureOne(StatType type, String trigger) {
-        LocalDate todayUtc = today();
+        // From the first retained day through the pre-creation horizon, inclusive. The
+        // cutoff is RetentionWindow's, so the ensured set and the guard's admitted set
+        // cannot disagree (DL-133, DL-149); the sweep that follows drops strictly before
+        // the same day, so the two halves of the pass never fight over one partition.
+        LocalDate firstDay = window.cutoffDay(type);
+        int daysAfterFirst = window.retentionDaysFor(type) + properties.preCreateDays();
         PartitionPrecreationResult result =
-                precreator.ensurePartitions(type, todayUtc, properties.preCreateDays());
+                precreator.ensurePartitions(type, firstDay, daysAfterFirst);
         if (!result.lockAcquired()) {
             // ADR-003 D3: another replica owns this type's maintenance run. Not an error.
             LOGGER.atDebug()
@@ -175,10 +192,12 @@ public class PartitionMaintenance {
                 .addKeyValue("event", "partitions_ensured")
                 .addKeyValue("statType", type.wireName())
                 .addKeyValue("trigger", trigger)
-                .addKeyValue("firstDay", todayUtc)
+                .addKeyValue("firstDay", firstDay)
+                .addKeyValue("lastDay", firstDay.plusDays(daysAfterFirst))
+                .addKeyValue("retentionDays", window.retentionDaysFor(type))
                 .addKeyValue("preCreateDays", properties.preCreateDays())
                 .addKeyValue("partitionCount", result.partitionsEnsured())
-                .log("Ensured daily partitions");
+                .log("Ensured daily partitions across the retention window and horizon");
     }
 
     private void retainOne(StatType type) {
@@ -256,10 +275,6 @@ public class PartitionMaintenance {
             return List.of(selectedType);
         }
         return precreator.existingParentTypes();
-    }
-
-    private LocalDate today() {
-        return LocalDate.now(clock.withZone(ZoneOffset.UTC));
     }
 
     private static StatType parseSelectedType(String configuredStatType) {

@@ -71,9 +71,15 @@ public class PartitionPrecreator {
 
     /**
      * Ensures the UTC partition for {@code firstDay} and every day through
-     * {@code firstDay + preCreateDays}. The current-day partition is included so
-     * a fresh deployment can ingest immediately; seven days ahead therefore means
+     * {@code firstDay + daysAfterFirst}, inclusive at both ends — so {@code 7} means
      * eight ensured partitions.
+     *
+     * <p>{@link PartitionMaintenance} calls this with the retention cutoff day as
+     * {@code firstDay} and the whole window plus the pre-creation horizon as the span
+     * (DL-149). That is what makes the {@link RetentionWindow} contract true: every day a
+     * record can be admitted for has a partition, whether the deployment is a day old or
+     * a year old, and a day the schedule missed during an outage is filled by the next
+     * pass rather than staying a hole that dead-letters valid records.</p>
      *
      * <p>The session-level advisory lock and every DDL statement deliberately use
      * the same physical connection, and the lock is released before that pooled
@@ -82,20 +88,20 @@ public class PartitionPrecreator {
      * through the same class so the two jobs cannot run concurrently on one type.
      */
     public PartitionPrecreationResult ensurePartitions(
-            StatType type, LocalDate firstDay, int preCreateDays) {
+            StatType type, LocalDate firstDay, int daysAfterFirst) {
         Objects.requireNonNull(type, "type");
         Objects.requireNonNull(firstDay, "firstDay");
-        if (preCreateDays < 0) {
-            throw new IllegalArgumentException("preCreateDays must be zero or greater");
+        if (daysAfterFirst < 0) {
+            throw new IllegalArgumentException("daysAfterFirst must be zero or greater");
         }
-        if (preCreateDays > RetentionProperties.MAX_PRE_CREATE_DAYS) {
+        if (daysAfterFirst > RetentionProperties.MAX_ENSURED_DAYS) {
             throw new IllegalArgumentException(
-                    "preCreateDays must not exceed " + RetentionProperties.MAX_PRE_CREATE_DAYS);
+                    "daysAfterFirst must not exceed " + RetentionProperties.MAX_ENSURED_DAYS);
         }
         // Validate the exclusive upper boundary before acquiring a lock or issuing
         // any DDL. This also accounts for the day after the final partition.
         try {
-            firstDay.plusDays((long) preCreateDays + 1L);
+            firstDay.plusDays((long) daysAfterFirst + 1L);
         } catch (DateTimeException exception) {
             throw new IllegalArgumentException(
                     "The requested partition horizon exceeds LocalDate limits", exception);
@@ -105,8 +111,8 @@ public class PartitionPrecreator {
                         type,
                         "pre-create partitions for " + type.wireName(),
                         connection -> {
-                            List<LocalDate> days = new ArrayList<>(preCreateDays + 1);
-                            for (int offset = 0; offset <= preCreateDays; offset++) {
+                            List<LocalDate> days = new ArrayList<>(daysAfterFirst + 1);
+                            for (int offset = 0; offset <= daysAfterFirst; offset++) {
                                 days.add(firstDay.plusDays(offset));
                             }
 

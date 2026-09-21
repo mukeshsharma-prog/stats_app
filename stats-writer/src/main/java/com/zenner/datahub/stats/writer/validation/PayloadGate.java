@@ -101,13 +101,13 @@ public class PayloadGate {
             metrics.payloadRejected(expectedType, WriterGateMetrics.REASON_PAYLOAD_SCHEMA);
             // Not silent, and not a stack trace either (guard P2). The field errors are
             // safe to print by construction: pointers, codes and reviewed constants.
-            // uid is the correlation ID by decision (D1) and is bounded by Input's
-            // 256 KB request limit (DL-121), which is what makes printing it safe here.
+            // uid, statType, tenant and clsbox are on the line already: the delivery's
+            // MDC scope owns them (T-005), and adding one here again is not redundancy
+            // but loss — the ECS encoder drops the whole line on a duplicate key (DL-150).
             WriterLogContext.errorCode(WriterGateMetrics.REASON_PAYLOAD_SCHEMA);
             LOGGER.atWarn()
                     .addKeyValue("event", "payload_rejected")
                     .addKeyValue("reason", WriterGateMetrics.REASON_PAYLOAD_SCHEMA)
-                    .addKeyValue("uid", record.path("uid").asText(""))
                     .addKeyValue("fieldErrors", result.errors())
                     .log(
                             "Payload REJECTED by the per-type schema; the record is dead-lettered "
@@ -116,6 +116,10 @@ public class PayloadGate {
         }
 
         StatsEnvelope envelope = bind(record);
+        // The earliest point an envelope exists is the point the scope should know it:
+        // the two lines below name a tenant and a gateway through the MDC, not through
+        // pairs of their own (DL-150). The processor's own bindRecord is then a no-op.
+        WriterLogContext.bindRecord(envelope);
         if (envelope.type() != expectedType) {
             // A record routed to the wrong queue never becomes right by waiting. It is
             // caught here rather than at the INSERT so it costs one delivery instead of
@@ -125,7 +129,6 @@ public class PayloadGate {
             LOGGER.atWarn()
                     .addKeyValue("event", "payload_rejected")
                     .addKeyValue("reason", WriterGateMetrics.REASON_TYPE_MISMATCH)
-                    .addKeyValue("uid", envelope.uid())
                     .addKeyValue("declaredType", envelope.type() == null ? "unknown" : envelope.type().wireName())
                     .log("Delivery on this queue declares a different type; dead-lettering");
             throw new PermanentFailureException("Record type does not match its queue");
@@ -158,8 +161,6 @@ public class PayloadGate {
         // gate that keeps payloads at DEBUG does not extend to it.
         LOGGER.atWarn()
                 .addKeyValue("event", "upstream_status_not_ok")
-                .addKeyValue("uid", envelope.uid())
-                .addKeyValue("clsbox", envelope.clsbox())
                 .addKeyValue("status", status)
                 .log("Upstream reported a non-OK conversion; the record is stored anyway");
     }

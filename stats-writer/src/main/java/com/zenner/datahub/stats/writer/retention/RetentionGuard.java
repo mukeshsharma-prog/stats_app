@@ -86,14 +86,11 @@ public class RetentionGuard {
         }
 
         metrics.expiredOnArrival(type);
-        // Envelope members only — uid is the correlation ID by decision (D1) and clsbox is
-        // what makes a systemic backlog attributable to one gateway. No payload reaches
+        // Envelope members only, and the identifying ones — uid, statType, clsbox — come
+        // from the delivery's MDC scope, never repeated here (DL-150). No payload reaches
         // this line at any level (guard P1, DL-102).
         LOGGER.atWarn()
                 .addKeyValue("event", "expired_on_arrival")
-                .addKeyValue("uid", envelope.uid())
-                .addKeyValue("statType", type.wireName())
-                .addKeyValue("clsbox", envelope.clsbox())
                 .addKeyValue("tsDevice", tsDevice)
                 .addKeyValue("tsServer", ts.server())
                 .addKeyValue("cutoff", window.cutoff(type))

@@ -26,6 +26,12 @@ class PartitionMaintenanceTest {
 
     private static final RetentionProperties PROPERTIES = properties(Duration.ZERO);
 
+    /**
+     * DL-149: every pass ensures the whole retained window behind today AND the horizon
+     * ahead of it — 90 retention days + 7 pre-create days here — counted from the cutoff.
+     */
+    private static final int WINDOW_AND_HORIZON = 90 + 7;
+
     private final PartitionPrecreator precreator = mock(PartitionPrecreator.class);
     private final PartitionRetention retention = mock(PartitionRetention.class);
     private final RetentionMetrics metrics = new RetentionMetrics(new SimpleMeterRegistry());
@@ -46,13 +52,13 @@ class PartitionMaintenanceTest {
 
     @Test
     void selectedProductionDeploymentMaintainsOnlyItsConfiguredStatType() {
-        when(precreator.ensurePartitions(eq(StatType.LORASTATS), any(LocalDate.class), eq(7)))
+        when(precreator.ensurePartitions(eq(StatType.LORASTATS), any(LocalDate.class), eq(WINDOW_AND_HORIZON)))
                 .thenReturn(new PartitionPrecreationResult(true, 8));
         when(retention.sweep(StatType.LORASTATS)).thenReturn(swept());
 
         maintenance("lorastats").maintainOnSchedule();
 
-        verify(precreator).ensurePartitions(eq(StatType.LORASTATS), any(LocalDate.class), eq(7));
+        verify(precreator).ensurePartitions(eq(StatType.LORASTATS), any(LocalDate.class), eq(WINDOW_AND_HORIZON));
         verify(retention).sweep(StatType.LORASTATS);
         verify(precreator, never()).existingParentTypes();
     }
@@ -60,14 +66,14 @@ class PartitionMaintenanceTest {
     @Test
     void allDevelopmentModeDiscoversTablesWhoseMigrationsHaveLanded() {
         when(precreator.existingParentTypes()).thenReturn(List.of(StatType.LORASTATS));
-        when(precreator.ensurePartitions(eq(StatType.LORASTATS), any(LocalDate.class), eq(7)))
+        when(precreator.ensurePartitions(eq(StatType.LORASTATS), any(LocalDate.class), eq(WINDOW_AND_HORIZON)))
                 .thenReturn(new PartitionPrecreationResult(false, 0));
         when(retention.sweep(StatType.LORASTATS)).thenReturn(RetentionResult.lockNotAcquired());
 
         maintenance("all").maintainOnSchedule();
 
         verify(precreator).existingParentTypes();
-        verify(precreator).ensurePartitions(eq(StatType.LORASTATS), any(LocalDate.class), eq(7));
+        verify(precreator).ensurePartitions(eq(StatType.LORASTATS), any(LocalDate.class), eq(WINDOW_AND_HORIZON));
         verify(retention).sweep(StatType.LORASTATS);
     }
 
@@ -94,18 +100,18 @@ class PartitionMaintenanceTest {
     void oneFailingTypeOnTheScheduleDoesNotStarveTheOthers() {
         when(precreator.existingParentTypes())
                 .thenReturn(List.of(StatType.LORASTATS, StatType.SYSSTATS, StatType.NETSTATS));
-        when(precreator.ensurePartitions(eq(StatType.LORASTATS), any(LocalDate.class), eq(7)))
+        when(precreator.ensurePartitions(eq(StatType.LORASTATS), any(LocalDate.class), eq(WINDOW_AND_HORIZON)))
                 .thenThrow(new IllegalStateException("tablespace is full"));
-        when(precreator.ensurePartitions(eq(StatType.SYSSTATS), any(LocalDate.class), eq(7)))
+        when(precreator.ensurePartitions(eq(StatType.SYSSTATS), any(LocalDate.class), eq(WINDOW_AND_HORIZON)))
                 .thenReturn(new PartitionPrecreationResult(true, 8));
-        when(precreator.ensurePartitions(eq(StatType.NETSTATS), any(LocalDate.class), eq(7)))
+        when(precreator.ensurePartitions(eq(StatType.NETSTATS), any(LocalDate.class), eq(WINDOW_AND_HORIZON)))
                 .thenReturn(new PartitionPrecreationResult(true, 8));
         when(retention.sweep(any(StatType.class))).thenReturn(swept());
 
         maintenance("all").maintainOnSchedule();
 
-        verify(precreator).ensurePartitions(eq(StatType.SYSSTATS), any(LocalDate.class), eq(7));
-        verify(precreator).ensurePartitions(eq(StatType.NETSTATS), any(LocalDate.class), eq(7));
+        verify(precreator).ensurePartitions(eq(StatType.SYSSTATS), any(LocalDate.class), eq(WINDOW_AND_HORIZON));
+        verify(precreator).ensurePartitions(eq(StatType.NETSTATS), any(LocalDate.class), eq(WINDOW_AND_HORIZON));
     }
 
     /**
@@ -117,7 +123,7 @@ class PartitionMaintenanceTest {
     void aFailingRetentionSweepDoesNotStopPrecreationForTheOtherTypes() {
         when(precreator.existingParentTypes())
                 .thenReturn(List.of(StatType.LORASTATS, StatType.SYSSTATS));
-        when(precreator.ensurePartitions(any(StatType.class), any(LocalDate.class), eq(7)))
+        when(precreator.ensurePartitions(any(StatType.class), any(LocalDate.class), eq(WINDOW_AND_HORIZON)))
                 .thenReturn(new PartitionPrecreationResult(true, 8));
         when(retention.sweep(StatType.LORASTATS))
                 .thenThrow(new IllegalStateException("detach is wedged"));
@@ -125,7 +131,7 @@ class PartitionMaintenanceTest {
 
         maintenance("all").maintainOnSchedule();
 
-        verify(precreator).ensurePartitions(eq(StatType.SYSSTATS), any(LocalDate.class), eq(7));
+        verify(precreator).ensurePartitions(eq(StatType.SYSSTATS), any(LocalDate.class), eq(WINDOW_AND_HORIZON));
         verify(retention).sweep(StatType.SYSSTATS);
     }
 
@@ -135,7 +141,7 @@ class PartitionMaintenanceTest {
      */
     @Test
     void precreationRunsBeforeRetentionForEachType() {
-        when(precreator.ensurePartitions(eq(StatType.LORASTATS), any(LocalDate.class), eq(7)))
+        when(precreator.ensurePartitions(eq(StatType.LORASTATS), any(LocalDate.class), eq(WINDOW_AND_HORIZON)))
                 .thenReturn(new PartitionPrecreationResult(true, 8));
         when(retention.sweep(StatType.LORASTATS)).thenReturn(swept());
 
@@ -143,7 +149,7 @@ class PartitionMaintenanceTest {
 
         org.mockito.InOrder order = org.mockito.Mockito.inOrder(precreator, retention);
         order.verify(precreator)
-                .ensurePartitions(eq(StatType.LORASTATS), any(LocalDate.class), eq(7));
+                .ensurePartitions(eq(StatType.LORASTATS), any(LocalDate.class), eq(WINDOW_AND_HORIZON));
         order.verify(retention).sweep(StatType.LORASTATS);
     }
 
@@ -153,7 +159,7 @@ class PartitionMaintenanceTest {
         Duration stagger = Duration.ofMillis(60);
         when(precreator.existingParentTypes())
                 .thenReturn(List.of(StatType.LORASTATS, StatType.LTESTATS, StatType.SYSSTATS));
-        when(precreator.ensurePartitions(any(StatType.class), any(LocalDate.class), eq(7)))
+        when(precreator.ensurePartitions(any(StatType.class), any(LocalDate.class), eq(WINDOW_AND_HORIZON)))
                 .thenReturn(new PartitionPrecreationResult(true, 8));
         when(retention.sweep(any(StatType.class))).thenReturn(swept());
 
@@ -162,6 +168,7 @@ class PartitionMaintenanceTest {
                         precreator,
                         retention,
                         properties(stagger),
+                        new RetentionWindow(properties(stagger), Clock.systemUTC()),
                         metrics,
                         Clock.systemUTC(),
                         "all")
@@ -186,7 +193,7 @@ class PartitionMaintenanceTest {
     @Test
     void startupRefusesToComeUpWhenPartitionsCannotBeCreated() {
         when(precreator.parentTableExists(StatType.LORASTATS)).thenReturn(true);
-        when(precreator.ensurePartitions(eq(StatType.LORASTATS), any(LocalDate.class), eq(7)))
+        when(precreator.ensurePartitions(eq(StatType.LORASTATS), any(LocalDate.class), eq(WINDOW_AND_HORIZON)))
                 .thenThrow(new IllegalStateException("tablespace is full"));
 
         assertThatThrownBy(() -> maintenance("lorastats").ensureBeforeIngestion())
@@ -199,12 +206,12 @@ class PartitionMaintenanceTest {
         when(precreator.parentTableExists(StatType.LORASTATS)).thenReturn(true);
         // ADR-003 D3: losing the lock race is the normal multi-replica case, not a
         // failure. The winning replica creates the partitions this one also needs.
-        when(precreator.ensurePartitions(eq(StatType.LORASTATS), any(LocalDate.class), eq(7)))
+        when(precreator.ensurePartitions(eq(StatType.LORASTATS), any(LocalDate.class), eq(WINDOW_AND_HORIZON)))
                 .thenReturn(PartitionPrecreationResult.lockNotAcquired());
 
         maintenance("lorastats").ensureBeforeIngestion();
 
-        verify(precreator).ensurePartitions(eq(StatType.LORASTATS), any(LocalDate.class), eq(7));
+        verify(precreator).ensurePartitions(eq(StatType.LORASTATS), any(LocalDate.class), eq(WINDOW_AND_HORIZON));
     }
 
     /**
@@ -215,7 +222,7 @@ class PartitionMaintenanceTest {
     @Test
     void startupDoesNotRunRetention() {
         when(precreator.parentTableExists(StatType.LORASTATS)).thenReturn(true);
-        when(precreator.ensurePartitions(eq(StatType.LORASTATS), any(LocalDate.class), eq(7)))
+        when(precreator.ensurePartitions(eq(StatType.LORASTATS), any(LocalDate.class), eq(WINDOW_AND_HORIZON)))
                 .thenReturn(new PartitionPrecreationResult(true, 8));
 
         maintenance("lorastats").ensureBeforeIngestion();
@@ -231,13 +238,14 @@ class PartitionMaintenanceTest {
     void registersThisDeploymentsRetentionCountersBeforeIngestionStarts() {
         SimpleMeterRegistry registry = new SimpleMeterRegistry();
         when(precreator.parentTableExists(StatType.LORASTATS)).thenReturn(true);
-        when(precreator.ensurePartitions(eq(StatType.LORASTATS), any(LocalDate.class), eq(7)))
+        when(precreator.ensurePartitions(eq(StatType.LORASTATS), any(LocalDate.class), eq(WINDOW_AND_HORIZON)))
                 .thenReturn(new PartitionPrecreationResult(true, 8));
 
         new PartitionMaintenance(
                         precreator,
                         retention,
                         PROPERTIES,
+                        new RetentionWindow(PROPERTIES, Clock.systemUTC()),
                         new RetentionMetrics(registry),
                         Clock.systemUTC(),
                         "lorastats")
@@ -275,26 +283,36 @@ class PartitionMaintenanceTest {
     @Test
     void resolvesTodayInUtcRatherThanTheHostZone() {
         Instant middayUtc = Instant.parse("2026-09-10T12:00:00Z");
-        when(precreator.ensurePartitions(eq(StatType.LORASTATS), any(LocalDate.class), eq(7)))
+        when(precreator.ensurePartitions(eq(StatType.LORASTATS), any(LocalDate.class), eq(WINDOW_AND_HORIZON)))
                 .thenReturn(new PartitionPrecreationResult(true, 8));
         when(retention.sweep(StatType.LORASTATS)).thenReturn(swept());
 
+        // A zone 12 hours ahead: local date is already the 11th.
+        Clock hostClock = Clock.fixed(middayUtc, ZoneOffset.ofHours(12));
         new PartitionMaintenance(
                         precreator,
                         retention,
                         PROPERTIES,
+                        new RetentionWindow(PROPERTIES, hostClock),
                         metrics,
-                        // A zone 12 hours ahead: local date is already the 11th.
-                        Clock.fixed(middayUtc, ZoneOffset.ofHours(12)),
+                        hostClock,
                         "lorastats")
                 .maintainOnSchedule();
 
+        // 10 Sep 2026 UTC minus 90 days is the cutoff; the ensured range starts there and
+        // runs 97 days, to 17 Sep — today plus the seven-day horizon (DL-149).
         verify(precreator)
-                .ensurePartitions(StatType.LORASTATS, LocalDate.of(2026, 9, 10), 7);
+                .ensurePartitions(StatType.LORASTATS, LocalDate.of(2026, 6, 12), WINDOW_AND_HORIZON);
     }
 
     private PartitionMaintenance maintenance(String configuredStatType) {
         return new PartitionMaintenance(
-                precreator, retention, PROPERTIES, metrics, Clock.systemUTC(), configuredStatType);
+                precreator,
+                retention,
+                PROPERTIES,
+                new RetentionWindow(PROPERTIES, Clock.systemUTC()),
+                metrics,
+                Clock.systemUTC(),
+                configuredStatType);
     }
 }

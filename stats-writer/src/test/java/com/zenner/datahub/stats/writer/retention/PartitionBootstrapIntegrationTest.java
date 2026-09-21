@@ -36,6 +36,13 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * so the <em>only</em> thing that can have created a partition is the startup path.
  * It then writes a row dated today, which is the assertion that actually matters:
  * ingestion works the moment the module is up.</p>
+ *
+ * <p><strong>And a row dated three weeks ago (DL-149).</strong> Ahead-only pre-creation
+ * closed the wedge above and opened a quieter one: a valid record inside the retention
+ * window but before the deployment's first day had no partition, failed its INSERT with
+ * SQLSTATE 23514 and was dead-lettered as permanent — the gateway-back-from-an-outage
+ * path STA-23B calls normal, lost with every counter reading healthy. Startup now
+ * ensures the whole window, {@code [cutoffDay, today + pre-create-days]}.</p>
  */
 @SpringBootTest(
         classes = StatsWriterApplication.class,
@@ -48,7 +55,11 @@ import org.springframework.jdbc.core.JdbcTemplate;
             // partition existing proves the startup path created it.
             "stats.retention.schedule=-",
             "stats.retention.pre-create-on-startup=true",
-            "stats.retention.pre-create-days=7"
+            "stats.retention.pre-create-days=7",
+            // Short on purpose: the whole window is ensured, and 30 days keeps the
+            // partition set this test creates and drops readable. The three-weeks-old
+            // record below sits inside it; a 31-day-old one would not.
+            "stats.retention.default-days=30"
         })
 @Import({PostgresSupport.class, RabbitSupport.class})
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
@@ -58,6 +69,9 @@ class PartitionBootstrapIntegrationTest {
             DateTimeFormatter.ofPattern("uuuu_MM_dd");
 
     private static final LocalDate TODAY_UTC = LocalDate.now(ZoneOffset.UTC);
+
+    private static final int RETENTION_DAYS = 30;
+    private static final int PRE_CREATE_DAYS = 7;
 
     @Autowired
     private JdbcTemplate jdbc;
@@ -73,7 +87,7 @@ class PartitionBootstrapIntegrationTest {
     }
 
     @Test
-    void startupCreatesTodayAndTheWholeConfiguredHorizonBeforeAnythingConsumes() {
+    void startupCreatesTheWholeRetentionWindowAndHorizonBeforeAnythingConsumes() {
         List<String> expected = expectedPartitionNames();
 
         List<String> actual =
@@ -86,8 +100,34 @@ class PartitionBootstrapIntegrationTest {
                         StatType.LORASTATS.wireName(),
                         expected.toArray(String[]::new));
 
-        // pre-create-days=7 means today plus seven, so eight partitions.
-        assertThat(actual).containsExactlyElementsOf(expected).hasSize(8);
+        // The cutoff day through today plus seven: 30 + 7 + 1 partitions (DL-149).
+        assertThat(actual)
+                .containsExactlyElementsOf(expected)
+                .hasSize(RETENTION_DAYS + PRE_CREATE_DAYS + 1);
+    }
+
+    /**
+     * The DL-149 regression: a record measured 21 days ago — a gateway back from three
+     * weeks offline — inserts on a deployment that is minutes old. Before the fix this
+     * was {@code no partition of relation "lorastats" found for row}, SQLSTATE 23514,
+     * straight to the DLQ as a permanent failure.
+     */
+    @Test
+    void aRecordThreeWeeksOldInsertsOnADeploymentThatIsMinutesOld() {
+        assertThat(insertDatedDaysAgo("bootstrap-late-" + TODAY_UTC, 21)).isEqualTo(1);
+    }
+
+    /**
+     * The boundary belongs to the retained side (DL-133): the cutoff day itself is
+     * retained, so it has a partition. That the range starts <em>exactly</em> there and
+     * not a day earlier is asserted against the precreator call in
+     * {@link PartitionMaintenanceTest}; the shared test database may hold partitions
+     * other contexts created, so "the day before has none" is not provable here.
+     */
+    @Test
+    void theCutoffDayItselfHasAPartition() {
+        assertThat(insertDatedDaysAgo("bootstrap-cutoff-" + TODAY_UTC, RETENTION_DAYS))
+                .isEqualTo(1);
     }
 
     /**
@@ -133,13 +173,35 @@ class PartitionBootstrapIntegrationTest {
         assertThat(container.isRunning()).isTrue();
     }
 
+    private int insertDatedDaysAgo(String uid, int daysAgo) {
+        return jdbc.update(
+                """
+                INSERT INTO lorastats (
+                    uid, tenant, maintenant, clsbox, ts_server, ts_device,
+                    schema_version, rx_nr_pkts, rx_crc_missing, rx_crc_bad,
+                    tx_success, tx_failed, tx_peek, tx_peek_index_zero,
+                    tx_override, tx_busy, tx_dequeue_error, tx_type_beacon,
+                    chip_comm_error, util_fopen_failed
+                ) VALUES (
+                    ?, ?, ?, ?, now(), now() - make_interval(days => ?),
+                    1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+                )
+                """,
+                uid,
+                "tenant-a",
+                "management-parent",
+                "A1B2C3D4E5F6",
+                daysAgo);
+    }
+
     private static List<String> expectedPartitionNames() {
         List<String> names = new ArrayList<>();
-        for (int offset = 0; offset <= 7; offset++) {
+        LocalDate cutoffDay = TODAY_UTC.minusDays(RETENTION_DAYS);
+        for (int offset = 0; offset <= RETENTION_DAYS + PRE_CREATE_DAYS; offset++) {
             names.add(
                     StatType.LORASTATS.wireName()
                             + "_"
-                            + PARTITION_DATE.format(TODAY_UTC.plusDays(offset)));
+                            + PARTITION_DATE.format(cutoffDay.plusDays(offset)));
         }
         return List.copyOf(names);
     }

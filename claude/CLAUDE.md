@@ -6,6 +6,28 @@ It is still auto-loaded every session: the repository-root `CLAUDE.md` is a
 pointer file whose only content is an `@claude/CLAUDE.md` import. Edit this file,
 not the pointer.
 
+> **Version 1.16 — 20 September 2026.** No decision in 1.15 changes. What changes is
+> that **the stack was run end to end for the first time, and two silent losses fell out
+> of it**. Governing entries: **DL-149** and **DL-150**.
+>
+> * **Partitions now cover the whole window.** Pre-creation was ahead-only, so a valid
+>   record inside the window but before the deployment's first day — the offline-gateway
+>   record §6 calls normal — had no partition, failed its INSERT with SQLSTATE `23514`,
+>   and was dead-lettered as *permanent*. Every pass now ensures
+>   `[cutoffDay, today + pre-create-days]` from `RetentionWindow`, at startup and daily,
+>   which also heals a gap left by a run missed for longer than `pre-create-days`.
+>   FLOW.md gains **window 15**. DL-149.
+> * **Every Writer WARN with a `uid` on it was being dropped.** Seven statements repeated
+>   MDC keys as `addKeyValue` pairs; the ECS encoder throws on the duplicate and logback
+>   drops the line — reporting only the first four, then silently. `payload_rejected`,
+>   `expired_on_arrival`, `upstream_status_not_ok`, `write_failed`: none reached the
+>   console. The six MDC keys are the scope's alone now, and
+>   `WriterLogsDoNotShadowMdcKeysTest` fails the build on the next repeat. DL-150.
+> * **`docker/demo.sh` is the demo.** Ten steps against the compose stack, each naming the
+>   rule it proves; DEVELOPMENT.md §3.4 points at it. Two local gotchas it works around are
+>   recorded there: a host PostgreSQL on 5432 shadows the container's, and `.env` must be
+>   `source`-safe.
+>
 > **Version 1.15 — 19 September 2026.** No decision in 1.14 changes. What changes is
 > that **the main queues are watched and the fan-out has started**. Governing entries:
 > **DL-147** (T-050) and **DL-148** (T-035).

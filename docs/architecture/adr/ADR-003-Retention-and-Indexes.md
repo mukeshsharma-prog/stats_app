@@ -20,6 +20,14 @@ sweep reclaims such orphans and counts them separately. Also decided: the guard 
 late-arrival policy below and this sweep read **one** cutoff function, or a record is
 admitted into a partition that has just been dropped.
 
+**Amended 20 September 2026 (DL-149) — D1's pre-creation covers the whole window.**
+Every maintenance pass ensures `[cutoffDay, today + pre-create-days]`, not only the days
+ahead. Ahead-only pre-creation left every retained day before first deployment, and every
+day a missed run skipped, without a partition; a valid in-window record for such a day — the
+late-arrival path below, *inside* the window — failed its INSERT with SQLSTATE 23514 and was
+dead-lettered as permanent. The late-arrival policy is unchanged: the guard still skips
+strictly before the cutoff, and now every day it admits has a partition by construction.
+
 **Amended 4 September 2026 (DL-111, DL-112):** **both rows that were open inside this
 approved ADR are now SIGNED.** D5a — RPO ≤ 5 min via continuous WAL archiving; RTO 1 h
 for a single partition, 24 h for a full cluster restore. D5b — the late-arrival policy

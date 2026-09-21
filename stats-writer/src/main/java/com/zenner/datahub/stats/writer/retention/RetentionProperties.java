@@ -54,6 +54,14 @@ public record RetentionProperties(
     public static final int MAX_RETENTION_DAYS = 3650;
 
     /**
+     * The longest span of daily partitions one maintenance pass may ensure: the whole
+     * retention window behind today plus the pre-creation horizon ahead of it (DL-149).
+     * Not a policy limit — the two bounds it is built from already are — it exists so
+     * {@link PartitionPrecreator} can refuse an absurd range before issuing any DDL.
+     */
+    public static final int MAX_ENSURED_DAYS = MAX_RETENTION_DAYS + MAX_PRE_CREATE_DAYS;
+
+    /**
      * The stagger offsets one stat type's maintenance from the next (ADR-003 D3, "stagger
      * the five types rather than firing them together"). It is capped because the offset
      * is taken by waiting, and a run that waits an hour before dropping a partition is

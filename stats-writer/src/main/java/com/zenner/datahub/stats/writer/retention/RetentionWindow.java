@@ -22,6 +22,9 @@ import org.springframework.stereotype.Component;
  *       the cutoff.</li>
  *   <li>{@link RetentionGuard} skips a record whose {@code ts.device} is older than the
  *       cutoff, because no partition can hold it (T-026, DL-112).</li>
+ *   <li>{@link PartitionMaintenance} ensures a partition for every day from the cutoff
+ *       through the pre-creation horizon (DL-149), so the converse holds too: a record the
+ *       guard admits always has somewhere to go.</li>
  * </ul>
  *
  * <p>If the guard were more permissive by even a day, it would admit a record into a

@@ -178,7 +178,6 @@ public final class SysstatsBatchWriter implements StatsBatchWriter {
                 LOGGER.atError()
                         .addKeyValue("event", "payload_rejected")
                         .addKeyValue("reason", WriterGateMetrics.REASON_UNMAPPABLE)
-                        .addKeyValue("uid", uidOf(records.get(index)))
                         .addKeyValue("recordIndex", index)
                         .addKeyValue("cause", SafeFailure.describe(notMappable))
                         .log(
@@ -210,7 +209,6 @@ public final class SysstatsBatchWriter implements StatsBatchWriter {
                 WriterLogContext.errorCode("write_failed");
                 LOGGER.atError()
                         .addKeyValue("event", "write_failed")
-                        .addKeyValue("uid", uidOf(records.get(index)))
                         .addKeyValue("recordIndex", index)
                         .addKeyValue("cause", SafeFailure.describe(failure))
                         .log(
@@ -378,10 +376,6 @@ public final class SysstatsBatchWriter implements StatsBatchWriter {
             throw new IllegalArgumentException("version does not fit the record_version column");
         }
         return version.shortValue();
-    }
-
-    private static String uidOf(ValidatedRecord validated) {
-        return validated == null ? null : validated.envelope().uid();
     }
 
     private static String requiredText(String value, String field) {
