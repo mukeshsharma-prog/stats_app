@@ -4987,3 +4987,76 @@ all three real consumers live: an omsstats record committed and ACKed with its
 passthrough intact, a redelivery absorbed, a poison omsstats payload in the **omsstats**
 DLQ on attempt one with a lorastats record committed beside it. `ManagementSurfaceTest`
 scrapes the omsstats series at zero from startup; `validate-fixtures.py` reports 107.
+
+### DL-154 — The wire-number range check is one helper, `WireNumbers`, and the build refuses a second copy
+
+**21 September 2026** · `ENGINEERING` · STA-04C, ADR-003 D2, ADR-007 §6, DL-105 rule 3, DL-124, DL-126, DL-127, DL-148, DL-153 · T-062
+
+**Trigger.** T-062's own note predicted this entry: *"one helper, not three; helpers written
+weeks apart are how the range check goes missing from one of them."* By 21 Sep there
+were three — `LorastatsDialects.coerce` (8 Sep), `SysstatsBatchWriter.optionalDigitString`
+plus its `optionalLong` (19 Sep), and `OmsstatsBatchWriter`'s copy of the latter (21 Sep,
+DL-153 *Rejected* deferred the sharing to here) — and the audit before extracting them
+found two disagreements no test could see:
+
+1. **`LorastatsBatchWriter` threw `IllegalArgumentException`** on a dialect-A integer wider
+   than `BIGINT`, where the sysstats and omsstats writers threw `PermanentFailureException`.
+   `FailureClassifier` defaults to *retry* for anything it does not recognise (DL-122), so
+   a lorastats integer overflow ran through all three tiers — 35½ minutes of queue time —
+   before reaching the DLQ with the identical failure, while the same overflow on the other
+   two types was `unmappable` on attempt one as DL-126 requires. Every lorastats test
+   passed, because `acceptsTheBigintMaximumAndRejectsAnythingWiderThanIt` asserted the
+   message and never the classification.
+2. **`LorastatsDialects.coerce` accepted a negative string** (it compared against
+   `BIGINT_MIN`), where the dialect-B schema pattern `^(0|[1-9][0-9]{0,18})$` admits no
+   minus. Unobservable in production only because the gate refuses the record first — a
+   mapping wider than its gate is a second contract nobody reviewed.
+
+**Decision.** One class, `stats-writer/…/persistence/WireNumbers`, with four readers and a
+bare parse: `requiredInteger`/`optionalInteger` for a JSON integer (Jackson holds a
+literal wider than 64 bits as a `BigInteger` node; `canConvertToLong()` is the check,
+made before `longValue()` could narrow), `requiredDigitString`/`optionalDigitString`
+(`Sign.UNSIGNED` | `Sign.SIGNED`, the schema's pattern repeated by the caller; `-?[0-9]+`
+is the only admissible spelling, so `"+5"`, `" 5"`, `"1e3"`, `"0x1F"` and non-ASCII
+digits are refused even though the JDK would parse them; the range check is against
+`BigInteger` **before** conversion), and `parseDigitString` for `LorastatsDialects`,
+which coerces while it is still normalising names. **Every refusal is a
+`PermanentFailureException`** and names the field, never the value (guard P2). All three
+writers and the dialect normaliser now call it; each lost its private copy and the two
+`BigInteger` constants. `WireNumbersIsTheOnlyCoercionTest` in `stats-common`'s
+architecture package scans the persistence package for `BigInteger`, `canConvertToLong`,
+`Long.parseLong` and `Long.valueOf(String)` outside `WireNumbers` and fails the build on
+the next copy — scoped to persistence because that is where a member becomes a column;
+the redrive's envelope-timestamp read and CLI parse are not coercions.
+
+**What the two unbuilt types get.** `WireNumbersTest` covers their shapes now, so T-034
+and T-037 have nothing to write here: `ltestats`' signed signal strings (`"-97"`, the
+`BIGINT` minimum, one below it refused), `netstats`' nineteen-digit counters at and one
+above the maximum. What it deliberately does **not** cover: `ltestats`' `lac`/`cid` hex
+strings (`^[0-9A-Fa-f]{1,16}$` — sixteen hex digits exceed a signed `BIGINT`, and whether
+they are numbers or location identifiers stored as text is D-12 P5's question, not a
+parser's) and `imsi` (an identifier, never a number; D-12 P4). A hex reader is added to
+`WireNumbers` with its test on the day a signed answer needs one, not before.
+
+**Behaviour change, stated.** One: a lorastats dialect-A record with an integer counter
+wider than `BIGINT` now dead-letters on its first attempt instead of after three retry
+tiers. It is the behaviour DL-126 specified and the other two types already had; the
+lorastats integration test now asserts `PermanentFailureException` and
+`classifier.isPermanent`. Nothing else observable moved — every other refusal message is
+byte-identical, and the three overflow fixtures (`lorastats-dialect-string-overflow`,
+`sysstats-timespan-overflow`, `omsstats-counter-overflow`) are the regression set.
+
+**Rejected.** *Putting the helper in `stats-common`* — the coercion is the Writer's
+business (ADR-007 §5: the payload is the Writer's gate), Input never converts a number,
+and `stats-common` holds five things by decision (D15). *A `Sign` inferred from the
+schema at runtime* — the writer already names each member; repeating the sign beside the
+name is one more thing `<Type>ColumnMappingTest` can check against the schema, and one
+less thing that can silently be wrong. *Keeping `IllegalArgumentException` for
+lorastats* — it was the bug.
+
+**Verification.** `WireNumbersTest` (26 cases: both boundaries on both readers, every
+non-digit spelling, sign, absent/null, no value in any message, permanence via the real
+`FailureClassifier`); `WireNumbersIsTheOnlyCoercionTest` (the scan, and that it
+recognises the four shapes); `LorastatsDialectsTest`, `LorastatsBatchWriterIntegrationTest`
+(+ permanence), `SysstatsBatchWriterIntegrationTest`, `OmsstatsBatchWriterIntegrationTest`
+and the three `ColumnMappingTest`s unchanged in outcome.

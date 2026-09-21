@@ -359,10 +359,10 @@ public final class LorastatsBatchWriter implements StatsBatchWriter {
                 .addValue("data_extra", dataExtra, Types.VARCHAR);
 
         for (String field : ORDERED_REQUIRED_FIELDS) {
-            parameters.addValue(field, requiredLong(data, field));
+            parameters.addValue(field, WireNumbers.requiredInteger(data, field));
         }
         for (String field : ORDERED_OPTIONAL_FIELDS) {
-            parameters.addValue(field, optionalLong(data, field));
+            parameters.addValue(field, WireNumbers.optionalInteger(data, field), Types.BIGINT);
         }
         return parameters;
     }
@@ -482,28 +482,4 @@ public final class LorastatsBatchWriter implements StatsBatchWriter {
         return value;
     }
 
-    private static long requiredLong(JsonNode data, String field) {
-        Long value = optionalLong(data, field);
-        if (value == null) {
-            throw new IllegalArgumentException("data." + field + " must be present");
-        }
-        return value;
-    }
-
-    /**
-     * Reads one counter, range-checked against the signed {@code BIGINT} column
-     * before conversion (ADR-003 D2, STA-04C). The schema's digit pattern is wider
-     * than {@code BIGINT}, and that gap is not expressible as a regex, so an
-     * unchecked conversion corrupts the value with no error anywhere.
-     */
-    private static Long optionalLong(JsonNode data, String field) {
-        JsonNode value = data.get(field);
-        if (value == null || value.isNull()) {
-            return null;
-        }
-        if (!value.isIntegralNumber() || !value.canConvertToLong()) {
-            throw new IllegalArgumentException("data." + field + " must be a BIGINT value");
-        }
-        return value.longValue();
-    }
 }

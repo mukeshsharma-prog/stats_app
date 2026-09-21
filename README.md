@@ -11,7 +11,7 @@ ADRs 001–007 are approved or accepted. The Gradle multi-project builds: five m
 (`stats-common`, `stats-testsupport` and the three applications), three deployable images,
 a Docker Compose stack with PostgreSQL 17, RabbitMQ and Keycloak, and 87 JSON schema
 fixture files gated by `docs/schemas/validate-fixtures.py` at 107 assertions — checked
-against 1,200 live records on 18 September 2026 (DL-146). Full build: 755 tests,
+against 1,200 live records on 18 September 2026 (DL-146). Full build: 783 tests,
 0 failures, against Testcontainers.
 
 Since **8 September 2026 `lorastats` is complete end to end**, in all three of the

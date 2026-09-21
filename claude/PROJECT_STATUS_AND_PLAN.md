@@ -325,7 +325,7 @@ reconciled the same day (DL-152).
 |---|---|---|
 | **Now** | **Send Q8a-2 + Q8a-3 to ZC** — the answer now also unblocks **T-068**, the tenant binding the external door lacks (DL-151 residual). **Send Q15e–Q15g to Hasan** — Q15g decides whether T-037 `netstats` is built for a type that never arrives | **Read the first 24 h** of `records_ts_server_cycle_offset_seconds` (sum over the new `source` label) and set the `StatsAppUpstreamStatusNotOk` threshold; then **T-036 `omsstats`**, copied from the sysstats slice — it inherits whole-window pre-creation and the MDC guard from shared code, so re-adding either is a build failure |
 | **Then** | T-051 — the timed per-partition restore drill (RTO 1 h, DL-111); since DL-149 the restored day's partition is guaranteed pre-created, so the re-attach is the only new thing | T-054, T-055 against the built sweep; T-056 dashboards (aggregate replicas with `max`, sum Input series over `source`); T-048 at the 13,333/s headroom |
-| **After T-036** — ~~pending~~ **done 21 Sep 2026 (DL-153)** | reviews each fan-out end to end | T-062 (one coercion helper across the three writers), then T-034 `ltestats` (after D-12 P3; schema survived 1,980 live records), then T-037 `netstats` (after Q15g) |
+| **After T-036** — ~~pending~~ **done 21 Sep 2026 (DL-153)** | reviews each fan-out end to end | ~~T-062~~ **done 21 Sep (DL-154)**, then T-034 `ltestats` (after D-12 P3; schema survived 1,980 live records), then T-037 `netstats` (after Q15g) |
 | **Held** | T-039, T-042, T-045, T-046 — and **T-068**, BLOCKED on Q8a-2 | T-038, T-040, T-041, T-043, T-044, **T-067** — all gated on ZC confirming `openapi.yaml` (D-09), which since DL-151 carries the device-scoped paths and has lost the `clsbox` query parameter |
 
 > **Do not expose `/external/stats` anywhere shared before T-068.** With identical
@@ -387,6 +387,8 @@ and the sheet no longer disagrees with itself.
 `sysstats` processor calls it rather than copying it; and T-062's per-type coercion is
 the same range-checked helper T-063 built, not a second one — `sysstats`' `timespan:
 "300"` and `netstats`' 19-digit counter strings are the same rule applied elsewhere.
+*(It took until 21 Sep 2026 to be literally true: three copies had grown by then and two
+disagreed; `WireNumbers` and its build guard are DL-154.)*
 
 ### Phase 3 — Type fan-out (juniors, parallel)
 

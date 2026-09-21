@@ -5,7 +5,6 @@ import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.LongNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.zenner.datahub.stats.writer.retry.PermanentFailureException;
-import java.math.BigInteger;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -65,9 +64,6 @@ public final class LorastatsDialects {
 
     /** The prefix dialect C puts on its counters — and only on its counters. */
     private static final String PREFIX = "lora_";
-
-    private static final BigInteger BIGINT_MAX = BigInteger.valueOf(Long.MAX_VALUE);
-    private static final BigInteger BIGINT_MIN = BigInteger.valueOf(Long.MIN_VALUE);
 
     /**
      * The counters every dialect must carry. Also the detection evidence: which of these
@@ -244,28 +240,14 @@ public final class LorastatsDialects {
     }
 
     /**
-     * Rule 3, and the order of the two steps is the rule.
-     *
-     * <p>The schema caps a string counter at nineteen digits, and the signed
-     * {@code BIGINT} maximum is {@code 9223372036854775807} — also nineteen digits. The
-     * gap between the two is not expressible as a regex, so the schema cannot hold this
-     * line and the check has to be here. It is made against {@link BigInteger}
-     * <em>before</em> any narrowing conversion, because a conversion that has already
-     * overflowed has nothing left to test: the value is wrong and the arithmetic that
-     * made it wrong reported nothing.</p>
+     * Rule 3, and the order of the two steps is the rule — the rule itself lives in
+     * {@link WireNumbers} since T-062, shared with every writer, so that the range check
+     * cannot be present here and missing there. A dialect-B counter is an
+     * <em>unsigned</em> digit string (the schema's pattern admits no minus), and the
+     * check is made against {@code BigInteger} before the narrowing conversion.
      */
     private static JsonNode coerce(String field, String text) {
-        final BigInteger parsed;
-        try {
-            parsed = new BigInteger(text);
-        } catch (NumberFormatException notANumber) {
-            throw new PermanentFailureException("data." + field + " is not an integral counter");
-        }
-        if (parsed.compareTo(BIGINT_MAX) > 0 || parsed.compareTo(BIGINT_MIN) < 0) {
-            throw new PermanentFailureException("data." + field + " does not fit a BIGINT column");
-        }
-        // Exact: the comparison above is what makes it exact, not a property of longValue().
-        return LongNode.valueOf(parsed.longValue());
+        return LongNode.valueOf(WireNumbers.parseDigitString(field, text, WireNumbers.Sign.UNSIGNED));
     }
 
     private static Set<String> canonicalFields() {

@@ -281,11 +281,11 @@ public final class OmsstatsBatchWriter implements StatsBatchWriter {
                 // here is the column's, and a value BIGINT cannot hold is unmappable rather
                 // than silently narrowed (STA-04C). timespan is an INTEGER on this type --
                 // the string "300" is sysstats' spelling, not this one's (ADR-007 §6).
-                .addValue("rx_nr_pkts", requiredLong(data, "rx_nr_pkts"))
-                .addValue("rx_valid_nr_pkts", requiredLong(data, "rx_valid_nr_pkts"))
-                .addValue("rx_crc_bad", requiredLong(data, "rx_crc_bad"))
-                .addValue("device_count", requiredLong(data, "device_count"))
-                .addValue("timespan", requiredLong(data, "timespan"));
+                .addValue("rx_nr_pkts", WireNumbers.requiredInteger(data, "rx_nr_pkts"))
+                .addValue("rx_valid_nr_pkts", WireNumbers.requiredInteger(data, "rx_valid_nr_pkts"))
+                .addValue("rx_crc_bad", WireNumbers.requiredInteger(data, "rx_crc_bad"))
+                .addValue("device_count", WireNumbers.requiredInteger(data, "device_count"))
+                .addValue("timespan", WireNumbers.requiredInteger(data, "timespan"));
         return parameters;
     }
 
@@ -375,29 +375,6 @@ public final class OmsstatsBatchWriter implements StatsBatchWriter {
         return value;
     }
 
-    private static long requiredLong(JsonNode data, String field) {
-        Long value = optionalLong(data, field);
-        if (value == null) {
-            throw new PermanentFailureException("data." + field + " must be present");
-        }
-        return value;
-    }
-
-    /**
-     * An integer member, range-checked against {@code BIGINT} before conversion: Jackson
-     * holds a wider literal as a {@code BigInteger} node and {@code canConvertToLong()}
-     * says so, which is the check -- made before any narrowing, never after (STA-04C).
-     */
-    private static Long optionalLong(JsonNode data, String field) {
-        JsonNode value = data.get(field);
-        if (value == null || value.isNull()) {
-            return null;
-        }
-        if (!value.isIntegralNumber() || !value.canConvertToLong()) {
-            throw new PermanentFailureException("data." + field + " must be a BIGINT value");
-        }
-        return value.longValue();
-    }
     private static Set<String> mappedFields() {
         List<String> all = new ArrayList<>(REQUIRED_FIELDS);
         all.addAll(OPTIONAL_FIELDS);

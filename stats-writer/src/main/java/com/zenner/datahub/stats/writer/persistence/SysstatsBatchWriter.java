@@ -15,7 +15,6 @@ import com.zenner.datahub.stats.writer.validation.ValidatedRecord;
 import com.zenner.datahub.stats.writer.validation.WriterGateMetrics;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
-import java.math.BigInteger;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.sql.Types;
@@ -76,8 +75,6 @@ public final class SysstatsBatchWriter implements StatsBatchWriter {
 
     /** Everything with a typed column; anything else is preserved in {@code data_extra}. */
     static final Set<String> MAPPED_DATA_FIELDS = mappedFields();
-
-    private static final BigInteger BIGINT_MAX = BigInteger.valueOf(Long.MAX_VALUE);
 
     private static final String INSERT_SQL =
             """
@@ -281,7 +278,7 @@ public final class SysstatsBatchWriter implements StatsBatchWriter {
                 .addValue("data_extra", dataExtra, Types.VARCHAR)
                 // Required members: the gate has proved presence and JSON type; the parse
                 // here is the column's, and a mismatch is unmappable rather than silent.
-                .addValue("memfree", requiredLong(data, "memfree"))
+                .addValue("memfree", WireNumbers.requiredInteger(data, "memfree"))
                 .addValue("uptime", requiredDouble(data, "uptime"))
                 .addValue("idletime", requiredDouble(data, "idletime"))
                 .addValue("load1", requiredDouble(data, "load1"))
@@ -289,13 +286,16 @@ public final class SysstatsBatchWriter implements StatsBatchWriter {
                 .addValue("load15", requiredDouble(data, "load15"))
                 .addValue("runable", requiredString(data, "runable"))
                 // Optional members: NULL when the gateway did not send them.
-                .addValue("temp", optionalLong(data, "temp"), Types.BIGINT)
-                .addValue("rtt", optionalLong(data, "rtt"), Types.BIGINT)
+                .addValue("temp", WireNumbers.optionalInteger(data, "temp"), Types.BIGINT)
+                .addValue("rtt", WireNumbers.optionalInteger(data, "rtt"), Types.BIGINT)
                 .addValue("wan_if", optionalString(data, "wan_if"), Types.VARCHAR)
                 .addValue("rebootcause", optionalString(data, "rebootcause"), Types.VARCHAR)
                 // The string "300": digits on the wire, BIGINT in the column, and the
                 // range check happens BEFORE the narrowing conversion (STA-04C).
-                .addValue("timespan", optionalDigitString(data, "timespan"), Types.BIGINT);
+                .addValue(
+                        "timespan",
+                        WireNumbers.optionalDigitString(data, "timespan", WireNumbers.Sign.UNSIGNED),
+                        Types.BIGINT);
         return parameters;
     }
 
@@ -385,25 +385,6 @@ public final class SysstatsBatchWriter implements StatsBatchWriter {
         return value;
     }
 
-    private static long requiredLong(JsonNode data, String field) {
-        Long value = optionalLong(data, field);
-        if (value == null) {
-            throw new PermanentFailureException("data." + field + " must be present");
-        }
-        return value;
-    }
-
-    /** An integer member, range-checked against {@code BIGINT} before conversion. */
-    private static Long optionalLong(JsonNode data, String field) {
-        JsonNode value = data.get(field);
-        if (value == null || value.isNull()) {
-            return null;
-        }
-        if (!value.isIntegralNumber() || !value.canConvertToLong()) {
-            throw new PermanentFailureException("data." + field + " must be a BIGINT value");
-        }
-        return value.longValue();
-    }
 
     private static double requiredDouble(JsonNode data, String field) {
         JsonNode value = data.get(field);
@@ -441,32 +422,6 @@ public final class SysstatsBatchWriter implements StatsBatchWriter {
         return value.textValue();
     }
 
-    /**
-     * The one digit-string this type sends. The schema caps it at nineteen digits and
-     * the signed {@code BIGINT} maximum is also nineteen digits, so the schema cannot
-     * hold this line: the check is made against {@link BigInteger} before any narrowing
-     * conversion, exactly as {@code LorastatsDialects} does for its string counters
-     * (DL-105 rule 3, STA-04C). An overflow dead-letters; it is never zeroed or truncated.
-     */
-    private static Long optionalDigitString(JsonNode data, String field) {
-        JsonNode value = data.get(field);
-        if (value == null || value.isNull()) {
-            return null;
-        }
-        if (!value.isTextual()) {
-            throw new PermanentFailureException("data." + field + " must be a digit string");
-        }
-        final BigInteger parsed;
-        try {
-            parsed = new BigInteger(value.textValue());
-        } catch (NumberFormatException notANumber) {
-            throw new PermanentFailureException("data." + field + " is not an integral value");
-        }
-        if (parsed.signum() < 0 || parsed.compareTo(BIGINT_MAX) > 0) {
-            throw new PermanentFailureException("data." + field + " does not fit a BIGINT column");
-        }
-        return parsed.longValue();
-    }
 
     private static Set<String> mappedFields() {
         List<String> all = new ArrayList<>(REQUIRED_FIELDS);

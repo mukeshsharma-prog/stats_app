@@ -569,9 +569,14 @@ class LorastatsBatchWriterIntegrationTest {
                 writer.write(List.of(admitted(envelope("bigint-overflow", "tenant-a", overflowing))));
         assertThat(results).extracting(RecordWriteResult::status)
                 .containsExactly(RecordWriteStatus.FAILED);
-        assertThat(results.getFirst().failureOptional().orElseThrow())
-                .hasMessageContaining("rx_nr_pkts")
-                .hasMessageContaining("BIGINT");
+        Throwable failure = results.getFirst().failureOptional().orElseThrow();
+        assertThat(failure).hasMessageContaining("rx_nr_pkts").hasMessageContaining("BIGINT");
+        // T-062 (DL-154): the same verdict as the other writers' -- an overflow is
+        // PERMANENT and reaches the DLQ on attempt one. Before WireNumbers this path threw
+        // an IllegalArgumentException, which the classifier retries through all three
+        // tiers before dead-lettering the identical failure 35 minutes later.
+        assertThat(failure).isInstanceOf(PermanentFailureException.class);
+        assertThat(classifier.isPermanent(failure)).isTrue();
     }
 
     /**

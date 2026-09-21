@@ -73,9 +73,14 @@ an existing stat type's code, **stop** — that violates STA-14/STA-22.
      `data` is a closed `oneOf` of two shapes** — a measurement with `rsrp`/`rsrq`
      optional, or `{"etxt": …}` alone from a modem that never registered (DL-146);
      `netstats` counters
-     are digit-only strings up to 19 digits. Range-check against the signed `BIGINT`
-     maximum **before** conversion and dead-letter on overflow — never zero, never
-     truncate *(T-062, STA-04C)*
+     are digit-only strings up to 19 digits. Read every one of them through
+     **`WireNumbers`** — `requiredInteger`/`optionalInteger` for a JSON integer,
+     `requiredDigitString`/`optionalDigitString` with the schema's `Sign` for a string —
+     which range-checks against the signed `BIGINT` maximum **before** conversion and
+     dead-letters on overflow as permanent, never zeroing or truncating. Do not write a
+     private parse: `WireNumbersIsTheOnlyCoercionTest` fails the build on `BigInteger`,
+     `canConvertToLong` or `Long.parseLong` anywhere else in the persistence package
+     *(T-062, DL-154, STA-04C)*
 
 2. **Register validation** *(Module 1, STA-03)*
    - Add the schema to the validation registry keyed by type name

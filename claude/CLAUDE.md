@@ -6,6 +6,29 @@ It is still auto-loaded every session: the repository-root `CLAUDE.md` is a
 pointer file whose only content is an `@claude/CLAUDE.md` import. Edit this file,
 not the pointer.
 
+> **Version 1.20 — 21 September 2026 (evening, later).** No decision in 1.19 changes.
+> What changes is that **the `BIGINT` range check exists once**. Governing entry:
+> **DL-154** (T-062).
+>
+> * **`WireNumbers` is the only coercion.** Integer or digit string, `Sign.UNSIGNED` or
+>   `Sign.SIGNED` as the schema's pattern says, range-checked against `BigInteger`
+>   **before** conversion, every refusal a `PermanentFailureException` naming the field
+>   and never the value. All three writers and `LorastatsDialects` call it;
+>   `WireNumbersIsTheOnlyCoercionTest` fails the build on `BigInteger`,
+>   `canConvertToLong` or `Long.parseLong` anywhere else in the persistence package.
+> * **The three copies disagreed, and the audit found it.** A lorastats dialect-A integer
+>   overflow threw `IllegalArgumentException`, which the classifier *retries* — three
+>   tiers, 35½ minutes, then the DLQ with the identical failure — while sysstats and
+>   omsstats dead-lettered on attempt one. And the dialect-B coercion accepted a negative
+>   string its schema forbids. Both fixed; the lorastats test now asserts permanence.
+> * **ltestats and netstats have nothing to write here:** signed signal strings and
+>   nineteen-digit counters are covered in `WireNumbersTest`. `lac`/`cid` hex and `imsi`
+>   are deliberately not — they are D-12's, not a parser's.
+> * **Gates:** full build **783 tests, 0 failures** (755 + 26 helper cases + 2 guard cases).
+> * **What to do next:** T-034 `ltestats` — **blocked on D-12 P3** until the IMSI and
+>   `lac`/`cid` treatment is signed. Then the Phase 5 ops rows T-051, T-054, T-055, T-056,
+>   T-048.
+>
 > **Version 1.19 — 21 September 2026 (evening).** No decision in 1.18 changes. What changes
 > is that **`omsstats` is the third stat type end to end, and the fan-out copied cleanly**.
 > Governing entry: **DL-153** (T-036).
@@ -1038,6 +1061,7 @@ plan is not written against a repository that no longer exists. Full reasoning:
 | DL-150 | **A Writer log line never repeats a key the MDC scope owns.** Seven `WARN` sites were being dropped by the ECS encoder since T-005 — silently after the fourth. `WriterLogsDoNotShadowMdcKeysTest` fails the build; `EcsEncoderDropsDuplicateKeysTest` pins why | T-005 (amended), every fan-out task |
 | DL-151 | **Two ingest doors, one handler; device-scoped read paths in the contract.** `/internal/stats` and `/external/stats` share everything but the `source` label; `/{type}/{clsbox}/{from}[/{to}]` is tenant-scoped, open-ended, empty-200 on a foreign gateway, contract-only. Residual: no tenant binding on the external door | T-013/T-017/T-018 (amended), **T-067**, **T-068** |
 | DL-152 | **Documents and tracker reconciled** to DL-145…DL-151; ADR-006 amended — 404 is the `uid` lookup's answer, the empty page is the device list's; T-067/T-068/T-069 exist | — |
+| DL-154 | **One wire-number coercion, and the build refuses a second.** `WireNumbers` — `requiredInteger`/`optionalInteger`, `requiredDigitString`/`optionalDigitString(Sign)`, `parseDigitString` — range-checks against `BigInteger` before conversion; every refusal is permanent and names only the field. Found on extraction: a lorastats integer overflow was *retried* (35½ min) before dead-lettering, and the dialect-B coercion accepted a negative string. `WireNumbersIsTheOnlyCoercionTest` scans the persistence package | T-062, T-034, T-037 |
 | DL-153 | **`omsstats` is built, additively, from the sysstats slice — and nothing shared moved.** `V7__omsstats_table.sql` with the CHECK, `data_extra`, `(ts_device, uid)` and the two ADR-003 indexes; every payload column a `NOT NULL bigint`; `ts.converter` preserved in `passthrough`, no normalisation column (ADR-004). An integer wider than `BIGINT` is `unmappable` before conversion; `"300"` is refused, not guessed. Fixture `valid/omsstats-counter-overflow.json`. The coercion helper is deliberately left to T-062 | T-036, T-062 |
 
 > **What to do next lives in `Stats_App_Tracker.xlsx` → the `Next Up` sheet**, ranked
@@ -1050,7 +1074,7 @@ plan is not written against a repository that no longer exists. Full reasoning:
 > line: ~~**T-050 first** — the DLQ is watched, the main queues are not — then **T-035
 > `sysstats`**~~ — **both done 19 Sep 2026 (DL-147, DL-148).** ~~Next is **T-036
 > `omsstats`**, copied from the *sysstats* slice~~ — **done 21 Sep 2026 (DL-153)**; next is
-> **T-062**, then `ltestats`, which stays blocked on D-12 P3.
+> ~~**T-062**~~ (done 21 Sep, DL-154), then `ltestats`, which stays blocked on D-12 P3.
 > T-051, T-054 and T-055 are unblocked — they measure what T-025 built. The
 > upstream-status threshold is set after the first 24 h of ingest, not before.
 
