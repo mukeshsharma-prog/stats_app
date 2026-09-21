@@ -4,13 +4,15 @@ A **Datahub Core** add-on at Zenner. It receives statistics pushed from the
 **Heimdal Core**, buffers them through RabbitMQ, persists them per statistics type
 in **PostgreSQL**, and exposes them through a read-only, tenant-scoped REST API.
 
-**Status (12 September 2026):** Phase 1 complete; Phase 2 — the `lorastats` vertical
-slice — built, observable and operable, with the alerting still to come. Requirements and architecture are settled and ADRs 001–007 are approved
-or accepted. The Gradle multi-project builds: five modules (`stats-common`,
-`stats-testsupport` and the three applications), three deployable images, a Docker
-Compose stack with PostgreSQL 17, RabbitMQ and Keycloak, and 85 JSON schema fixture
-files gated by `docs/schemas/validate-fixtures.py` at 103 assertions — checked against
-1,200 live records on 18 September 2026 (DL-146).
+**Status (21 September 2026):** Phase 1 complete; Phase 2 — the `lorastats` vertical
+slice — built, observable, operable and watched; Phase 3 — the type fan-out — entered,
+with `sysstats` the second type end to end. Requirements and architecture are settled and
+ADRs 001–007 are approved or accepted. The Gradle multi-project builds: five modules
+(`stats-common`, `stats-testsupport` and the three applications), three deployable images,
+a Docker Compose stack with PostgreSQL 17, RabbitMQ and Keycloak, and 86 JSON schema
+fixture files gated by `docs/schemas/validate-fixtures.py` at 105 assertions — checked
+against 1,200 live records on 18 September 2026 (DL-146). Full build: 689 tests,
+0 failures, against Testcontainers.
 
 Since **8 September 2026 `lorastats` is complete end to end**, in all three of the
 payload dialects production actually sends: the Writer's per-type payload gate refuses
@@ -34,8 +36,21 @@ per-type, rate-capped redrive that gives it exactly one more attempt (T-052;
 `docs/runbooks/dlq-redrive.md`). Since 17–19 Sep 2026 it is also **watched**: the DLQ
 (T-060, `ops/prometheus/dlq-alerts.yml`) and the main queues' oldest-message age, late
 arrival and upstream status (T-050, `ops/prometheus/writer-alerts.yml`). The fan-out has
-started: **`sysstats` is the second type end to end** (T-035). `stats-api` is a
-stub awaiting the OpenAPI confirmation (D-09). See `claude/PROJECT_STATUS_AND_PLAN.md`
+started: **`sysstats` is the second type end to end** (T-035, DL-148). Since
+**20 September 2026 the stack has been run end to end** — `docker/demo.sh`, ten steps
+each naming the rule it proves — and the first run found two silent losses that 674
+green tests had not: partition pre-creation only looked *ahead*, so a valid record from
+a gateway back after three weeks offline had no partition and dead-lettered as permanent
+(DL-149, now the whole window); and every Writer `WARN` carrying a `uid` was being dropped
+by the ECS encoder because seven statements repeated MDC keys (DL-150, now a build-failing
+guard). Since **21 September 2026 the ingest endpoint has two doors on one handler** —
+`POST /internal/stats` for Heimdal Core and `POST /external/stats` for everyone else,
+identical in every rule and distinguished only by a `source` label on every Input metric
+(DL-151) — and the read contract carries the device-scoped paths management asked for,
+`GET /v1/stats/{type}/{clsbox}/{from}[/{to}]`, contract-only until Phase 4 (T-067).
+**Read DL-151's residual before exposing the external door anywhere:** it authenticates
+the caller and binds nothing to the record's tenant until Q8a-2 closes (T-068). `stats-api`
+is a stub awaiting the OpenAPI confirmation (D-09). See `claude/PROJECT_STATUS_AND_PLAN.md`
 and `claude/FLOW.md` for what is BUILT versus SPECIFIED, and **`Stats_App_Tracker.xlsx`
 → the `Next Up` sheet** for the ranked answer to *what do I pick up now*.
 
@@ -45,7 +60,8 @@ table must carry** (DL-115), two guards fail the build rather than asking polite
 main source may branch on `version` (DL-113) and no throwable may reach a `stats-writer`
 log line (DL-124) — `redocly lint` gates the API contract structure (DL-117), and a
 separate parity gate resolves and compares all five inlined data schemas with the
-authoritative validation catalogue (DL-140).
+authoritative validation catalogue (DL-140). Since DL-150 a third guard joins them: no
+`stats-writer` log statement may repeat a key the delivery's MDC scope owns.
 
 ```
 Heimdal Core ──POST──> stats-input ──AMQP──> RabbitMQ ──> stats-writer ──> PostgreSQL
@@ -226,15 +242,15 @@ Every working document lives in `claude/`. The repository root holds only this
 |---|---|
 | `claude/CLAUDE.md` | Project context, non-negotiable rules, known traps, open questions. Auto-loaded via the root `CLAUDE.md` pointer. |
 | `claude/DECISIONS.md` | **Every meaningful decision and why** — architecture, libraries, conventions, and the choices too small for an ADR. `DL-nnn` IDs. The answer to *why is it like this?* |
-| `claude/FLOW.md` | **The execution flow** — a record from Heimdal to an API response, every failure exit, and the eleven windows where one could be lost. Says what is built versus specified |
+| `claude/FLOW.md` | **The execution flow** — a record from Heimdal to an API response, every failure exit, and the fifteen windows where one could be lost — twelve of them silent. Says what is built versus specified |
 | `claude/IMPLEMENTATION_RULES.md` | Detailed implementation rules, code structure, and the required working sequence |
 | `claude/PROJECT_STATUS_AND_PLAN.md` | What is answered, what is open and who owns it, the phased plan, and the delegation split |
 | `claude/DEVELOPMENT.md` | Build, run, test, configure, troubleshoot |
 | `claude/SKILLS.md` | Repeatable procedures — add a stat type, review tenant isolation, write tests, diagnose a queue, change retention |
 | `claude/CODE_START_CHECKLIST.md` | Stop/go decision register and phase entry criteria |
 | `claude/OPEN_QUESTIONS_STATUS_29AUG2026.md` | Every open question and decision as at 29 Aug 2026: what was decided that day and why, what actually blocks which task, and the tracker inconsistencies found |
-| `Stats_App_Tracker.xlsx` (repository root) | **The working task tracker.** 66 tasks across phases 1–5 with acceptance criteria, requirement IDs and blockers; plus what is already done, the open questions by owner, every decision, the 22 known traps with the test that catches each and whether that test exists yet, and a change log. **Read the `Next Up` sheet first** — added 5 Sep 2026, it is the ranked sequence across both owners with the gate on each row; the Tasks sheet is the backlog behind it. |
-| `Stats_App_Work_Brief_Mukesh_05SEP2026.pdf` (repository root) | **The delegation brief.** The same information aimed at one person: what Mukesh owns, in what order, the procedure for each block of work, the traps with the test that catches each, and the definition of done. Generated 5 Sep 2026; the tracker is the live source, this is the readable snapshot. |
+| `Stats_App_Tracker.xlsx` (one level above the checkout, beside it — it is not committed) | **The working task tracker.** 69 tasks across phases 1–5 with acceptance criteria, requirement IDs and blockers; plus what is already done, the open questions by owner, every decision, the 34 known traps with the test that catches each and whether that test exists yet, and a change log. Refreshed 21 Sep 2026 (DL-152). **Read the `Next Up` sheet first** — added 5 Sep 2026, it is the ranked sequence across both owners with the gate on each row; the Tasks sheet is the backlog behind it. |
+| `Stats_App_Work_Brief_Mukesh_05SEP2026.pdf` (not in this checkout — generated 5 Sep 2026 and handed over; the tracker supersedes it) | **The delegation brief.** The same information aimed at one person: what Mukesh owns, in what order, the procedure for each block of work, the traps with the test that catches each, and the definition of done. Generated 5 Sep 2026; the tracker is the live source, this is the readable snapshot. `Stats_App_Developer_Guide.pdf` sits beside it (built 18 Sep 2026 — it predates DL-147 onward). |
 
 ### Specifications — `docs/`
 
@@ -244,8 +260,10 @@ Every working document lives in `claude/`. The repository root holds only this
 | `docs/decisions/` | `ANSWER_RECONCILIATION.md` (what ZC answered), `2B-ANSWERS-18AUG2026.md` (the seven §2b answers and every decision derived from them), and the PostgreSQL baseline |
 | `docs/architecture/adr/` | ADR-001 … **ADR-007**. **`ADR-nnn` always means one of these.** The ARD carries its own ADR-001…010 with different meanings — cite those as `ARD-ADR-nn`. **Start with ADR-007** if you have not read this repository since 29 Aug 2026: it rebuilt the envelope on the production wire format and amends ADR-002, ADR-003 and ADR-004. |
 | `docs/architecture/Stats_App_Flow.png` | End-to-end flow diagram |
-| `docs/contracts/` | Heimdal inbound HTTP contract (`heimdal-input-contract-v1.md`, with its OpenAPI twin **`openapi-input.yaml`**), AMQP topology, **`writer-metrics-v1.md`** (every Writer metric and its measurement boundary), and **`openapi.yaml`** — the read API contract, OpenAPI 3.1, GET-only. Both contracts are draft pending ZC confirmation; `build-html.sh` renders them onto one page (DL-145) |
+| `docs/contracts/` | Heimdal inbound HTTP contract (`heimdal-input-contract-v1.md`, with its OpenAPI twin **`openapi-input.yaml`**), AMQP topology, **`writer-metrics-v1.md`** (every Writer metric and its measurement boundary), and **`openapi.yaml`** — the read API contract, OpenAPI 3.1, GET-only. Both contracts are draft pending ZC confirmation; `build-html.sh` renders them onto one page (DL-145). Since 21 Sep 2026 (DL-151) the inbound contract has two doors (`/internal/stats`, `/external/stats`) and the read contract three operations — the device-scoped `/{type}/{clsbox}/{from}[/{to}]` joined the list and the `uid` lookup |
 | `docs/runbooks/` | **`dlq-redrive.md`** — the guarded per-type DLQ redrive: access, pilot, audit, stop conditions, and the 90-day trap made checkable |
+| `ops/prometheus/` | **`dlq-alerts.yml`** (T-060) and **`writer-alerts.yml`** (T-050) with their `promtool` unit tests, and a README with the Q13b histogram query — both rule files are validated in CI |
+| `docker/` | Compose stack, Dockerfile, `postgres-init/`, and **`demo.sh`** — the ten-step end-to-end demo against the running stack (T-069, 20 Sep 2026), each step naming the rule it proves |
 | `docs/schemas/` | JSON Schema catalogue, per-type schemas, and fixtures |
 | `docs/prompts/` | Prompt templates for working on this repo |
 | `docs/setup/` | Local IDE setup and `keycloak-realm-statsapp.json`, the importable dev realm whose four users are each a specific test |
@@ -329,16 +347,18 @@ before any shared deployment:
    that separates a systemic gateway backlog from a harmless one-off, is **built**:
    `StatsAppLateArrival` (T-050, DL-147).
 
-The most valuable open question is **Q13b — do gateways report on synchronised
-10-minute boundaries or jitter across them?** We design for the synchronised case
-(13,333/s, 10× average). Jitter would drop the peak, and the hardware, by 10×. It is
-also *measurable* rather than askable: a histogram of `ts.server mod 600` over 24 h
-answers it — and since T-050 (DL-147) that histogram exists,
+**Q13b — do gateways report on synchronised 10-minute boundaries or jitter across
+them? — was answered on 4 September 2026 (DL-104): they jitter.** The 13,333/s design
+target survives as *configured headroom*, not the expected case; expected steady state is
+the ~1,333/s average. But an answer is a statement, not a measurement, and hardware is
+not sized down until the `ts.server mod 600` histogram over the first 24 h of ingest
+confirms it — since T-050 (DL-147) that histogram exists,
 `records_ts_server_cycle_offset_seconds{type}` on `stats-input`, with the query in
 `ops/prometheus/README.md`. Reading its first 24 h is the next step, not building it.
 
 The one item that genuinely gates work is **ZC's confirmation of
-`docs/contracts/openapi.yaml`** — nine tasks sit behind it, essentially all of Phase 4.
+`docs/contracts/openapi.yaml`** — ten tasks sit behind it, essentially all of Phase 4, and since
+21 Sep 2026 (DL-151) the contract being confirmed also carries the device-scoped read paths.
 
 **Closed on 29 August 2026 — do not reopen:** Q14a (clock skew — rejected at Input
 beyond a configurable tolerance), Q3a (topology declared by broker-connected modules

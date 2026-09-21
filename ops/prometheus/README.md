@@ -88,6 +88,12 @@ because nobody looked.
 
 ## The Q13b histogram — an Input metric, not an alert
 
+> **Every `stats-input` series except `records_unroutable` carries `source="internal"|"external"`
+> since 21 Sep 2026 (DL-151)** — which ingest door the request used. The queries below
+> already aggregate with `sum by (type, le)` / `sum by (type)`, so they are unaffected; a
+> new query that reads an Input series per type must do the same or filter on `source`, or
+> it sees two series. Writer series are unlabelled by door — the Writer does not know it.
+
 `records_ts_server_cycle_offset_seconds{type}` is exported by **stats-input** (DL-147):
 `ts.server mod 600` for every accepted record, in twenty cumulative 30-second buckets. It
 answers the question DL-104 made the precondition for sizing hardware down — do gateways

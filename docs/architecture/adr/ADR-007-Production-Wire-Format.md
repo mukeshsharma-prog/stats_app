@@ -6,7 +6,7 @@
 **Requirements:** STA-01A, STA-02, STA-03A, STA-14A, STA-21A, STA-23B
 **Supersedes:** the envelope field names in SRS v1.0 and every document derived from them
 **Amends:** ADR-004 (§2 below), ADR-003 (column names)
-**Amended by:** the *Amendment — 4 September 2026* section below, which answers Q15a–Q15d and **reverses §4**; and the *Amendment — 18 September 2026* section, which extends §6 to `ltestats` and widens the envelope on live data (DL-146)
+**Amended by:** the *Amendment — 4 September 2026* section below, which answers Q15a–Q15d and **reverses §4**; and the *Amendment — 18 September 2026* section, which extends §6 to `ltestats` and widens the envelope on live data (DL-146). §1 carries a one-paragraph application to URL path parameters (21 Sep 2026, DL-151)
 
 > **Numbering warning (G5).** `Datahub_Core_StatsApp_ARD_v1_1.pdf` carries its own
 > ADR-007. Cite the ARD's as **`ARD-ADR-07`**. An unqualified "ADR-007" always means
@@ -57,6 +57,13 @@ against sample data where the two values are equal.
 The word *gateway* survives in prose for the physical device — "160,000 gateways",
 "a gateway with a bad clock". Only the **field** is renamed. Do not mechanically
 rewrite the prose.
+
+*Applied 21 September 2026 (DL-151):* the same rule governs **URL path parameters**.
+Management asked for a read path "by MAC address"; the contract's parameter is
+`{clsbox}` — `/v1/stats/{type}/{clsbox}/{from}[/{to}]` — not `{mac}`. The URL bytes are
+the same either way, and a second name for the device field in the API is the rename
+layer this section removed. "MAC address" survives in the operation's description, as
+*gateway* does in prose.
 
 ### 2. `ts.converter` is accepted, ignored, and metered — ADR-004 is amended
 

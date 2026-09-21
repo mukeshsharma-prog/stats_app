@@ -49,7 +49,8 @@ tracker will surface this. That is the same defect the 29 August pass caught for
 
 ## 2. Where a field can come to rest
 
-Six sinks. A field's exposure is the union of the sinks it reaches, and they have very
+Six sinks this project operates, plus one it does not (the URL path, added 21 Sep 2026 —
+see the table). A field's exposure is the union of the sinks it reaches, and they have very
 different lifetimes.
 
 | Sink | What it is | Lifetime | Access control |
@@ -57,9 +58,12 @@ different lifetimes.
 | **Column** | A typed PostgreSQL column in the stat type's table | 90 days, partition detach-and-drop on `ts_device` (STA-23) | `stats` / `stats_ro` roles (ADR-006) |
 | **`passthrough`** | One nullable `jsonb` column holding `ts.datastore`, `ts.converter`, `ts.expiresOn`, `status` (DL-094) | as Column | as Column |
 | **`data_extra`** | One nullable `jsonb` column holding every `data` member the type's schema does not name, verbatim (D14b, DL-095) | as Column | as Column |
-| **API** | Returned by `GET /v1/stats/{type}` | as Column | Keycloak, `stats.readOnly`, tenant-scoped (ADR-006) |
+| **API** | Returned by `GET /v1/stats/{type}`, `GET /v1/stats/{type}/{clsbox}/{from}[/{to}]` and `GET /v1/stats/{type}/{uid}` (three operations since DL-151) | as Column | Keycloak, `stats.readOnly`, tenant-scoped (ADR-006) |
+| **URL path** *(new sink, DL-151)* | `clsbox` — the device identifier — and `uid` travel in the **request path** of the device-scoped and `uid` operations, so they reach every access log, proxy log and browser history between the consumer and `stats-api`, none of which this project controls or retains on a schedule | **UNDEFINED** — whoever runs the ingress. Same class of question as the Log sink | Whatever the ingress applies. Not a reason to move them into the body: a `GET` with a body is not a `GET` |
 | **Log** | Structured JSON to stdout → Docker logs | **UNDEFINED — this is D-12** | **UNDEFINED — this is D-12** |
 | **DLQ** | The whole record, byte-for-byte, in `app_statsstore.<type>.dlq` | **INDEFINITE by decision — ADR-002 §12** | Broker credentials; redrive is an authorised ops role |
+
+The URL-path sink is narrow — two identifiers, both stable, one of them the device's MAC address — and it is the first sink the API adds that this project does not operate. It is listed so that D-12's answer on `clsbox` covers it rather than discovering it in someone else's access log. (The ingest doors add nothing: `POST /internal/stats` and `POST /external/stats` carry no identifier in the path, DL-151.)
 
 Two sinks take **every field of a record regardless of this table**: the DLQ takes the
 record verbatim, and `data_extra` takes anything the schema did not name. Neither can be
@@ -77,10 +81,10 @@ narrowed field by field.
 
 | Field | Class | Column | `passthrough` | API | Log | DLQ |
 |---|---|---|---|---|---|---|
-| `uid` | Record identifier. Also **the log correlation ID** (D1), so it is on every log line by design | ✅ | — | ✅ | ✅ **always** | ✅ |
+| `uid` | Record identifier. Also **the log correlation ID** (D1), so it is on every log line by design — and, since DL-151, in the **URL path** of `/{type}/{uid}` | ✅ | — | ✅ | ✅ **always** | ✅ |
 | `tenant` | **Customer identifier.** The isolation field; reveals which Zenner customer a record belongs to | ✅ | — | ✅ | ✅ **always** | ✅ |
 | `maintenant` | **Customer identifier** — the maintaining tenant, moved with `tenant` and equal to it on every tenant but minol, where it can be the parent name `minol` under `tenant: minol-gateway` (DL-139, DL-146). Never used for isolation (trap 1) | ✅ | — | ✅ | — | ✅ |
-| `clsbox` | **Device identifier** — 12 hex, the physical gateway. Stable for the life of the device | ✅ | — | ✅ | ✅ **always** | ✅ |
+| `clsbox` | **Device identifier** — 12 hex, the physical gateway's MAC. Stable for the life of the device. Since DL-151 also in the **URL path** of `/{type}/{clsbox}/{from}[/{to}]` | ✅ | — | ✅ | ✅ **always** | ✅ |
 | `type` | Operational only | ✅ | — | ✅ | ✅ | ✅ |
 | `version` | Operational only | ✅ `record_version` | — | ✅ | — | ✅ |
 | `status` | Operational only — Heimdal converter annotation | — | ✅ | ✅ | — | ✅ |

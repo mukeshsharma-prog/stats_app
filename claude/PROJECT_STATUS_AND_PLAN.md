@@ -1,6 +1,6 @@
 2# Stats App — Status and Implementation Plan
 
-**Owner:** Naman (SSE) · **Date:** 18 August 2026, last updated 12 September 2026 · **Status:** working document
+**Owner:** Naman (SSE) · **Date:** 18 August 2026, last updated 21 September 2026 · **Status:** working document
 
 Consolidates `Stats_App_Answers_v1_0.docx`, the Aug 15 v1.2 amendment pack,
 `Stats_App_Internal_Decisions_v1.0.docx`, and the ARD (v1.1) into one picture:
@@ -209,17 +209,18 @@ decision are in `docs/decisions/2B-ANSWERS-18AUG2026.md`. **Do not reopen these.
 | Keycloak realm and claims | **Proposed by engineering and live in the dev realm.** Realm `statsapp`; clients `stats-api` / `stats-input` / `stats-dev-cli`; audience `stats-api`; read role `stats.readOnly`; ingest role `stats.ingest`; tenant claim `tenant`, **single-valued String** — because a multi-valued claim turns isolation into `tenant IN (...)` and one misconfigured user then reads several tenants with every test still green. |
 | Burst profile | **Assume the worst until measured** — and **amended 4 Sep 2026 (Q13b, DL-104): gateways JITTER across the cycle.** 13,333/s survives as *configured headroom*, not the expected case; expected steady state is the ~1,333/s average. Input sized for peak, Writer for drain (~2,000/s per type), prefetch 500, `max_wal_size` for the burst. **Alert on oldest message age, never on queue depth** — but the *reading* inverts: a cyclic depth spike used to be the buffer working, and under jitter it is evidence this answer is wrong. Hardware is not sized down until the `ts.server mod 600` histogram over the first 24 h of ingest confirms it — **the histogram exists since T-050 (DL-147): `records_ts_server_cycle_offset_seconds{type}` on Input, query in `ops/prometheus/README.md`**; the 24 h have not yet been read. |
 | Replay burst | **Heimdal AGREED the 2× nominal cap (2,667/s) on 4 Sep 2026 (Q13c, DL-109) — and it stays unenforceable by us, so not one defence changes.** A 6-hour outage is 28.8M messages and ~3 hours of replay at that cap, holding total ingest at 4,000/s. A 503 during replay is the backpressure channel working, not an incident. |
-| Realistic samples | **Built, then rebuilt on production 29 Aug 2026 (ADR-007).** **79** fixture files across `valid/`, `invalid/`, `edge/`, `malformed/`, including 9 byte-faithful production records; `validate-fixtures.py` asserts **91** and exits non-zero for CI. The last four: `lorastats-clsbox-lowercase.json` (5 Sep, DL-115), then `lorastats-dialect-unknown.json`, `lorastats-dialect-string-overflow.json` and `lorastats-status-not-ok.json` (8 Sep, DL-127/DL-128) — the first two mark the boundaries the widened dialect schema created. The production sample invalidated every envelope field name and four of the five payload schemas. |
+| Realistic samples | **Built, then rebuilt on production 29 Aug 2026 (ADR-007), checked against 1,200 live records 18 Sep 2026 (DL-146), +1 for the second type 19 Sep (DL-148).** **86** fixture files across `valid/`, `invalid/`, `edge/`, `malformed/`, including the byte-faithful production records of 29 Aug and the six production-shaped fixtures of 18 Sep; `validate-fixtures.py` asserts **105** (91 schema cases plus 14 `$expect` markers: `input-reject`, `writer-dlq`, `writer-range-reject`, `writer-skip`) and exits non-zero for CI; Java parity is 91. Nothing moved on 20–21 Sep. |
 
 ### 2b-2. What is genuinely still open with ZC
 
 | Item | Why it matters | Blocks |
 |---|---|---|
-| **Q8a-2** — Heimdal inbound auth: mTLS or OAuth2, issuer, audience, identity, rotation | The Input port is unauthenticated until it closes | Nothing today. **Must close before any shared deployment.** |
+| **Q8a-2** — Heimdal inbound auth: mTLS or OAuth2, issuer, audience, identity, rotation | The Input port is unauthenticated until it closes | Nothing today. **Must close before any shared deployment** — and, since DL-151, before `/external/stats` is exposed anywhere: the external door shares Heimdal's authentication and binds nothing to the record's tenant (**T-068**, BLOCKED on this) |
+| **Q8a-3** — is the stats push a Heimdal *ForwardRule*, with what credential and what `maxRetry`? (DL-139) | Basic-in-URL is a mode `stats.input.auth.mode` cannot express; a bounded `maxRetry` means a sustained 503 burns a budget we cannot see. **Transport confirmed HTTP on 17 Sep 2026 (DL-145)** — a ForwardRule of type `HTTP` is now the likely mechanism; the handover table is `heimdal-input-contract-v1.md` §0 and Heimdal's door is `/internal/stats` | Nothing today. Ask with Q8a-2, in one row |
 | **Q8b-2** — confirmation of the proposed Keycloak values | Every value is a property with no default, so this is a config change | Hardening sign-off, not development |
 | **Q15e / Q15f / Q15g** — from the first look at live data, 18 Sep 2026 (DL-146): which `ts.expiresOn` spelling the forward sends; when Heimdal rewrites `ts.device`; where `netstats` records go | Both `expiresOn` forms and both correction members are accepted and preserved, so nothing waits on the first two. **Zero `netstats` records exist in the datastore** | Nothing today; Q15g blocks T-037 `netstats` |
 
-**Q13b, Q13c, Q4b and the four Q15 questions were removed from this table on 4 September 2026** — all answered. **Q14a and Q5a were removed on 29 August 2026** — both decided, not answered. See §2c and §2d. The two auth items and the three 18 September live-data questions are what remain owed by ZC / Hasan.
+**Q13b, Q13c, Q4b and the four Q15 questions were removed from this table on 4 September 2026** — all answered. **Q14a and Q5a were removed on 29 August 2026** — both decided, not answered. See §2c and §2d. The three auth items (Q8a-2, Q8a-3, Q8b-2) and the three 18 September live-data questions are what remain owed by ZC / Hasan; none has been sent yet — the sending is rows 3 and 4 of `Next Up`.
 
 ### 2c. Decided 29 August 2026 — was "conflicted" or misfiled
 
@@ -307,7 +308,33 @@ is a harmless no-op; retention boundary test passes on both sides.
 > window, outage drill — T-033 is Phase 3's entry criterion) and **T-060** (DLQ depth
 > and age alerting, now **unblocked** and sizeable against real dead-letter volume).
 
-### What to pick up next — 12 September 2026
+### What to pick up next — 21 September 2026
+
+Everything in the 12 September table is done or merged. What happened since, in order:
+**17 Sep** six branches merged (the three drills, T-047, T-053, T-060 — DL-140…DL-144) and
+D16 ratified (DL-142); **18 Sep** the inbound contract became handable (DL-145) and the
+documents met live data (DL-146); **19 Sep** T-050 and T-035 (DL-147, DL-148); **20 Sep**
+the stack was run end to end for the first time and two silent losses fell out — ahead-only
+partition pre-creation (DL-149) and Writer `WARN`s dropped by the log encoder (DL-150) —
+both fixed, guarded, and now demonstrated by `docker/demo.sh` (T-069); **21 Sep**
+management's ask designed and half built (DL-151): two ingest doors on one handler, and
+the device-scoped read paths in the contract (T-067). The tracker and every document were
+reconciled the same day (DL-152).
+
+| | Naman | Mukesh |
+|---|---|---|
+| **Now** | **Send Q8a-2 + Q8a-3 to ZC** — the answer now also unblocks **T-068**, the tenant binding the external door lacks (DL-151 residual). **Send Q15e–Q15g to Hasan** — Q15g decides whether T-037 `netstats` is built for a type that never arrives | **Read the first 24 h** of `records_ts_server_cycle_offset_seconds` (sum over the new `source` label) and set the `StatsAppUpstreamStatusNotOk` threshold; then **T-036 `omsstats`**, copied from the sysstats slice — it inherits whole-window pre-creation and the MDC guard from shared code, so re-adding either is a build failure |
+| **Then** | T-051 — the timed per-partition restore drill (RTO 1 h, DL-111); since DL-149 the restored day's partition is guaranteed pre-created, so the re-attach is the only new thing | T-054, T-055 against the built sweep; T-056 dashboards (aggregate replicas with `max`, sum Input series over `source`); T-048 at the 13,333/s headroom |
+| **After T-036** | reviews each fan-out end to end | T-034 `ltestats` (after D-12 P3; schema survived 1,980 live records), then T-037 `netstats` (after Q15g) |
+| **Held** | T-039, T-042, T-045, T-046 — and **T-068**, BLOCKED on Q8a-2 | T-038, T-040, T-041, T-043, T-044, **T-067** — all gated on ZC confirming `openapi.yaml` (D-09), which since DL-151 carries the device-scoped paths and has lost the `clsbox` query parameter |
+
+> **Do not expose `/external/stats` anywhere shared before T-068.** With identical
+> authentication on both doors, anything that can reach the external path can write
+> statistics under any tenant's name. The internal door is no worse than before DL-151.
+
+The 12 September table is kept below for the record.
+
+### What to pick up next — 12 September 2026 *(superseded 21 Sep)*
 
 Everything the 8 September table put under **Now** is done. T-025/T-026/T-031 landed on
 10 Sep (DL-132, DL-133); T-005, T-009 and T-027 merged the same day (DL-134…DL-137) and
@@ -387,14 +414,22 @@ Only after the OpenAPI is confirmed. Keycloak resource server, tenant claim mapp
 GET-only routes, tenant predicate in every query, keyset pagination with a unique
 tie-breaker, error mapping.
 
+**Three operations since 21 Sep 2026 (DL-151):** the tenant-wide list
+`/{type}?from&to`, the device-scoped `/{type}/{clsbox}/{from}[/{to}]` (T-067 — open-ended
+one-argument form, foreign `clsbox` is an empty 200, no window limit, `{clsbox}` keeps its
+wire name) and `/{type}/{uid}`, told apart by segment count. One spelling for problem
+`type` URIs — underscores, as `ErrorCode.typeUri()` emits (DL-145 residual).
+
 **Exit:** 401/403/405 tests pass; a `tenant != maintenant` fixture proves only
 `tenant` controls isolation; pagination is stable under concurrent writes.
 
 ### Phase 5 — Operational readiness
 
 Load test at 1,333/s sustained plus the burst profile; DB and broker outage drills;
-graceful shutdown and redelivery; ~~DLQ redrive rehearsal~~ **done 11 Sep 2026 (T-052,
-DL-138 — `docs/runbooks/dlq-redrive.md`)**; backup/restore; dashboards, alerts, runbook.
+~~graceful shutdown and redelivery~~ **done 17 Sep 2026 (T-053, DL-143)**; ~~DLQ redrive
+rehearsal~~ **done 11 Sep 2026 (T-052, DL-138 — `docs/runbooks/dlq-redrive.md`)**;
+backup/restore; dashboards; ~~alerts~~ **done 17–19 Sep 2026 (T-060, T-050)**; runbook.
+The end-to-end demo exists since 20 Sep 2026 (`docker/demo.sh`, T-069).
 
 ---
 
@@ -448,7 +483,9 @@ all pass naive tests while being wrong.
 Valid records stored · invalid returns 400 with Problem Details and publishes nothing ·
 forced write failure reaches the type DLQ · readable via GET, tenant-scoped · non-GET
 returns 405 · retention configured and boundary-tested · pagination stable · OpenAPI
-updated · per-type metrics exposed · **no existing type's code was modified** (STA-22).
+updated (all three operations) · per-type metrics exposed · the type added to `docker/demo.sh`'s
+happy-path step · no `addKeyValue` on an MDC-owned key (DL-150 — the build says so) ·
+**no existing type's code was modified** (STA-22).
 
 ---
 

@@ -22,10 +22,11 @@ flow, because a specified flow and a running one are not the same claim.
 | **`SPECIFIED`** | Decided and contracted; not yet implemented |
 | **`BLOCKED`** | Cannot be built — an open question owns it |
 
-### What exists today (12 September 2026)
+### What exists today (21 September 2026)
 
 `stats-common` is complete, `stats-writer` and `stats-input` are substantially
-built, and `stats-api` is still a stub.
+built — two stat types end to end, watched, and run end to end on the Compose stack —
+and `stats-api` is still a stub with a contract that now carries three operations.
 
 | Component | Status |
 |---|---|
@@ -55,6 +56,16 @@ built, and `stats-api` is still a stub.
 | DLQ redrive — guarded, per type, one attempt | **`BUILT`** (T-052; DL-138). `DlqRedriveCommand` confirms the copy before ACKing the original; `x-stats-manual-redrive` sends a repeat failure straight back to the DLQ. Runbook `docs/runbooks/dlq-redrive.md` |
 | Cross-module topology declaration agreement | **`BUILT`** (T-032; DL-123). One set of definitions in `stats-common`, one assertion in `stats-testsupport` called by both modules, and `stats-api` asserts it has no AMQP client at all |
 | Liveness/readiness groups per module | **`BUILT`** (T-006, DL-103) |
+| The three Phase 2 drills — poison isolation by type, both crash windows, database outage and recovery | **`BUILT`** (T-029, T-030, T-033; merged 17 Sep 2026). Real broker and database; T-033 is what released the fan-out |
+| Consumer shutdown finishes the delivery in hand and requeues the rest | **`BUILT`** (T-053; DL-143). An interrupt is lifecycle, never a retry or an ACK |
+| DLQ alerting | **`BUILT`** (T-060; DL-144). `ops/prometheus/dlq-alerts.yml` — depth > 0, continuously non-empty 7 d / 12 d, gated on `broker_metrics_collection_success` |
+| Main-queue watching — oldest-message age, no consumer, consumer stalled, late arrival, upstream status | **`BUILT`** (T-050; DL-147). Input stamps the AMQP `timestamp`; `queue_oldest_message_age_seconds{type}` is sampled at delivery and zeroed by the poll on an empty queue. The Q13b histogram `records_ts_server_cycle_offset_seconds{type}` is Input's |
+| `sysstats` — the second stat type end to end | **`BUILT`** (T-035; DL-148). Own queue set, consumer, gate-then-guard processor, `V6__sysstats_table.sql` with the `CHECK`, `data_extra` and both ADR-003 indexes; `timespan` `"300"` range-checked before conversion. The shared beans a second type needs live in `WriterAmqpConfiguration` / `StatTypeDeployment`, not in the lorastats slice |
+| Partition pre-creation covers the **whole** retention window | **`BUILT`** (DL-149). Every pass — startup and daily — ensures `[cutoffDay, today + pre-create-days]` from `RetentionWindow`. Before this, a valid in-window record older than first deployment had no partition and dead-lettered as *permanent* (window 15) |
+| No Writer log line repeats a key the MDC scope owns | **`BUILT`** (DL-150). `WriterLogsDoNotShadowMdcKeysTest` fails the build; `EcsEncoderDropsDuplicateKeysTest` pins why. Seven `WARN` sites had been silently dropped by the ECS encoder since T-005 |
+| End-to-end demo against the Compose stack | **`BUILT`** (T-069; `docker/demo.sh`, 20 Sep 2026). Ten steps, each naming the rule it proves; found DL-149 and DL-150 on its first run |
+| `stats-input` — two doors, one handler | **`BUILT`** (DL-151). `POST /internal/stats` (Heimdal) and `POST /external/stats` bound to the same handler, same filter chain, one rate bucket; `source="internal"\|"external"` on every Input metric but `records_unroutable`, `ingestSource` on every log line. **Not a second auth mechanism; no tenant binding on the external door** — T-068, blocked on Q8a-2 |
+| `stats-api` — device-scoped read paths `/{type}/{clsbox}/{from}[/{to}]` | **`SPECIFIED`** (DL-151; T-067). In `openapi.yaml`, linted; open-ended one-argument form; foreign `clsbox` is an empty 200; no window limit; the `clsbox` query parameter is gone |
 | `stats-api` | `@SpringBootApplication` **stub only** — Phase 4, gated on D-09 |
 
 So: the **shared vocabulary** is real, and so is one type's whole path. Since
@@ -75,7 +86,12 @@ T-050 on the main queues' oldest-message age, late arrival and upstream status
 (DL-147) — the age is sampled at delivery from a timestamp Input now stamps on every
 publish. And since **19 Sep 2026 the fan-out has started**: `sysstats` is the second
 type end to end (T-035, DL-148), consumed beside `lorastats` by its own listener into its
-own table. The ranked order is `Stats_App_Tracker.xlsx` → `Next Up`. Phase 2 finished
+own table. Since **20 Sep 2026 the whole stack has been run end to end** (`docker/demo.sh`,
+T-069) — which found that partitions only ever covered the days *ahead* (DL-149) and that
+every Writer `WARN` with a `uid` on it was being dropped by the log encoder (DL-150); both
+are fixed and guarded. Since **21 Sep 2026** the ingest endpoint is two doors on one handler
+(DL-151) and the read contract carries the device-scoped paths (T-067, contract only). The
+ranked order is `Stats_App_Tracker.xlsx` → `Next Up`. Phase 2 finished
 `lorastats` first (DL-030 rationale; see `CODE_START_CHECKLIST.md` §B).
 
 ---
@@ -471,7 +487,7 @@ G3).
 | Counter exceeds `BIGINT` | Reject to DLQ. Never truncate silently |
 | Partition missing | **Insert fails.** Pre-creation is on the critical path (§4.4) |
 
-### 4.4 Partition and retention flow   `BUILT` (T-012, T-025)
+### 4.4 Partition and retention flow   `BUILT` (T-012, T-025; whole-window pre-creation DL-149)
 
 Both run **inside `stats-writer`**, both behind the same per-type advisory
 lock, because N replicas per type would otherwise race (DL-045). One cron,
@@ -487,7 +503,12 @@ scheduled tick   stats.retention.schedule, 03:30 UTC
   ├─ SELECT pg_try_advisory_lock(hashtext('stats.retention:' || :statType))
   │     not acquired ⇒ skip this run, log DEBUG, done
   │
-  ├─ PRE-CREATE      create daily partitions `pre-create-days` ahead
+  ├─ PRE-CREATE      ensure a daily partition for EVERY day in
+  │                  [cutoffDay, today + pre-create-days] — both ends from
+  │                  RetentionWindow (DL-149). Not only the days ahead: a
+  │                  valid record from a gateway back after weeks offline
+  │                  needs a partition older than this deployment, and
+  │                  a missed run must be healed, not left as a hole.
   │                  If this fails, INSERTS FAIL. Not a nicety.
   │                  pg_partman is NEVER a dependency (DL-027)
   │
@@ -556,7 +577,7 @@ indexes
 
 ---
 
-## 5. Read — `stats-api`   `SPECIFIED`, contract `BLOCKED` on D-09
+## 5. Read — `stats-api`   `SPECIFIED`, contract `BLOCKED` on D-09 (three operations since DL-151; the device paths are T-067)
 
 ### 5.1 Request flow
 

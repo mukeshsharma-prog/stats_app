@@ -1,6 +1,6 @@
 # ADR-006 — Tenant Isolation and API Security
 
-**Status:** `ACCEPTED` — amended 17 September 2026 (D16, DL-142)
+**Status:** `ACCEPTED` — amended 17 September 2026 (D16, DL-142) and 21 September 2026 (device-scoped reads and the external ingest door, DL-151 / DL-152)
 **Decision owner:** Security owner / API owner / Product owner
 **Requirements:** STA-05A, STA-31A, STA-32A, STA-34A, STA-34B, STA-35A, STA-35B
 
@@ -195,6 +195,8 @@ merely accompanying it.
 | Input authentication | Config-selected filter, no default, `prod` refuses `none` | **DEFERRED BY DECISION (Q8a)** — Q8a-2 must close before shared deployment |
 | Privileged cross-tenant access | Out of scope until separately specified | **DECIDED** |
 | Tenant-move history (D16) | A row's `tenant` is the tenant at measurement time, as Heimdal stamped it. Pre-move rows stay under the old tenant; the new tenant sees the gateway from the move onward. No re-labelling, no inventory dependency | **DECIDED 17 Sep 2026 (DL-142)** |
+| Device-scoped read paths `/{type}/{clsbox}/{from}[/{to}]` | Tenant from the token, predicate in the query, served by `(tenant, clsbox, ts_device DESC, uid DESC)`. A foreign or unknown `clsbox` is an **empty 200** — a list, not a lookup; a 404 would disclose another tenant's gateway. No cross-tenant lookup by MAC | **DECIDED 21 Sep 2026 (DL-151)** — contract only, T-067 |
+| Tenant binding on the external ingest door | `/external/stats` shares the internal door's authentication and binds **nothing** to the record's `tenant`. Per-door `stats.input.auth.<door>.mode` plus a *token tenant = record tenant* check land with Q8a-2 | **OPEN — T-068, BLOCKED on Q8a-2 (DL-151 residual).** Do not expose the external door anywhere shared before it closes |
 | Row-level security (`SET LOCAL app.tenant_id`) | **Not adopted for V1.** `SET LOCAL` on a pooled connection fails open and silently; the mandatory query predicate is the control | **DECIDED 24 Aug 2026** |
 | Database roles | `stats` (write) for the Writer, `stats_ro` (SELECT only) for the API, **none** for Input | **DECIDED 24 Aug 2026** |
 
@@ -230,3 +232,55 @@ second gives a wrong filter a different wrong answer.)* Privileged cross-tenant 
 remains out of scope, as the register says; this amendment does not reopen it. The
 support answer to "the gateway moved to us and its history is missing" is *by design*,
 and the Datahub's `moved` array — not this system — is the record of the move.
+
+## Amendment — 21 September 2026 (DL-151, DL-152)
+
+**Context.** Management asked on 20 September for two things this ADR has a view on:
+a second `stats-input` endpoint for callers other than Heimdal Core, and a read path by
+MAC address and timestamp. DL-151 designed both; this amendment records what each does
+to tenant isolation, and settles one sentence of the 17 September amendment that the
+new read path would otherwise contradict.
+
+**Decision 1 — the device-scoped read paths are tenant-scoped exactly as the list is.**
+`GET /v1/stats/{type}/{clsbox}/{from}` and `…/{from}/{to}` derive the tenant from the
+token (decision 2), put it in the query (decision 3), and are served by the
+`(tenant, clsbox, ts_device DESC, uid DESC)` index that ADR-003 already carries.
+`{clsbox}` *is* the MAC address and keeps its wire name (ADR-007 §1). A `clsbox` the
+token's tenant does not own — or that does not exist at all — returns an **empty `200`
+page**, byte-identical in both cases. It does **not** return 404: these paths are a
+*list*, and on a list a 404 would say "this gateway exists, elsewhere" — the probe
+decision 5 exists to prevent (STA-35A). Cross-tenant lookup by MAC was raised on
+17 September and **rejected**; the quiz that preceded the build (DL-005) closed it.
+
+**Precision to the 17 September amendment.** That amendment says a new tenant requesting
+a `clsbox` that has only pre-move rows "receives 404, indistinguishable from not-found
+(STA-35B)". That is the answer for the `uid` lookup, `/{type}/{uid}`, which is a
+single-record lookup and keeps decision 5's 404. For the device-scoped paths the same
+request is an empty `200`, for the reason above. Both are "indistinguishable from
+not-found" — each in its own operation's vocabulary. Nothing about D16 changes: the
+pre-move rows stay under the old tenant on every operation.
+
+**Decision 2 — the external ingest door adds a tenant-isolation gap on the *write* side,
+and it is recorded as open, not closed.** `/external/stats` is bound to the same handler
+and the same filter chain as `/internal/stats`, by decision: the split is for routing
+and ingress restriction, not a second authentication mechanism, because nothing exists
+to implement one against until Q8a-2 selects Heimdal's. The consequence for this ADR is
+that decision 2 — *tenant from the token, never from the caller* — has no counterpart on
+writes. It never needed one: the only writer was Heimdal, which forwards every tenant.
+An external caller is different in kind. Anything that can reach `/external/stats` can
+today submit a record under **any** tenant's name, and it will be validated, confirmed,
+published, stored and read back by that tenant's token with every counter green. Once
+Q8a-2 lands, an external caller would be presenting Heimdal's credentials.
+
+The closing change is **T-068**: a per-door `stats.input.auth.<door>.mode`, and a
+*token tenant = record tenant* check on the external path only (Heimdal's door keeps
+forwarding every tenant). Both are a filter plus a property — the seam is now a path.
+Until then the only protection is an ingress rule that keeps `/external/stats` off any
+shared network, and the `source="external"` label on every Input metric so that a write
+through that door is at least visible. **The external door must not be exposed anywhere
+shared on the strength of "same authentication as Heimdal's".**
+
+**Consequences.** No change to any read-side decision. Two register rows added. The
+`tenant != maintenant` fixture rule of §6 gains a write-side sibling for T-068's test:
+a record whose `tenant` differs from the token's tenant claim (and from its own
+`maintenant`) is rejected on the external door and accepted on the internal one.

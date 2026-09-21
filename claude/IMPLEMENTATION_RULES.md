@@ -1,5 +1,10 @@
 # Stats App — Implementation Rules
 
+> **Version 1.4 — 21 September 2026.** One number and two rules. `FLOW.md` §8 has held
+> **fifteen** loss windows since DL-149, twelve of them silent — §9 said eleven and nine.
+> §9's quiz table gains the two rules the first end-to-end run taught (DL-149, DL-150),
+> and the door a change to `stats-input` now has to name (DL-151).
+>
 > **Version 1.3 — 24 August 2026.** Aligned with the answered decisions in
 > `docs/source/Stats_App_Answers_v1_0.docx`, the six gate decisions G1–G6, and the
 > §2b answers of 18 August 2026. PostgreSQL is the only V1 database; all MongoDB
@@ -217,7 +222,7 @@ For every task, follow this sequence.
 
 ### Why the quiz step exists
 
-Nine of the eleven ways this system can lose a record fail **silently**
+Twelve of the fifteen ways this system can lose a record fail **silently**
 (`claude/FLOW.md` §8). A query on `maintenant` passes every test written
 against the supplied samples. A timestamp read as milliseconds writes 1970
 with no error. A TTL on the DLQ deletes the last copy of a record and reports
@@ -235,8 +240,10 @@ hope. Ask about the specific hazard the change touches, not the general topic.
 | Broker topology | `RESOURCE_LOCKED` on a mismatched declaration; why the DLQ takes no TTL |
 | Writer ACK or retry | Commit-then-ACK; publish-confirm-then-ACK on the retry hand-off |
 | Inserts or the key | `(ts_device, uid)` column order; why `tenant` is out of the key |
-| Retention or partitions | Detach-and-drop vs row deletion; what happens if pre-creation fails |
+| Retention or partitions | Detach-and-drop vs row deletion; what happens if pre-creation fails; **why pre-creation covers the whole window and not only the days ahead** (DL-149 — an offline gateway's record is older than this deployment) |
 | Pagination | Why the sort is fixed and always applied; why the cursor carries its filters |
+| A Writer log statement | Which keys the MDC scope already owns and why repeating one **drops the line** under the ECS encoder (DL-150); what `SafeFailure` keeps out of a line (DL-124) |
+| The ingest endpoint or its filters | Which **door** the change is for and why both share one handler and one rate bucket (DL-151); why the external door binds nothing to the record's tenant until Q8a-2 (T-068) |
 | A new stat type | Why it must be additive; what `StatTypeFanOutTest` proves |
 
 ## 10. Mandatory tests
@@ -245,7 +252,7 @@ hope. Ask about the specific hazard the change touches, not the general topic.
 |---|---|
 | New payload/schema | Valid sample, every missing mandatory field, wrong type, unknown stat type, time values in seconds, safe error response. |
 | Messaging/persistence | Correct routing key and queue, durable declaration, publisher-confirm behavior, retry limit, per-type DLQ, duplicate/redelivery behavior, poison-message isolation between types, and correct table selection. |
-| API/query/security | 401, 403, GET success, every non-GET is 405, tenant isolation with `tenant != maintenant`, filters, deterministic pagination, invalid query errors. |
+| API/query/security | 401, 403, GET success, every non-GET is 405, tenant isolation with `tenant != maintenant`, filters, deterministic pagination, invalid query errors. On the device-scoped paths (T-067): a foreign `clsbox` is an **empty 200** byte-identical to an unknown one, and the open-ended form returns a record whose `ts_device` is minutes in the future. |
 | Retention/index | Correct table indexes, retention keyed on `ts.device`, boundary tests just inside and just outside the window, a late-arriving-record test, and no accidental data expiry. Verify against a real PostgreSQL Testcontainer, not a mock. |
 | Failure path | Structured metadata log, metric, retry/dead-letter/error response, and a test that proves the path is not silent. |
 

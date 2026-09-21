@@ -6,6 +6,30 @@ It is still auto-loaded every session: the repository-root `CLAUDE.md` is a
 pointer file whose only content is an `@claude/CLAUDE.md` import. Edit this file,
 not the pointer.
 
+> **Version 1.18 — 21 September 2026 (later the same day).** No decision in 1.17 changes.
+> What changes is that **every document and the tracker now say what 1.14–1.17 say**.
+> Governing entry: **DL-152**.
+>
+> * **The tracker had stopped at 19 September** and had never received DL-145 or DL-146 —
+>   no Decisions rows, no Q15e–g. It now carries DL-145…DL-152, **T-067** (the device-scoped
+>   read paths, Phase 4), **T-068** (per-door auth and *token tenant = record tenant* on the
+>   external door — **BLOCKED on Q8a-2**, the first BLOCKED row since 4 Sep), **T-069**
+>   (`docker/demo.sh`, done), DN-62…DN-68, traps 31–34, and a re-ranked `Next Up`.
+> * **One precision, recorded as an ADR-006 amendment.** DL-142 says a new tenant asking
+>   for a `clsbox` with only pre-move rows "receives 404". That is the `uid` lookup's
+>   answer. On the DL-151 device paths the same request is an **empty `200`** — they are a
+>   list, and a 404 there would disclose another tenant's gateway (STA-35A). §7's D16 row
+>   and ADR-006 now say both.
+> * **Three traps added to §6** — the two the first end-to-end run found (ahead-only
+>   pre-creation, DL-149; an MDC key repeated on a log line, DL-150) and the one DL-151
+>   leaves open (a door that authenticates the caller and binds nothing to the tenant).
+> * **"Nine of the eleven" is "twelve of the fifteen."** `FLOW.md` §8 has had fifteen loss
+>   windows since DL-149; §9 here, `IMPLEMENTATION_RULES.md` and `README.md` had not
+>   caught up. `FLOW.md`'s status table is dated 21 Sep and lists everything merged since
+>   12 Sep; its §4.4 pre-create line no longer says "ahead".
+> * **Not rebuilt:** `Stats_App_Developer_Guide.pdf` (outside the repository, built
+>   18 Sep) predates DL-147 onward.
+>
 > **Version 1.17 — 21 September 2026.** No decision in 1.16 changes. What changes is
 > that **management's ask of 20 September is designed, and half of it is built**.
 > Governing entry: **DL-151**.
@@ -30,7 +54,8 @@ not the pointer.
 > * **Gates:** `stats-input` 67 → **75** tests; `redocly lint` clean on both contracts;
 >   the drift gate and `build-html.sh` pass. No schema or fixture moved.
 > * **What to do next:** unchanged — **T-036 `omsstats`** from the sysstats slice. The
->   device paths need a tracker row under Phase 4.
+>   device paths ~~need a tracker row under Phase 4~~ — **T-067 since 1.18 (DL-152)**; the
+>   external-door residual is **T-068**, BLOCKED on Q8a-2.
 >
 > **Version 1.16 — 20 September 2026.** No decision in 1.15 changes. What changes is
 > that **the stack was run end to end for the first time, and two silent losses fell out
@@ -820,6 +845,50 @@ coercion that is right everywhere; parse per type and range-check before convers
 Whether an unexpected field is accepted or rejected must be a deliberate,
 documented choice — not whatever the deserialiser happens to do.
 
+**Partition pre-creation that only looks ahead.**
+Pre-create N days forward and every `INSERT` for today succeeds, every test passes, and
+the deployment's first 90 days of history have no partition. The first record from a
+gateway back after three weeks offline — the case STA-23B calls *normal* — fails with
+SQLSTATE `23514`, which is a `DataIntegrityViolation` and therefore **permanent**: straight
+to a DLQ that never expires, where a redrive re-derives the identical failure.
+`records_persisted` stays at zero and `records_write_failed` moves; nothing says why.
+Since **DL-149** every maintenance pass ensures `[cutoffDay, today + pre-create-days]`
+from `RetentionWindow`, so the guard and the precreator agree on the first day by
+construction — and a daily run missed for longer than `pre-create-days` is healed on the
+next pass instead of leaving a permanent hole. It was found by the first end-to-end run,
+not by any of 674 green tests: every integration test either re-stamped its fixtures to
+*now* or ran in a context that had already lived through the days it inserted into.
+FLOW.md window 15.
+
+**A log line that repeats a key the MDC scope already owns.**
+`addKeyValue("uid", uid)` inside a delivery where `WriterLogContext` has already put
+`uid` in the MDC renders fine under a test logger. Under the production ECS encoder the
+duplicate JSON member throws, logback **drops the line**, reports the first *four* such
+failures to its status manager and then stops reporting them. The counters keep moving,
+the `dead_lettered` line (which repeats no key) keeps arriving, and every
+`payload_rejected`, `expired_on_arrival`, `upstream_status_not_ok` and `write_failed`
+`WARN` is silently gone — exactly the lines an operator needs when the counters move.
+Since **DL-150** the six keys — `traceId`, `uid`, `statType`, `tenant`, `clsbox`,
+`errorCode` — are the scope's alone and `WriterLogsDoNotShadowMdcKeysTest` fails the
+build on the next repeat; `EcsEncoderDropsDuplicateKeysTest` pins the encoder behaviour
+so the rule stays justified. The rule for every new type's processor and writer: **the
+scope logs the identifiers — you log the event.** The guard covers `stats-writer` only;
+Input's one `addKeyValue("uid")` runs on the confirm-callback thread outside any request
+scope and does not collide today.
+
+**A second ingest door that authenticates the caller and binds nothing to the tenant.**
+`/external/stats` shares the internal door's filter chain (DL-151), so any credential that
+opens it — today none, `mode=none` — can submit a record under **any** tenant's name; the
+record is validated, confirmed, published and stored under that tenant with every counter
+green, and read back by that tenant's token. Rule 3 (tenant from the token, never from
+the caller) exists on the *read* side and has no counterpart on the *write* side, because
+the only writer was Heimdal, which forwards every tenant. Once Q8a-2 selects Heimdal's
+mechanism an external caller would be presenting Heimdal's credentials. Until **T-068**
+lands — a per-door `stats.input.auth.<door>.mode` plus a *token tenant = record tenant*
+check on the external path — the only protection is an ingress rule in front of
+`/external/stats` and the `source="external"` label behind it. Do not expose the external
+door anywhere shared on the strength of "same auth as Heimdal's".
+
 ---
 
 ## 7. Open questions — do NOT assume answers
@@ -853,7 +922,7 @@ at live data (DL-146). Everything else on this list was answered on 4 September
 
 | Ref | Question | Blocks |
 |---|---|---|
-| Q8a-2 | Heimdal inbound auth, when ZC is ready: mTLS or OAuth2 client credentials; issuer, audience, client identity, rotation. Our position is OAuth2 client credentials, to be sent as *"unless you object by \<date\>, we implement OAuth2"* | Nothing today — deferred by decision. **Must close before any shared deployment**; until then anything that can reach the Input port can write |
+| Q8a-2 | Heimdal inbound auth, when ZC is ready: mTLS or OAuth2 client credentials; issuer, audience, client identity, rotation. Our position is OAuth2 client credentials, to be sent as *"unless you object by \<date\>, we implement OAuth2"* | Nothing today — deferred by decision. **Must close before any shared deployment**; until then anything that can reach the Input port can write— and, since DL-151, **before `/external/stats` is exposed anywhere**: the external door shares this authentication and binds nothing to the record's `tenant` (T-068, BLOCKED on this row) |
 | **Q8a-3** | **Is the stats push a Heimdal ForwardRule?** The Datahub API guide (§9) defines one as `{url, type, id, maxRetry}` with *"credentials in the URL"* over `HTTP\|AMQP\|MQTT\|…`. If so: the inbound auth is HTTP **basic**, which `stats.input.auth.mode=none\|mtls\|oauth2` cannot express, and Heimdal's retry on a non-2xx is **bounded by `maxRetry`** — a sustained 503 burns a budget we cannot see. Ask together with Q8a-2 (DL-139). **Transport confirmed HTTP on 17 Sep 2026 (DL-145)** — a ForwardRule of type `HTTP` is now the likely mechanism; the credential and `maxRetry` are what remain. The handover table is `heimdal-input-contract-v1.md` §0 | Nothing today. Changes the *shape* of the Q8a-2 answer and the reading of rule 8; the guide documents sensor forwarding and does not say gateway stats use the same path |
 | Q8b-2 | Confirmation of the proposed Keycloak realm, client, issuer, audience, role names and tenant claim | Nothing today — the proposal is live and confirmation is a config change |
 | **Q15e** | Which spelling of `ts.expiresOn` does the HTTP forward emit — the plain ISO-8601 string of the 29 Aug sample, or `{"$date": "…"}` as the live datastore returns it? (DL-146) | Nothing — both are accepted and kept verbatim. An answer lets the schema narrow to one |
@@ -872,6 +941,7 @@ anything, and each is recorded so it is not rediscovered as a surprise. Full tab
 | DL-104 (Q13b) | Jitter is a statement, not a measurement. Hardware is not sized down until the `ts.server mod 600` histogram confirms it (T-050). **One data point since DL-146:** one device's `ltestats` cadence is every ~29 min, not 10 |
 | DL-106 (Q15b) | `ts.device` is device-assigned — **except when Heimdal corrects it** (`meta.tsDeviceCorrected`, DL-146). Retention keys on the value received; the correction only moves it toward `ts.server`. The rule is Q15f |
 | DL-109 (Q13c) | The 2× replay cap is agreed and **unenforceable by us** |
+| DL-151 | **The external ingest door authenticates the caller and binds nothing to the tenant.** Not a question — a gap with an owner: **T-068**, BLOCKED on Q8a-2. Until it closes, `/external/stats` stays behind an ingress rule and off any shared network |
 
 ### Decided 29 August 2026 — do NOT reopen
 
@@ -943,6 +1013,10 @@ plan is not written against a repository that no longer exists. Full reasoning:
 | DL-146 | **Live data met the documents.** `ltestats` `data` is a closed `oneOf` — `measured` (`rsrp`/`rsrq` optional) and `unknown-technology` (`etxt` only) — after 2% of live traffic was found dead-lettering. `ts.expiresOn` accepted as string or `{"$date": …}`; `meta` and `ts.deviceOrig` preserved as passthrough. `maintenant ≠ tenant` on minol only. `netstats` absent from the datastore. Three questions raised (Q15e–Q15g), none answered. Gates 96 → 103, 84 → 90 | T-035, T-050 |
 | DL-147 | **The main queues are watched.** Input stamps the AMQP `timestamp`; `queue_oldest_message_age_seconds{type}` is sampled at delivery and zeroed by the poll on an empty queue; a retry re-entry is not sampled. `ops/prometheus/writer-alerts.yml`: aging (warning 300 s / critical 1,800 s, both `for: 5m`), **no consumer** and **consumer stalled** as the gauge's companions, stale-observation, `StatsAppLateArrival` on the hourly increase of `records_expired_on_arrival` (D5b), and `StatsAppUpstreamStatusNotOk` on a **provisional** 1 % ratio. The Q13b histogram `records_ts_server_cycle_offset_seconds{type}` and `records_ts_device_corrected{type}` are Input's. The management-API head timestamp was rejected for now (a credential and a client DL-137 declined); the stamp makes it addable later, and the DLQ's age with it | T-050 |
 | DL-148 | **`sysstats` is built, additively — and the three shared things that lived in the lorastats slice are shared now.** Writer beans are `<type>BatchWriter` and processors qualify on them (the interface injection was ambiguous with two writers); the exchanges and processor selector are `WriterAmqpConfiguration`; the deployment constants are `StatTypeDeployment`. `V6__sysstats_table.sql` has the CHECK, `data_extra`, `(ts_device, uid)` and the two ADR-003 indexes from its first row. `timespan` `"300"` → `bigint`, range-checked before conversion; an overflow is `unmappable`, never truncated. Fixture `valid/sysstats-timespan-overflow.json`. `SysstatsPersistenceConsumerIntegrationTest` runs both real consumers in one context | T-035, T-036 |
+| DL-149 | **Partition pre-creation covers the whole window.** Every pass — startup and daily — ensures `[cutoffDay, today + pre-create-days]` from `RetentionWindow`. Ahead-only pre-creation had left every valid in-window record older than first deployment with no partition: `23514`, dead-lettered as permanent, found by the first end-to-end run. FLOW.md window 15 | T-012 (amended), T-051 |
+| DL-150 | **A Writer log line never repeats a key the MDC scope owns.** Seven `WARN` sites were being dropped by the ECS encoder since T-005 — silently after the fourth. `WriterLogsDoNotShadowMdcKeysTest` fails the build; `EcsEncoderDropsDuplicateKeysTest` pins why | T-005 (amended), every fan-out task |
+| DL-151 | **Two ingest doors, one handler; device-scoped read paths in the contract.** `/internal/stats` and `/external/stats` share everything but the `source` label; `/{type}/{clsbox}/{from}[/{to}]` is tenant-scoped, open-ended, empty-200 on a foreign gateway, contract-only. Residual: no tenant binding on the external door | T-013/T-017/T-018 (amended), **T-067**, **T-068** |
+| DL-152 | **Documents and tracker reconciled** to DL-145…DL-151; ADR-006 amended — 404 is the `uid` lookup's answer, the empty page is the device list's; T-067/T-068/T-069 exist | — |
 
 > **What to do next lives in `Stats_App_Tracker.xlsx` → the `Next Up` sheet**, ranked
 > across both owners with the gate on each row. T-063, T-057 and T-064 were done on
@@ -971,7 +1045,7 @@ unwritten ADRs. The recommended position is given, but it is not yet ratified.
 | D1 | Log format | Structured JSON to stdout; `uid` as correlation ID |
 | D14 | Unknown fields *(was mislabelled `D6` — see §8)* | Accept and preserve unknown `data` fields; reject invalid envelope fields |
 | **D14b** | **Where an unknown `data` member is *stored*.** D14 says preserve; ADR-003 D2 gives the four typed types **typed columns only**, which have nowhere to put one. `StatsEnvelope.data` is a `JsonNode` so Input preserves it and republishes it byte-identically (DL-020, DL-050) — the loss was at the **Writer's INSERT**, where an unmapped key was silently dropped. `passthrough` does **not** cover this: ADR-003 scopes it to the five *envelope* members. `netstats` was never affected — its `jsonb` interface map was chosen for exactly this reason | **DECIDED 3 Sep 2026 — DL-095.** Each typed table gains a nullable `data_extra jsonb`; the Writer preserves unmapped `data` members there verbatim and meters `records_unmapped_data_field{type}`. NULL on almost every row, so it does not reintroduce the key-name overhead D2 rejected. **Every new stat-type table must carry the column** — omitting it silently reopens the drop |
-| **D16** | **Tenant-move history.** When a gateway is moved to another tenant on the Datahub, new records arrive with the new name in both `tenant` and `maintenant` — but the rows this system wrote *before* the move still carry the old `tenant`, and ADR-006 puts `tenant` in every query, so the new tenant cannot see them (DL-139) | **DECIDED 17 Sep 2026 — DL-142, ADR-006 Amendment.** That is the intended reading. A row's `tenant` is the tenant at measurement time, exactly as Heimdal stamped it — ADR-007 forbids rewriting the record, and re-labelling history on a move would need the Writer to read the inventory service, a dependency this project does not have, and would hand the *new* tenant data measured for the old one. No code change; a new tenant asking for pre-move rows gets 404 (STA-35B). The support answer is *by design* |
+| **D16** | **Tenant-move history.** When a gateway is moved to another tenant on the Datahub, new records arrive with the new name in both `tenant` and `maintenant` — but the rows this system wrote *before* the move still carry the old `tenant`, and ADR-006 puts `tenant` in every query, so the new tenant cannot see them (DL-139) | **DECIDED 17 Sep 2026 — DL-142, ADR-006 Amendment.** That is the intended reading. A row's `tenant` is the tenant at measurement time, exactly as Heimdal stamped it — ADR-007 forbids rewriting the record, and re-labelling history on a move would need the Writer to read the inventory service, a dependency this project does not have, and would hand the *new* tenant data measured for the old one. No code change; a new tenant asking for pre-move rows by `uid` gets 404 (STA-35B) — and on the DL-151 device-scoped paths an **empty `200`**, because those are a list and a 404 would disclose another tenant's gateway (STA-35A; ADR-006 Amendment 21 Sep 2026, DL-152). The support answer is *by design* |
 | — | Gradle DSL, package layout, CI shape | **Ours — Q1a closed, there is no reference service to match.** Kotlin DSL, version catalog, `com.zenner.datahub.stats.<module>`, `./gradlew build` plus Testcontainers on every push (ADR-001) |
 
 **Decided in ADR-003:** PostgreSQL 17; daily `RANGE (ts_device)` partitions with
@@ -1057,7 +1131,7 @@ wrong.** Reconciled 18 August 2026.
 | ADR-004 | OMS timestamp normalisation | **ACCEPTED — amended 29 Aug 2026 by ADR-007 §2** | No normalisation; publication is byte-identical to the received record, which is what makes ADR-003's per-partition duplicate suppression work. **Clause 3 is withdrawn:** a record carrying `ts.converter` is **valid** — production sends it on 100% of records. Accepted, preserved, never read, metered. Cite the ARD's different ADR-004 as `ARD-ADR-04`. |
 | ADR-005 | Delivery semantics and idempotency | **ACCEPTED with implementation defaults** | Writer batching amended by G3. Retry/DLQ handoff must be publish-confirmed *before* ACKing the original — ACK-then-publish opens a silent loss window. Duplicate outcome is `ON CONFLICT (ts_device, uid) DO NOTHING`, metered. Replay spikes the duplicate counter by design; do not alert on it. Q13c (2× replay cap) is **agreed by Heimdal since 4 Sep 2026 (DL-109) and still not enforceable by us** — 503 backpressure, bounded prefetch and T-018's rate limit stay exactly as they are. |
 | ADR-007 | The production wire format is the contract | **ACCEPTED** (29 Aug 2026) — **§4 amended 4 Sep 2026, built 8 Sep 2026** | `clsbox`/`ts.server` end to end with no rename layer; `ts.converter` accepted and metered (amends ADR-004); two validation gates with different consequences — **and since T-057 both gates exist in code**, so "invalid" genuinely no longer implies "400" (DL-126). **§4 is reversed by the *Amendment — 4 September 2026*: all three known `lorastats` dialects are accepted and normalised to one row (DL-105 supersedes DL-089), under a closed enumeration with structural detection and range-checked coercion — implemented by T-063 (DL-127).** All four of its open questions (Q15a–Q15d) were answered on 4 Sep 2026 — DL-105…DL-108 — leaving one residual: whether the other dialects are being retired. Also amends ADR-003 (column names); its DLQ-volume warning to ADR-002 §12 is resolved. |
-| ADR-006 | Tenant isolation and API security | **ACCEPTED** | The isolation decisions are settled and buildable; only ZC's confirmation of the Keycloak values (Q8b-2) is outstanding, and it is a config change. Proposed realm is live in dev — read role is `stats.readOnly`, **not** the bare `readOnly` placeholder. Input auth is deferred by decision (Q8a): `stats.input.auth.mode` has no default in code and `prod` must refuse `none`. **Amended 17 Sep 2026 (D16, DL-142):** a gateway moved between tenants keeps its pre-move rows under the old `tenant` — ratified as correct; `tenant` is the value at measurement time and nothing re-labels history. No residual. |
+| ADR-006 | Tenant isolation and API security | **ACCEPTED** — amended 17 Sep and 21 Sep 2026 | The isolation decisions are settled and buildable; only ZC's confirmation of the Keycloak values (Q8b-2) is outstanding, and it is a config change. Proposed realm is live in dev — read role is `stats.readOnly`, **not** the bare `readOnly` placeholder. Input auth is deferred by decision (Q8a): `stats.input.auth.mode` has no default in code and `prod` must refuse `none`. **Amended 17 Sep 2026 (D16, DL-142):** a gateway moved between tenants keeps its pre-move rows under the old `tenant` — ratified as correct; `tenant` is the value at measurement time and nothing re-labels history. **Amended 21 Sep 2026 (DL-151, DL-152):** the device-scoped read paths are tenant-scoped from the token and a foreign or unknown `clsbox` is an empty `200`, never 404; and the **external ingest door binds nothing to the record's tenant** until Q8a-2 — the one residual, tracked as T-068. |
 
 ---
 
@@ -1070,7 +1144,7 @@ wrong.** Reconciled 18 August 2026.
 - **Quiz before changing.** Before implementing a change, quiz the requester
   on the decisions it depends on and the trap it can fall into. A wrong or
   unsure answer is answered with an explanation, then the quiz is asked again.
-  Nine of the eleven ways this system can lose a record fail silently, and a
+  Twelve of the fifteen ways this system can lose a record fail silently, and a
   confident wrong mental model is what an explanation alone cannot detect.
   *(DL-005, `IMPLEMENTATION_RULES.md` §9)*
 - **Log the decision.** A change that alters code, contract, or operational
@@ -1118,6 +1192,7 @@ only `README.md` (the index) and a `CLAUDE.md` pointer that imports this file.
 | `claude/SKILLS.md` | Repeatable procedures: add a type, review isolation, write tests, diagnose a queue |
 | `claude/CODE_START_CHECKLIST.md` | Stop/go decision register and the approved implementation sequence |
 | `claude/OPEN_QUESTIONS_STATUS_29AUG2026.md` | Status of every open question and decision as at 29 Aug 2026, the six decisions taken that day with their reasoning, what actually blocks which task, and the tracker inconsistencies found |
+| `Stats_App_Tracker.xlsx` (one level **above** the checkout, beside it — not committed) | **The working task tracker** — 69 tasks, the Done sheet, the open questions by owner, every decision, 34 traps with the test that catches each, and the change log. Read `Next Up` first. Refreshed 21 Sep 2026 (DL-152) |
 
 ### Authoritative specifications — `docs/`
 
@@ -1140,7 +1215,7 @@ only `README.md` (the index) and a `CLAUDE.md` pointer that imports this file.
 | `docs/contracts/openapi-v1-design.md` | Design input for the above. Converted 21 Aug 2026 — the YAML wins where they differ |
 | `docs/schemas/` | JSON Schema catalogue, per-type schemas, the 85-file fixture set (`fixtures/MANIFEST.md`), and `validate-fixtures.py` for CI |
 | `docs/decisions/2B-ANSWERS-18AUG2026.md` | The seven §2b answers of 18 Aug 2026 and every engineering decision derived from them |
-| `docs/decisions/DATA-SENSITIVITY-INVENTORY.md` | **Every field in all six schemas, the six sinks it can reach, and what class of identifier it is.** The input document for **D-12** — engineering's, not a classification. Read it before touching logging, masking, or `ltestats`/`netstats` persistence |
+| `docs/decisions/DATA-SENSITIVITY-INVENTORY.md` | **Every field in all six schemas, the six sinks it can reach (seven since DL-151 — the URL path carries `clsbox` and `uid` on the read side), and what class of identifier it is.** The input document for **D-12** — engineering's, not a classification. Read it before touching logging, masking, or `ltestats`/`netstats` persistence |
 | `docs/setup/keycloak-realm-statsapp.json` | Importable dev realm — proposed Q8b values, four users built for specific tests |
 | `docs/prompts/CLAUDE_PROMPTS.md` | Prompt templates for working on this repo |
 | `docs/setup/VS_CODE_SETUP.md` | Local IDE setup |

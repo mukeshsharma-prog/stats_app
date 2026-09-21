@@ -4811,9 +4811,90 @@ the `source` label behind it. When Q8a-2 lands, the external door is where a
 per-door `stats.input.auth.<door>.mode` and a *token tenant = record tenant* check
 belong — the seam is now a path, so that is a filter plus a property, not a rewrite.
 Second residual: **the read paths are a contract, not code.** They join T-038…T-046
-in Phase 4; `Stats_App_Tracker.xlsx` needs a row for them and the tenant-wide window
-limit remains `PROVISIONAL`.
+in Phase 4; `Stats_App_Tracker.xlsx` ~~needs a row for them~~ — **T-067 since DL-152**, with the
+external-door residual above as **T-068** — and the tenant-wide window limit remains
+`PROVISIONAL`.
 
 **Gates.** `stats-input`: 75 tests, 0 failures (67 before; the two-door, source-label and path-validation cases are new). `redocly lint` clean on both
 contracts; `check_schema_drift.py` passes; `build-html.sh` renders. Fixture gate
 unchanged — no schema moved.
+
+### DL-152 — The documents and the tracker are reconciled to DL-145…DL-151, and one sentence of two ADR-006 amendments is settled
+
+**21 September 2026** · `ENGINEERING` · DL-002, DL-125 (the previous reconciliation), DL-145…DL-151 · **approver:** Naman Vashishtha
+
+**Trigger.** `Stats_App_Tracker.xlsx` had last been touched on 19 September and had
+never received the 18 September work at all: no Decisions row for DL-145 or DL-146, no
+Open Questions rows for Q15e–Q15g, no Done rows for the inbound OpenAPI twin or the
+live-data reconciliation. DL-149…DL-151 of 20–21 September were in `CLAUDE.md`,
+`FLOW.md`, `DEVELOPMENT.md` and the contracts, and nowhere else: `README.md` still said
+*Status (12 September)*, `FLOW.md`'s status table was dated 12 September and listed
+nothing merged since, `PROJECT_STATUS_AND_PLAN.md` had no "what next" after 12 September,
+and `CLAUDE.md` §9, `IMPLEMENTATION_RULES.md` §9 and `README.md` all said *nine of the
+eleven* loss windows fail silently while `FLOW.md` §8 has had fifteen since DL-149.
+DL-151's own residual said, in as many words, that the tracker needed a row.
+
+**Decision.** Reconcile everything in one change, as DL-125 did on 5 September:
+
+1. **Tracker.** Decisions rows DL-145, DL-146, DL-149, DL-150, DL-151, DL-152; ADR-006
+   and ADR-007 status cells updated. Tasks: **T-067** (the device-scoped read paths,
+   Phase 4, gated on D-09), **T-068** (per-door authentication and *token tenant =
+   record tenant* on the external door — **BLOCKED** on Q8a-2, the first BLOCKED row
+   since 4 September, and BLOCKED rather than TODO because the mechanism to build against
+   does not exist yet), **T-069** (`docker/demo.sh`, DONE 20 Sep); notes on T-005, T-012,
+   T-013, T-017, T-018, T-027, T-036 and T-040…T-046; T-040's acceptance text loses the
+   `clsbox` query parameter. Done: DN-62…DN-68. Open Questions: Q15e, Q15f, Q15g added;
+   Q8a-2's *Blocks* now names the external door; Q8a-3 narrowed by DL-145; D-09's text
+   says the contract being confirmed changed. Traps 31–34 (ahead-only pre-creation,
+   an MDC key repeated on a log line, a door that authenticates the caller and binds
+   nothing to the tenant, "from to now" as `to = now`), coverage header re-dated. Notes:
+   five rows, 18–21 Sep. `Next Up` re-ranked: the two "send to ZC / Hasan" rows rise
+   because each now gates a task (T-068, T-037); T-068 sits last as BLOCKED so nobody
+   exposes the external door by accident. Every table's `ref` re-extended to its last
+   row — four had drifted, which is why filters were missing rows.
+2. **Documents.** `README.md` status re-dated 21 Sep with the 20–21 Sep work, the Q13b
+   paragraph corrected (it still called Q13b *the most valuable open question* seventeen
+   days after DL-104 answered it), fixture and trap counts refreshed, the tracker's
+   location stated correctly (one level above the checkout, not committed — `README.md`
+   said *repository root*). `FLOW.md`: status table re-dated with eleven rows for what
+   merged since 12 Sep; §4.4's pre-create line no longer says *ahead*. `CLAUDE.md` 1.18:
+   three §6 traps, the D16 row, the ADR-006 status row, §9's count, §10's tracker row.
+   `PROJECT_STATUS_AND_PLAN.md`: a 21 Sep "what next" table, Q8a-3 in §2b-2, the samples
+   row (it said 79 files / 91 assertions — the numbers of 8 Sep), Phase 4 and 5 text.
+   `CODE_START_CHECKLIST.md`: D-03 names both doors, D-09 says the contract changed,
+   Phase 4 and 5 state. `SKILLS.md` 1.5: Skill 1 step 6 names all three operations and
+   the demo step; Skill 4 gains *is the Writer logging at all?* and *is the DLQ full of
+   `23514`?*; Skill 5 gains the whole-window check; Skill 6 uses DL-151 as its worked
+   example; Skill 8 gains the MDC rule. `IMPLEMENTATION_RULES.md` 1.4: the count, three
+   quiz rows, the device-path tests. `ADR-007` §1: the path-parameter application.
+   `DATA-SENSITIVITY-INVENTORY.md`: the URL path as a seventh sink, because `clsbox` and
+   `uid` now travel in request paths this project does not log or retain.
+   `ops/prometheus/README.md`: the `source` label.
+3. **One precision, recorded as an ADR-006 amendment rather than left as a
+   contradiction.** DL-142's amendment says a new tenant requesting a `clsbox` with only
+   pre-move rows "receives 404, indistinguishable from not-found (STA-35B)". DL-151 says
+   an unknown or foreign `clsbox` on the device-scoped paths is an **empty `200`, never
+   404**. Both are right in their own operation: 404 is the `uid` *lookup*'s answer, the
+   empty page is the device *list*'s, and on a list a 404 would disclose that another
+   tenant's gateway exists. The ADR-006 *Amendment — 21 September 2026* says so, adds
+   two register rows (the device paths, DECIDED; tenant binding on the external door,
+   OPEN — T-068), and gives the `tenant != maintenant` fixture rule its write-side
+   sibling for T-068's test. `CLAUDE.md` §7's D16 row says both.
+
+**Why in one change.** DL-125 recorded the same failure on 5 September — the tracker
+held the day's code and none of its decisions — and the reason is unchanged: a reader
+who finds the tracker and the documents disagreeing cannot tell which is stale, and the
+tracker's `Next Up` is what the second owner works from. A reconciliation split across
+days is a reconciliation that will be found half-done.
+
+**Rejected.** *Recording T-068 as TODO with a Blocked-by note*, as T-034 is — T-034's
+block (D-12 P3) is a decision engineering could take; T-068's (Q8a-2) is a mechanism
+ZC has to name, and nothing can be written against a mechanism that does not exist.
+*Rebuilding `Stats_App_Developer_Guide.pdf`* — it lives outside the repository, was
+built on 18 Sep, and predates DL-147 onward; regenerating it is its own task and is
+noted in the tracker rather than done silently here.
+
+**Consequence.** Every document that names a count now names the same one: 15 loss
+windows (12 silent), 86 fixture files, 105 assertions, 91 Java parity cases, 689 tests,
+69 tasks, 34 traps. The next entry that adds a loss window, a fixture or a trap has
+seven places to update; the tracker's Notes row for this entry lists them.

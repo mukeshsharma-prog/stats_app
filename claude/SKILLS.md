@@ -4,6 +4,13 @@ Reusable, repeatable procedures for the Stats App. Each skill is a checklist
 for a task that will be done more than once — the point is that the *second*
 time it is done, it is done the same way as the first.
 
+> **Version 1.5 — 21 September 2026.** Skill 1 step 6 names the **three** operations a
+> type has since DL-151 (list, device-scoped, `uid`) and the demo step to extend; Skill 4
+> gains the triage question the first end-to-end run taught — *is the Writer logging at
+> all?* (DL-150); Skill 5 says pre-creation covers the whole window (DL-149); Skill 6
+> uses the DL-151 change as its worked example; Skill 8 gains the MDC rule the build now
+> enforces.
+>
 > **Version 1.4 — 12 September 2026.** Skill 4 now points at the built redrive
 > (T-052, DL-138) and the built gauges (T-027, DL-137) instead of describing them.
 >
@@ -127,16 +134,32 @@ an existing stat type's code, **stop** — that violates STA-14/STA-22.
 
 6. **Expose the API endpoint** *(Module 3, STA-33)*
    - GET only *(STA-32)*
+   - **All three operations**, because `{type}` is a path parameter on each and a type
+     that answers one but not another is a contract violation: the tenant-wide list
+     `/v1/stats/{type}`, the device-scoped `/v1/stats/{type}/{clsbox}/{from}[/{to}]`
+     (DL-151, T-067 — open-ended one-argument form, foreign `clsbox` is an empty 200,
+     no window limit) and `/v1/stats/{type}/{uid}`
    - Same filter parameters as every other type *(STA-34)*
    - Tenant scoping applied server-side *(STA-35)*
    - Pagination consistent with other types *(STA-36)*
-   - Update the OpenAPI spec *(STA-37)*
+   - Update the OpenAPI spec — the per-type `data` schema is inlined there and
+     `check_schema_drift.py` fails CI if it disagrees with `docs/schemas/` *(STA-37, DL-140)*
+
+6a. **Add the type to `docker/demo.sh`'s happy-path step** *(T-069)* — the demo is the
+   one place every §5 rule is exercised together against real infrastructure, and a type
+   it does not post is a type nobody has watched go end to end.
 
 7. **Test** — see Skill 3
 
 8. **Document**
    - Add the type to `CLAUDE.md` §4
    - Record its retention period if it differs from the default
+
+Two things the copy **inherits from shared code** since 20 Sep 2026 and must not re-add:
+partitions for the whole window (`PartitionMaintenance`, DL-149 — nothing per type), and
+the identifiers on every log line (`WriterLogContext`, DL-150 — an `addKeyValue` of `uid`,
+`statType`, `tenant`, `clsbox`, `traceId` or `errorCode` in the new processor or writer
+**fails the build**; the scope logs the identifiers, you log the event).
 
 ### Definition of done
 - [ ] No existing stat type's code was modified
@@ -261,18 +284,30 @@ being written.
    `dlq_depth{type}` on `/actuator/prometheus`, polled every 30 s and cached. **Read
    `broker_metrics_collection_success` first** — a failed poll writes NaN, not zero,
    and an alert that treats a stale zero as "empty" is the outage that looks quiet.
-3. **Is the database reachable?** Connection pool exhaustion looks like a slow
+3. **Is the Writer logging at all?** Counters moving with no `WARN` lines beside them
+   is not "quiet" — since DL-150 it is the signature of a log line the ECS encoder
+   refused. Look for `Appender [CONSOLE] failed to append … Duplicate nested pairs` in
+   the *first* lines of the process's output: logback reports four such failures and
+   then drops silently. The build-failing guard covers `stats-writer`; if the symptom
+   appears in `stats-input`, the guard's `MODULE` is the one-line fix.
+4. **Is the database reachable?** Connection pool exhaustion looks like a slow
    consumer, not an outage.
-4. **Is the DLQ growing too?** DLQ growth means messages are being processed
+5. **Is the DLQ growing too?** DLQ growth means messages are being processed
    and *rejected* — a data or schema problem, not a capacity problem.
-5. **Is ingestion abnormally high?** Compare against the expected rate — 267/sec
-   per type, 1,333/sec across five types. A Heimdal replay after an outage
+6. **Is ingestion abnormally high?** Compare against the expected rate — 267/sec
+   per type, 1,333/sec across five types. Since DL-151 every Input series carries `source="internal"|"external"` — a burst on `external` is a different incident from a Heimdal replay. A Heimdal replay after an outage
    produces a legitimate burst; Heimdal owns dead-lettering and retries anything
    we answered with a non-2xx.
-6. **Is one message poisoning the consumer?** Same message repeatedly
+7. **Is one message poisoning the consumer?** Same message repeatedly
    retried and failing. Check the retry counter.
-7. **Is retention the real problem?** A bloated table or a long-running deletion
+8. **Is retention the real problem?** A bloated table or a long-running deletion
    job slows writes and looks exactly like a slow consumer.
+9. **Is the DLQ full of `23514`?** SQLSTATE `23514` — *no partition of relation found
+   for row* — dead-letters as permanent on the first attempt. Since DL-149 every pass
+   pre-creates the whole window, so this now means the maintenance pass itself is not
+   running (advisory lock held by a dead replica? `retention_oldest_partition_age_days`
+   climbing?), not that a record was "too old" — that record would have been skipped by
+   `RetentionGuard`, not dead-lettered.
 
 ### After resolution
 - [ ] Redrive DLQ messages once the root cause is fixed — an authorised operations
@@ -330,6 +365,10 @@ CONCURRENTLY` followed by `DROP TABLE`.
    tables dropped — not that their rows were deleted
 5. Confirm the partition **on** the cutoff day is still attached. The boundary belongs
    to the retained side on purpose
+5a. Confirm a partition exists for **every** day from the cutoff to `pre-create-days`
+   ahead — lengthening the window must *create* the older days, not only stop dropping
+   them (DL-149). `SELECT count(*) FROM pg_inherits WHERE inhparent = '<type>'::regclass`
+   should read `retention-days + pre-create-days + 1`
 6. Watch `retention_oldest_partition_age_days{type}`. In a healthy deployment it sits
    just under the configured window; climbing past it means the sweep has stopped
 7. Record the value and the reason for it
@@ -373,6 +412,13 @@ The API is versioned *(STA-38)* specifically so consumers do not break.
 - Adding a new endpoint
 - Loosening validation
 
+*Worked example — DL-151, 21 Sep 2026:* adding `/v1/stats/{type}/{clsbox}/{from}[/{to}]`
+was non-breaking (a new endpoint); **removing** the `clsbox` query parameter from
+`/v1/stats/{type}` was breaking by this list and was done anyway, because nothing is
+deployed against the draft and D-09 is still open. Once ZC confirms, that option is gone.
+Two rules the example set: a path parameter keeps its **wire name** (`{clsbox}`, never
+`{mac}` — ADR-007 §1), and an open-ended range is `ts_device >= from`, never `to = now`.
+
 ### Breaking — requires a new version
 - Removing or renaming a response field
 - Making an optional parameter mandatory
@@ -400,7 +446,16 @@ leave a trace someone can act on.
 - [ ] Does it log, dead-letter, or return an error? (One of the three —
       never none.)
 - [ ] Does the log line include `uid`, stat type, tenant, and `clsbox`, so the
-      record can be traced across all three modules? *(D1, ADR-007 §1)*
+      record can be traced across all three modules? *(D1, ADR-007 §1)* — **and does it
+      get them from the MDC scope, not from `addKeyValue`?** In `stats-writer` the six
+      keys (`traceId`, `uid`, `statType`, `tenant`, `clsbox`, `errorCode`) are
+      `WriterLogContext`'s; repeating one as a pair makes the ECS encoder throw and
+      logback **drop the line** — silently after the fourth. The build fails on it
+      (`WriterLogsDoNotShadowMdcKeysTest`, DL-150). In `stats-input` the scope is
+      `IngestLogContext` and the same discipline applies by hand
+- [ ] Does it carry `ingestSource` / the `source` label, so "external callers are
+      producing all the 400s" and "Heimdal changed its envelope" stay different
+      incidents? *(DL-151 — Input only)*
 - [ ] Is the **full payload** kept out of `INFO` and above? These records carry
       device identifiers — IMSI, MAC, gateway IDs. *(D2)*
 - [ ] Is the level right? `WARN` for handled-but-abnormal (retry, dead-letter,
