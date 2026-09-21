@@ -3,6 +3,7 @@ package com.zenner.datahub.stats.input;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.zenner.datahub.stats.common.model.StatType;
+import com.zenner.datahub.stats.input.config.IngestSource;
 import com.zenner.datahub.stats.input.ingest.IngestMetrics;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -40,8 +41,8 @@ class ManagementSurfaceTest {
     @Test
     void newlyShippedInputCountersAreActuallyScrapeableWithSafeLabels() {
         metrics.unroutable(StatType.SYSSTATS);
-        metrics.requestTooLarge();
-        metrics.rateLimited();
+        metrics.requestTooLarge(IngestSource.EXTERNAL);
+        metrics.rateLimited(IngestSource.INTERNAL);
 
         ResponseEntity<String> response =
                 rest.getForEntity(
@@ -60,9 +61,9 @@ class ManagementSurfaceTest {
         // type="unknown" would merge transport-level rejection with a record whose
         // type was parsed but invalid.
         assertThat(sample(response.getBody(), IngestMetrics.REQUEST_TOO_LARGE))
-                .isEqualTo("requests_too_large_total 1.0");
+                .isEqualTo("requests_too_large_total{source=\"external\"} 1.0");
         assertThat(sample(response.getBody(), IngestMetrics.RATE_LIMITED))
-                .isEqualTo("requests_rate_limited_total 1.0");
+                .isEqualTo("requests_rate_limited_total{source=\"internal\"} 1.0");
     }
 
     private static String sample(String scrape, String metricName) {
@@ -76,21 +77,24 @@ class ManagementSurfaceTest {
     @Test
     void existingRecordCountersExportEverySupportedTypeAndUnknownValidation() {
         for (StatType type : StatType.values()) {
-            metrics.accepted(type);
-            metrics.validationFailed(type);
-            metrics.publishFailed(type);
-            metrics.clockSkewRejected(type);
-            metrics.converterTimestampPresent(type);
+            metrics.accepted(type, IngestSource.INTERNAL);
+            metrics.validationFailed(type, IngestSource.INTERNAL);
+            metrics.publishFailed(type, IngestSource.INTERNAL);
+            metrics.clockSkewRejected(type, IngestSource.INTERNAL);
+            metrics.converterTimestampPresent(type, IngestSource.INTERNAL);
         }
-        metrics.validationFailed(null);
+        metrics.validationFailed(null, null);
         var response = rest.getForEntity("http://localhost:" + port + "/actuator/prometheus", String.class);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         for (StatType type : StatType.values()) {
             for (String name : new String[] {IngestMetrics.ACCEPTED, IngestMetrics.VALIDATION_FAILED,
                     IngestMetrics.PUBLISH_FAILED, IngestMetrics.CLOCK_SKEW_REJECTED, IngestMetrics.CONVERTER_TS_PRESENT}) {
-                assertThat(response.getBody()).contains(name + "_total{type=\"" + type.wireName() + "\"} 1.0");
+                // DL-151: every per-type series also carries the ingest door.
+                assertThat(response.getBody())
+                        .contains(name + "_total{source=\"internal\",type=\"" + type.wireName() + "\"} 1.0");
             }
         }
-        assertThat(response.getBody()).contains("records_validation_failed_total{type=\"unknown\"} 1.0");
+        assertThat(response.getBody())
+                .contains("records_validation_failed_total{source=\"unknown\",type=\"unknown\"} 1.0");
     }
 }

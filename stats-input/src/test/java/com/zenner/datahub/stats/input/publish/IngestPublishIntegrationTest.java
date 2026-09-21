@@ -187,7 +187,7 @@ class IngestPublishIntegrationTest {
 
     private static org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder
             postRecord(String fixture) {
-        return post("/stats").contentType(MediaType.APPLICATION_JSON).content(fixture(fixture));
+        return post("/internal/stats").contentType(MediaType.APPLICATION_JSON).content(fixture(fixture));
     }
 
     private static byte[] fixture(String name) {

@@ -71,7 +71,7 @@ class RequestLimitTest {
                         jsonPath("$.type").value(ErrorCode.PAYLOAD_TOO_LARGE.typeUri().toString()));
 
         verify(publisher, never()).publish(any(StatType.class), any(byte[].class));
-        assertThat(meterRegistry.counter(IngestMetrics.REQUEST_TOO_LARGE).count()).isEqualTo(1.0d);
+        assertThat(meterRegistry.counter(IngestMetrics.REQUEST_TOO_LARGE, "source", "internal").count()).isEqualTo(1.0d);
     }
 
     @Test
@@ -91,7 +91,7 @@ class RequestLimitTest {
                 .andExpect(
                         jsonPath("$.type").value(ErrorCode.TOO_MANY_REQUESTS.typeUri().toString()));
 
-        assertThat(meterRegistry.counter(IngestMetrics.RATE_LIMITED).count()).isEqualTo(1.0d);
+        assertThat(meterRegistry.counter(IngestMetrics.RATE_LIMITED, "source", "internal").count()).isEqualTo(1.0d);
     }
 
     @Test
@@ -110,7 +110,7 @@ class RequestLimitTest {
 
     private static org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder
             postRecord(String fixture) {
-        return post("/stats").contentType(MediaType.APPLICATION_JSON).content(fixture(fixture));
+        return post("/internal/stats").contentType(MediaType.APPLICATION_JSON).content(fixture(fixture));
     }
 
     private static byte[] fixture(String name) {

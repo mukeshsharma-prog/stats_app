@@ -163,8 +163,16 @@ own table. The ranked order is `Stats_App_Tracker.xlsx` → `Next Up`. Phase 2 f
 ### 2.1 The happy path
 
 ```
-POST /v1/stats            (path pending D-03 confirmation)
+POST /internal/stats      Heimdal's door           (both paths pending D-03)
+POST /external/stats      every other caller — SAME handler, same gate, same
+                          limits, same auth filter; differs only in the
+                          `source` label on every metric and `ingestSource`
+                          on every log line (DL-151). One shared rate bucket.
 Content-Type: application/json
+  │
+  ├─ 0. LOGGING FILTER       traceId minted; ingestSource resolved from the
+  │                          path — internal | external — once, for everything
+  │                          behind it
   │
   ├─ 1. AUTH FILTER          mode from stats.input.auth.mode
   │                          none | mtls | oauth2 — no default in code
@@ -553,8 +561,17 @@ indexes
 ### 5.1 Request flow
 
 ```
-GET /v1/stats/{type}?from=…&to=…&gateway=…&limit=…&cursor=…
+GET /v1/stats/{type}?from=…&to=…&limit=…&cursor=…        tenant-wide list
+GET /v1/stats/{type}/{clsbox}/{from}[/{to}]?limit=…&cursor=…   one gateway (DL-151)
+GET /v1/stats/{type}/{uid}                                one record
 Authorization: Bearer <token>
+
+  The device-scoped forms were added 21 Sep 2026 at management's request —
+  "MAC address and timestamp". {clsbox} IS the MAC. The one-argument form is
+  OPEN-ENDED (ts_device >= from), not to = now: Input admits ts.device up to
+  5 min ahead of arrival, so a literal "now" hides a fast clock's newest record.
+  The (tenant, clsbox, ts_device DESC, uid DESC) index serves it; no window
+  limit applies, the page size bounds each request. Tenant predicate identical.
   │
   ├─ 1. NOT A GET?           ⇒ 405, no side effect, on EVERY route (DL-070)
   │
@@ -569,8 +586,11 @@ Authorization: Bearer <token>
   │                          (DL-061; note: ADR-006 wins over the 401 in
   │                          an older openapi.yaml)
   │
-  ├─ 5. VALIDATE QUERY       from/to REQUIRED — there is no unbounded
-  │                          query (DL-071)
+  ├─ 5. VALIDATE QUERY       from/to REQUIRED on the list — there is no
+  │                          unbounded tenant-wide query (DL-071); the
+  │                          device forms take them from the path, and the
+  │                          one-argument form has no upper bound by design
+  │                          clsbox not 12 hex ⇒ 400 invalid_parameter
   │                          inverted range ⇒ 400 invalid_time_range
   │                          limit 1–1000, default 100
   │                          cursor filters ≠ request filters

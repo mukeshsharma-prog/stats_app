@@ -21,6 +21,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.search.MeterNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.List;
 import java.util.Objects;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -142,7 +143,7 @@ class StatsIngestControllerTest {
     @DisplayName("an envelope failure is 400 and NOTHING is published — rule 7")
     void envelopeFailurePublishesNothing() throws Exception {
         mockMvc.perform(
-                        post("/stats")
+                        post("/internal/stats")
                                 .contentType(MediaType.APPLICATION_JSON)
                                 .content("{\"type\":\"lorastats\"}"))
                 .andExpect(status().isBadRequest())
@@ -168,25 +169,83 @@ class StatsIngestControllerTest {
     @Test
     @DisplayName("an empty body is 400, not a 500")
     void emptyBodyIsRejected() throws Exception {
-        mockMvc.perform(post("/stats").contentType(MediaType.APPLICATION_JSON).content(""))
+        mockMvc.perform(post("/internal/stats").contentType(MediaType.APPLICATION_JSON).content(""))
                 .andExpect(status().isBadRequest());
 
         verify(publisher, never()).publish(any(), any());
     }
 
     @Test
-    @DisplayName("non-POST methods are 405 with no side effect — the API is write-once here")
+    @DisplayName("non-POST methods are 405 with no side effect on either door — the API is write-once here")
     void nonPostMethodsAreRejected() throws Exception {
-        mockMvc.perform(get("/stats")).andExpect(status().isMethodNotAllowed());
-        mockMvc.perform(put("/stats").contentType(MediaType.APPLICATION_JSON).content("{}"))
-                .andExpect(status().isMethodNotAllowed());
+        for (String door : List.of("/internal/stats", "/external/stats")) {
+            mockMvc.perform(get(door)).andExpect(status().isMethodNotAllowed());
+            mockMvc.perform(put(door).contentType(MediaType.APPLICATION_JSON).content("{}"))
+                    .andExpect(status().isMethodNotAllowed());
+        }
+
+        verify(publisher, never()).publish(any(), any());
+    }
+
+    /**
+     * DL-151: two doors, one behaviour. The external path accepts exactly what the
+     * internal one accepts, rejects exactly what it rejects, and the only observable
+     * difference is the {@code source} label on the counters.
+     */
+    @Test
+    @DisplayName("the external door runs the same gate and publisher, and is labelled source=external")
+    void externalDoorBehavesIdenticallyAndIsLabelled() throws Exception {
+        when(publisher.publish(eq(StatType.LORASTATS), any())).thenReturn(PublishOutcome.CONFIRMED);
+        double externalAcceptedBefore = counter(IngestMetrics.ACCEPTED, "external");
+        double internalAcceptedBefore = counter(IngestMetrics.ACCEPTED, "internal");
+        double externalRejectedBefore = counter(IngestMetrics.VALIDATION_FAILED, "external");
+
+        mockMvc.perform(
+                        post("/external/stats")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(fixture("valid/lorastats-production-canonical.json")))
+                .andExpect(status().isOk());
+        mockMvc.perform(
+                        post("/external/stats")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"type\":\"lorastats\"}"))
+                .andExpect(status().isBadRequest());
+
+        assertThat(counter(IngestMetrics.ACCEPTED, "external") - externalAcceptedBefore).isEqualTo(1.0d);
+        assertThat(counter(IngestMetrics.ACCEPTED, "internal") - internalAcceptedBefore).isZero();
+        assertThat(counter(IngestMetrics.VALIDATION_FAILED, "external") - externalRejectedBefore)
+                .isEqualTo(1.0d);
+        verify(publisher).publish(eq(StatType.LORASTATS), any());
+    }
+
+    @Test
+    @DisplayName("the internal door is labelled source=internal")
+    void internalDoorIsLabelled() throws Exception {
+        when(publisher.publish(eq(StatType.LORASTATS), any())).thenReturn(PublishOutcome.CONFIRMED);
+        double before = counter(IngestMetrics.ACCEPTED, "internal");
+
+        mockMvc.perform(postRecord("valid/lorastats-production-canonical.json"))
+                .andExpect(status().isOk());
+
+        assertThat(counter(IngestMetrics.ACCEPTED, "internal") - before).isEqualTo(1.0d);
+    }
+
+    /** A path that is neither door is not an ingest endpoint at all. */
+    @Test
+    @DisplayName("the old single path no longer exists")
+    void legacySinglePathIsGone() throws Exception {
+        mockMvc.perform(
+                        post("/stats")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(fixture("valid/lorastats-production-canonical.json")))
+                .andExpect(status().isNotFound());
 
         verify(publisher, never()).publish(any(), any());
     }
 
     private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder postRecord(
             String fixture) {
-        return post("/stats").contentType(MediaType.APPLICATION_JSON).content(fixture(fixture));
+        return post("/internal/stats").contentType(MediaType.APPLICATION_JSON).content(fixture(fixture));
     }
 
     /**
@@ -196,11 +255,22 @@ class StatsIngestControllerTest {
      * later for being flaky rather than fixed.
      */
     private double counter(String name) {
-        // Summed across every type label: since T-050 this class posts sysstats records
-        // too, so a name can match several counters and "the first one" depends on
-        // which test ran first. A delta over the sum does not.
+        // Summed across every type and source label: since T-050 this class posts sysstats
+        // records too, so a name can match several counters and "the first one" depends
+        // on which test ran first. A delta over the sum does not.
         try {
             return meterRegistry.get(name).counters().stream()
+                    .mapToDouble(io.micrometer.core.instrument.Counter::count)
+                    .sum();
+        } catch (MeterNotFoundException absent) {
+            return 0.0d;
+        }
+    }
+
+    /** The same delta, restricted to one ingest door (DL-151). */
+    private double counter(String name, String source) {
+        try {
+            return meterRegistry.get(name).tag("source", source).counters().stream()
                     .mapToDouble(io.micrometer.core.instrument.Counter::count)
                     .sum();
         } catch (MeterNotFoundException absent) {

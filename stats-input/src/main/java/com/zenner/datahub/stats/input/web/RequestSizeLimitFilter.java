@@ -5,6 +5,7 @@ import com.zenner.datahub.stats.common.error.ErrorCode;
 import com.zenner.datahub.stats.common.error.ProblemDetails;
 import com.zenner.datahub.stats.input.config.RequestLimitProperties;
 import com.zenner.datahub.stats.input.ingest.IngestMetrics;
+import com.zenner.datahub.stats.input.log.IngestLoggingFilter;
 import com.zenner.datahub.stats.input.log.IngestLogContext;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ReadListener;
@@ -73,7 +74,7 @@ public class RequestSizeLimitFilter extends OncePerRequestFilter {
 
     private void reject(HttpServletRequest request, HttpServletResponse response, long declaredLength)
             throws IOException {
-        metrics.requestTooLarge();
+        metrics.requestTooLarge(IngestLoggingFilter.source(request));
         IngestLogContext.errorCode(ErrorCode.PAYLOAD_TOO_LARGE);
         // The declared length is ours, not the sender's payload, so logging it discloses
         // nothing (STA-03A).

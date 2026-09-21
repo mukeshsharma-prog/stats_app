@@ -178,7 +178,9 @@ The manual version of its first step:
 # 1. Send a record.
 #    approved-types.json is a map keyed by stat type, so extract one record.
 jq '.lorastats' docs/schemas/fixtures/valid/approved-types.json > /tmp/lorastats.json
-curl -X POST http://localhost:8081/stats \
+# /internal/stats is Heimdal's door; /external/stats is the same handler for other
+# callers (DL-151) — either works here, the metrics say which you used.
+curl -X POST http://localhost:8081/internal/stats \
   -H "Content-Type: application/json" \
   -d @/tmp/lorastats.json
 

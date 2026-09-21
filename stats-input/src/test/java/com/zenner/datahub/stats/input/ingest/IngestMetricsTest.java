@@ -3,6 +3,7 @@ package com.zenner.datahub.stats.input.ingest;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.zenner.datahub.stats.common.model.StatType;
+import com.zenner.datahub.stats.input.config.IngestSource;
 import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.distribution.CountAtBucket;
 import io.micrometer.core.instrument.distribution.HistogramSnapshot;
@@ -20,9 +21,9 @@ class IngestMetricsTest {
     @Test
     void recordsTsServerModuloTheTenMinuteCycle() {
         // 1787833739 mod 600 = 539 -- the 29 Aug production record, 9 minutes into a cycle.
-        metrics.tsServerCycleOffset(StatType.LORASTATS, Instant.ofEpochSecond(1_787_833_739L));
+        metrics.tsServerCycleOffset(StatType.LORASTATS, IngestSource.INTERNAL, Instant.ofEpochSecond(1_787_833_739L));
         // An exact boundary is offset 0, not 600.
-        metrics.tsServerCycleOffset(StatType.LORASTATS, Instant.ofEpochSecond(1_787_833_800L));
+        metrics.tsServerCycleOffset(StatType.LORASTATS, IngestSource.INTERNAL, Instant.ofEpochSecond(1_787_833_800L));
 
         DistributionSummary summary = summary(StatType.LORASTATS);
         assertThat(summary.count()).isEqualTo(2);
@@ -38,8 +39,8 @@ class IngestMetricsTest {
      */
     @Test
     void exportsTwentyThirtySecondBucketsAcrossTheCycle() {
-        metrics.tsServerCycleOffset(StatType.SYSSTATS, Instant.ofEpochSecond(45L));
-        metrics.tsServerCycleOffset(StatType.SYSSTATS, Instant.ofEpochSecond(599L));
+        metrics.tsServerCycleOffset(StatType.SYSSTATS, IngestSource.INTERNAL, Instant.ofEpochSecond(45L));
+        metrics.tsServerCycleOffset(StatType.SYSSTATS, IngestSource.INTERNAL, Instant.ofEpochSecond(599L));
 
         HistogramSnapshot snapshot = summary(StatType.SYSSTATS).takeSnapshot();
         double[] edges =
@@ -56,19 +57,19 @@ class IngestMetricsTest {
     }
 
     @Test
-    void labelsTheHistogramByTypeAndNothingElse() {
-        metrics.tsServerCycleOffset(StatType.OMSSTATS, Instant.ofEpochSecond(10L));
+    void labelsTheHistogramByTypeAndSourceAndNothingElse() {
+        metrics.tsServerCycleOffset(StatType.OMSSTATS, IngestSource.INTERNAL, Instant.ofEpochSecond(10L));
 
         assertThat(summary(StatType.OMSSTATS).getId().getTags())
                 .extracting(tag -> tag.getKey() + "=" + tag.getValue())
-                .containsExactly("type=omsstats");
+                .containsExactlyInAnyOrder("type=omsstats", "source=internal");
         assertThat(summary(StatType.OMSSTATS).getId().getBaseUnit()).isEqualTo("seconds");
     }
 
     @Test
     void countsHeimdalsTsDeviceCorrectionPerType() {
-        metrics.tsDeviceCorrected(StatType.SYSSTATS);
-        metrics.tsDeviceCorrected(StatType.SYSSTATS);
+        metrics.tsDeviceCorrected(StatType.SYSSTATS, IngestSource.INTERNAL);
+        metrics.tsDeviceCorrected(StatType.SYSSTATS, IngestSource.INTERNAL);
 
         assertThat(
                         registry.get(IngestMetrics.TS_DEVICE_CORRECTED)
@@ -78,6 +79,54 @@ class IngestMetricsTest {
                 .isEqualTo(2.0d);
         assertThat(registry.find(IngestMetrics.TS_DEVICE_CORRECTED).tag("type", "lorastats").counter())
                 .isNull();
+    }
+
+    /**
+     * DL-151: the two ingest doors run identical rules, so the {@code source} label is the
+     * only thing that makes the split observable. Every per-type counter carries it, a
+     * request the logging filter never saw is {@code unknown} rather than unlabelled, and
+     * the sum over the label is the total the series had before the split.
+     */
+    @Test
+    void labelsEveryCounterBySourceAndSumsToTheOldTotal() {
+        metrics.accepted(StatType.LORASTATS, IngestSource.INTERNAL);
+        metrics.accepted(StatType.LORASTATS, IngestSource.INTERNAL);
+        metrics.accepted(StatType.LORASTATS, IngestSource.EXTERNAL);
+        metrics.validationFailed(null, null);
+        metrics.requestTooLarge(IngestSource.EXTERNAL);
+        metrics.rateLimited(IngestSource.INTERNAL);
+
+        assertThat(count(IngestMetrics.ACCEPTED, "lorastats", "internal")).isEqualTo(2.0d);
+        assertThat(count(IngestMetrics.ACCEPTED, "lorastats", "external")).isEqualTo(1.0d);
+        assertThat(
+                        registry.get(IngestMetrics.ACCEPTED).tag("type", "lorastats").counters().stream()
+                                .mapToDouble(io.micrometer.core.instrument.Counter::count)
+                                .sum())
+                .isEqualTo(3.0d);
+        assertThat(count(IngestMetrics.VALIDATION_FAILED, "unknown", "unknown")).isEqualTo(1.0d);
+        assertThat(
+                        registry.get(IngestMetrics.REQUEST_TOO_LARGE)
+                                .tag("source", "external")
+                                .counter()
+                                .count())
+                .isEqualTo(1.0d);
+        assertThat(
+                        registry.get(IngestMetrics.RATE_LIMITED).tag("source", "internal").counter().count())
+                .isEqualTo(1.0d);
+    }
+
+    /** {@code records_unroutable} is a fact about the broker, not the caller: no source label. */
+    @Test
+    void unroutableCarriesNoSourceLabel() {
+        metrics.unroutable(StatType.SYSSTATS);
+
+        assertThat(registry.get(IngestMetrics.UNROUTABLE).tag("type", "sysstats").counter().getId().getTags())
+                .extracting(tag -> tag.getKey())
+                .containsExactly("type");
+    }
+
+    private double count(String name, String type, String source) {
+        return registry.get(name).tag("type", type).tag("source", source).counter().count();
     }
 
     private DistributionSummary summary(StatType type) {

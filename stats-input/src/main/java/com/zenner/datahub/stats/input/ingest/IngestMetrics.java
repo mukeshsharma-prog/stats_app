@@ -1,6 +1,7 @@
 package com.zenner.datahub.stats.input.ingest;
 
 import com.zenner.datahub.stats.common.model.StatType;
+import com.zenner.datahub.stats.input.config.IngestSource;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -19,6 +20,15 @@ import org.springframework.stereotype.Component;
  * than left unlabelled: an absent series and a zero series are indistinguishable on
  * a dashboard, and a flood of unparseable bodies is precisely the case where the
  * series must exist.</p>
+ *
+ * <p><strong>Every series here also carries {@code source} (DL-151)</strong> —
+ * {@code internal} for the Heimdal door, {@code external} for the other one — because
+ * the two ingest paths run identical rules, and the label is the only thing that makes
+ * the split observable: "external callers are producing all the 400s" is a different
+ * incident from "Heimdal changed its envelope". The one exception is
+ * {@link #UNROUTABLE}, which is a fact about the broker's bindings, not about the
+ * caller, and is incremented where the door is not known. Sum over {@code source} to
+ * get the totals the series had before the split.</p>
  */
 @Component
 public class IngestMetrics {
@@ -82,19 +92,19 @@ public class IngestMetrics {
     }
 
     /** A record that passed the gate, was published, and was publisher-confirmed. */
-    public void accepted(StatType statType) {
-        counter(ACCEPTED, "Records accepted and publisher-confirmed", statType).increment();
+    public void accepted(StatType statType, IngestSource source) {
+        counter(ACCEPTED, "Records accepted and publisher-confirmed", statType, source).increment();
     }
 
     /** Envelope schema failure, unknown stat type, or a body that was not JSON. */
-    public void validationFailed(StatType statType) {
-        counter(VALIDATION_FAILED, "Records rejected at the envelope gate with 400", statType)
+    public void validationFailed(StatType statType, IngestSource source) {
+        counter(VALIDATION_FAILED, "Records rejected at the envelope gate with 400", statType, source)
                 .increment();
     }
 
     /** Q14a: {@code ts.device} beyond the configured tolerance (ADR-003 D9). */
-    public void clockSkewRejected(StatType statType) {
-        counter(CLOCK_SKEW_REJECTED, "Records rejected because ts.device leads ts.server", statType)
+    public void clockSkewRejected(StatType statType, IngestSource source) {
+        counter(CLOCK_SKEW_REJECTED, "Records rejected because ts.device leads ts.server", statType, source)
                 .increment();
     }
 
@@ -102,14 +112,14 @@ public class IngestMetrics {
      * T-059. Expected to read ~100% today; its value is showing us the day Heimdal
      * stops sending {@code ts.converter} (ADR-007 §2, "accept, ignore, and meter").
      */
-    public void converterTimestampPresent(StatType statType) {
-        counter(CONVERTER_TS_PRESENT, "Records carrying ts.converter, which is never read", statType)
+    public void converterTimestampPresent(StatType statType, IngestSource source) {
+        counter(CONVERTER_TS_PRESENT, "Records carrying ts.converter, which is never read", statType, source)
                 .increment();
     }
 
     /** Publish or confirm failed, so the caller was told 503 and will retry. */
-    public void publishFailed(StatType statType) {
-        counter(PUBLISH_FAILED, "Records not published or not confirmed, answered with 503", statType)
+    public void publishFailed(StatType statType, IngestSource source) {
+        counter(PUBLISH_FAILED, "Records not published or not confirmed, answered with 503", statType, source)
                 .increment();
     }
 
@@ -122,7 +132,12 @@ public class IngestMetrics {
      * same 503 to Heimdal and completely different incidents to us.</p>
      */
     public void unroutable(StatType statType) {
-        counter(UNROUTABLE, "Records the broker acked but no queue was bound to take", statType)
+        // No source label: the publisher increments this and does not know the door,
+        // and a missing binding is the same incident whichever door the record used.
+        Counter.builder(UNROUTABLE)
+                .description("Records the broker acked but no queue was bound to take")
+                .tag("type", statType == null ? UNKNOWN_TYPE : statType.wireName())
+                .register(meterRegistry)
                 .increment();
     }
 
@@ -130,19 +145,19 @@ public class IngestMetrics {
      * Records the phase of an accepted record within the reporting cycle. See
      * {@link #TS_SERVER_CYCLE_OFFSET}.
      */
-    public void tsServerCycleOffset(StatType statType, Instant tsServer) {
+    public void tsServerCycleOffset(StatType statType, IngestSource source, Instant tsServer) {
         Objects.requireNonNull(tsServer, "tsServer");
         long offset = Math.floorMod(tsServer.getEpochSecond(), REPORTING_CYCLE_SECONDS);
-        cycleOffset(statType).record(offset);
+        cycleOffset(statType, source).record(offset);
     }
 
     /** DL-146: Heimdal flagged this record's {@code ts.device} as corrected. */
-    public void tsDeviceCorrected(StatType statType) {
-        counter(TS_DEVICE_CORRECTED, "Records on which Heimdal rewrote ts.device (meta.tsDeviceCorrected)", statType)
+    public void tsDeviceCorrected(StatType statType, IngestSource source) {
+        counter(TS_DEVICE_CORRECTED, "Records on which Heimdal rewrote ts.device (meta.tsDeviceCorrected)", statType, source)
                 .increment();
     }
 
-    private DistributionSummary cycleOffset(StatType statType) {
+    private DistributionSummary cycleOffset(StatType statType, IngestSource source) {
         double[] buckets = new double[(int) (REPORTING_CYCLE_SECONDS / CYCLE_BUCKET_SECONDS)];
         for (int index = 0; index < buckets.length; index++) {
             buckets[index] = CYCLE_BUCKET_SECONDS * (index + 1);
@@ -155,29 +170,34 @@ public class IngestMetrics {
                 // needs fixed, comparable edges, not a latency-shaped distribution.
                 .serviceLevelObjectives(buckets)
                 .tag("type", statType == null ? UNKNOWN_TYPE : statType.wireName())
+                .tag("source", IngestSource.labelOf(source))
                 .register(meterRegistry);
     }
 
     /** T-018: the body exceeded {@code stats.input.limits.max-request-bytes}; 413. */
-    public void requestTooLarge() {
-        untypedCounter(REQUEST_TOO_LARGE, "Requests rejected with 413 before the body was read")
+    public void requestTooLarge(IngestSource source) {
+        untypedCounter(REQUEST_TOO_LARGE, "Requests rejected with 413 before the body was read", source)
                 .increment();
     }
 
     /** T-018: the per-instance ingest rate limit rejected the request; 429. */
-    public void rateLimited() {
-        untypedCounter(RATE_LIMITED, "Requests rejected with 429 by the ingest rate limit")
+    public void rateLimited(IngestSource source) {
+        untypedCounter(RATE_LIMITED, "Requests rejected with 429 by the ingest rate limit", source)
                 .increment();
     }
 
-    private Counter untypedCounter(String name, String description) {
-        return Counter.builder(name).description(description).register(meterRegistry);
+    private Counter untypedCounter(String name, String description, IngestSource source) {
+        return Counter.builder(name)
+                .description(description)
+                .tag("source", IngestSource.labelOf(source))
+                .register(meterRegistry);
     }
 
-    private Counter counter(String name, String description, StatType statType) {
+    private Counter counter(String name, String description, StatType statType, IngestSource source) {
         return Counter.builder(name)
                 .description(description)
                 .tag("type", statType == null ? UNKNOWN_TYPE : statType.wireName())
+                .tag("source", IngestSource.labelOf(source))
                 .register(meterRegistry);
     }
 }

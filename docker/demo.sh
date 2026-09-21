@@ -17,7 +17,8 @@
 set -u
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FX="$REPO/docs/schemas/fixtures"
-IN=http://localhost:8081/stats
+# Heimdal's door. /external/stats is the same handler for callers that are not Heimdal (DL-151).
+IN=http://localhost:8081/internal/stats
 WR=http://localhost:8082/actuator/prometheus
 API=http://localhost:8083
 KC=http://localhost:8080

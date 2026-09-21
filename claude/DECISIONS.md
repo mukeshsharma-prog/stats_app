@@ -4723,3 +4723,97 @@ carry the identifiers.
 confirm callback thread, so it does not collide today. The guard is scoped to the
 Writer because that is where the encoder is ECS; extending it to Input when Input
 adopts structured console output is a one-line change to `MODULE`.
+
+### DL-151 — Two ingest doors with one behaviour, and a device-scoped read path: the 20 September management ask
+
+**21 September 2026** · `MANAGEMENT ASK → ENGINEERING DESIGN` · STA-01A, STA-03A, STA-14A, STA-32, STA-33A, STA-35A, STA-36A, ADR-006, ADR-007 §1, DL-115, DL-118, DL-121, DL-134, DL-145 · **approver:** Naman Vashishtha, relaying Timo (20 Sep 2026)
+
+**Trigger.** Management, after a conversation with Timo on 20 September, asked for three
+things: *"two endpoints for stats-input: one for internal calls (coming from
+heimdal-core) and one for external calls"*; *"in stats-api you can stay with
+`stats/{type}/{uid}`"*; and *"a GET call with mac address and timestamp —
+`stats/{type}/{mac}/{from}` (from to now) and `stats/{type}/{mac}/{from}/{to}`"*. The
+third is the device-first endpoint CLAUDE.md 1.13 recorded as *raised 17 Sep, not
+designed, ask before building*. This entry is the design, and the first two parts are
+built; the read half is contract-only because `stats-api` has no controller yet
+(Phase 4, T-038…T-046).
+
+**Quizzed before building (DL-005).** Three readings of the ask were put back before a
+line was written, and the answers are the decision:
+
+1. *What makes the second Input endpoint "external"?* — **Same authentication, two
+   paths.** The split is for routing and ingress restriction, not a second mechanism.
+2. *Do the MAC endpoints stay tenant-scoped from the token?* — **Yes.** The one
+   harmless reading of 17 Sep is the one that was asked for: per type, tenant from the
+   token, served by `(tenant, clsbox, ts_device DESC, uid DESC)`.
+3. *How far now?* — **Contract for the read path; build the Input split.**
+
+**Decision 1 — `stats-input` has two doors and one handler.**
+`stats.input.endpoint.path` becomes `internal-path` (`/internal/stats`, Heimdal's)
+and `external-path` (`/external/stats`, everyone else's); both are D-03 drafts and
+both are properties. `StatsIngestController.ingest` is bound to **both** on purpose
+— the rules are identical, and a second handler would be a second copy of the same
+three steps waiting to drift. Every ingest filter — correlation, size, authentication,
+rate — is registered on both patterns from `IngestEndpointProperties.paths()`, and the
+rate limit is **one bucket**: the limit protects the instance, and the instance did not
+gain capacity by gaining a path. The two paths must differ and neither may sit under
+`/actuator`; both are refused at startup. `IngestLoggingFilter` resolves the door once
+from the path and publishes it as the `ingestSource` MDC key and a request attribute,
+so every metric carries the same answer.
+
+**What makes the split worth anything is the label.** Every Input series except one
+gains `source="internal"|"external"` (`unknown` for a request the filter never saw);
+`records_unroutable` stays unlabelled because the publisher increments it without
+knowing the door and a missing binding is the same incident either way. Sum over
+`source` for the old totals. "External callers are producing all the 400s" and
+"Heimdal changed its envelope" are different incidents, and without the label the two
+doors would be indistinguishable from one.
+
+**Decision 2 — the read API gains two device-scoped paths and loses one query
+parameter.** `GET /v1/stats/{type}/{clsbox}/{from}` and
+`GET /v1/stats/{type}/{clsbox}/{from}/{to}`, tenant from the token, ordered
+`ts_device DESC, uid DESC`, keyset-paginated with `limit`/`cursor`, `[from, to)` in
+Unix seconds. `{clsbox}` **is** the MAC address; the path parameter keeps the wire
+name because ADR-007 §1 forbids a rename layer — the URL bytes are the same either
+way. Four rules, each chosen against a specific wrong answer:
+
+* **"From to now" is open-ended, not `to = now`.** Input admits `ts.device` up to
+  `max-clock-skew` (5 min) ahead of arrival (ADR-003 D9), so a gateway with a fast
+  clock has records in the near future; a literal `now` would hide its newest record
+  on every call and nobody would notice. An open bound also keeps the cursor stable —
+  a moving `to` is a different filter on every page.
+* **An unknown or foreign `clsbox` is an empty `200`, never `404`.** Identical to the
+  list; a 404 would disclose whether another tenant's gateway exists (STA-35A).
+* **No `query_window_exceeded` on device-scoped reads.** The covering index makes the
+  scan proportional to the result and the page bounds each request; a single
+  gateway's whole retention window is ~13,000 rows. The window limit stays on the
+  tenant-wide list only, where it was always the point.
+* **The `clsbox` query parameter on `/stats/{type}` is removed.** With the path forms
+  in place it was a second spelling of the same query. One query, one spelling.
+
+The `uid` path and the device paths are told apart by **segment count** — three
+against four or five — never by inspecting the value.
+
+**Rejected.** *A `mac` path parameter* — a second name for `clsbox` is the rename
+layer ADR-007 removed. *`to = now` for the one-argument form* — see above.
+*Cross-tenant lookup by MAC* — collides with rule 3 and ADR-006; the answer to quiz
+question 2 closed it. *Different auth per door today* — nothing to implement it
+against until Q8a-2 (and Q8a-3's basic-in-URL) is answered; `stats.input.auth.mode`
+stays one seam. *Keeping the `clsbox` query parameter for compatibility* — nothing is
+deployed against the draft.
+
+**Residual — read it before relying on the external door.** With identical
+authentication on both paths, `/external/stats` has **no tenant binding on writes**:
+a caller that can reach it can submit a record under any tenant's name, and once
+Q8a-2 selects Heimdal's mechanism an external caller would present Heimdal's
+credentials. Until then the protection is the ingress rule in front of the path and
+the `source` label behind it. When Q8a-2 lands, the external door is where a
+per-door `stats.input.auth.<door>.mode` and a *token tenant = record tenant* check
+belong — the seam is now a path, so that is a filter plus a property, not a rewrite.
+Second residual: **the read paths are a contract, not code.** They join T-038…T-046
+in Phase 4; `Stats_App_Tracker.xlsx` needs a row for them and the tenant-wide window
+limit remains `PROVISIONAL`.
+
+**Gates.** `stats-input`: 75 tests, 0 failures (67 before; the two-door, source-label and path-validation cases are new). `redocly lint` clean on both
+contracts; `check_schema_drift.py` passes; `build-html.sh` renders. Fixture gate
+unchanged — no schema moved.

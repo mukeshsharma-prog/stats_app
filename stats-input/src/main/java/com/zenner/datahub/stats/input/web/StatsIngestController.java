@@ -6,9 +6,11 @@ import com.zenner.datahub.stats.common.error.FieldError.SafeMessage;
 import com.zenner.datahub.stats.common.error.ProblemDetails;
 import com.zenner.datahub.stats.common.model.StatType;
 import com.zenner.datahub.stats.input.config.IngestEndpointProperties;
+import com.zenner.datahub.stats.input.config.IngestSource;
 import com.zenner.datahub.stats.input.ingest.EnvelopeGate;
 import com.zenner.datahub.stats.input.ingest.GateResult;
 import com.zenner.datahub.stats.input.ingest.IngestMetrics;
+import com.zenner.datahub.stats.input.log.IngestLoggingFilter;
 import com.zenner.datahub.stats.input.log.IngestLogContext;
 import com.zenner.datahub.stats.input.publish.PublishOutcome;
 import com.zenner.datahub.stats.input.publish.StatsPublisher;
@@ -44,8 +46,15 @@ import org.springframework.web.bind.annotation.RestController;
  * bytes published are exactly the bytes received (ADR-004, T-016). Binding would
  * round-trip through Jackson and quietly re-encode the record.</p>
  *
- * <p>Non-POST methods on this path return 405 from Spring's own handler mapping, with
+ * <p>Non-POST methods on either path return 405 from Spring's own handler mapping, with
  * no side effect.</p>
+ *
+ * <p><strong>Two paths, one handler (DL-151).</strong> The internal door is Heimdal's,
+ * the external door is everyone else's, and the method below is bound to both on
+ * purpose: the rules are identical, so a second handler would be a second copy of the
+ * same three steps waiting to drift. The door is resolved once, by
+ * {@link IngestLoggingFilter}, and appears here only as the {@code source} label on
+ * every metric. Nothing branches on it.</p>
  */
 @RestController
 public class StatsIngestController {
@@ -69,15 +78,16 @@ public class StatsIngestController {
     }
 
     @PostMapping(
-            path = "${stats.input.endpoint.path}",
+            path = {"${stats.input.endpoint.internal-path}", "${stats.input.endpoint.external-path}"},
             consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<ProblemDetails> ingest(
             @RequestBody(required = false) byte[] body, HttpServletRequest request) {
 
         String instance = request.getRequestURI();
+        IngestSource source = IngestLoggingFilter.source(request);
 
         if (body == null || body.length == 0) {
-            metrics.validationFailed(null);
+            metrics.validationFailed(null, source);
             IngestLogContext.errorCode(ErrorCode.INVALID_PARAMETER);
             log.atWarn()
                     .addKeyValue("event", "validation_failed")
@@ -97,8 +107,9 @@ public class StatsIngestController {
 
         if (result instanceof GateResult.Rejected rejected) {
             switch (rejected.reason()) {
-                case CLOCK_SKEW_EXCEEDED -> metrics.clockSkewRejected(rejected.statType());
-                case MALFORMED_JSON, INVALID_ENVELOPE -> metrics.validationFailed(rejected.statType());
+                case CLOCK_SKEW_EXCEEDED -> metrics.clockSkewRejected(rejected.statType(), source);
+                case MALFORMED_JSON, INVALID_ENVELOPE ->
+                        metrics.validationFailed(rejected.statType(), source);
             }
             return problem(rejected.problem());
         }
@@ -109,12 +120,12 @@ public class StatsIngestController {
         // ADR-007 §2: ts.converter is accepted, preserved, never read — and metered,
         // so we can see the day Heimdal stops sending it (T-059).
         if (accepted.converterTimestampPresent()) {
-            metrics.converterTimestampPresent(statType);
+            metrics.converterTimestampPresent(statType, source);
         }
 
         PublishOutcome outcome = publisher.publish(statType, body);
         if (outcome != PublishOutcome.CONFIRMED) {
-            metrics.publishFailed(statType);
+            metrics.publishFailed(statType, source);
             IngestLogContext.errorCode(ErrorCode.SERVICE_UNAVAILABLE);
             log.atError()
                     .addKeyValue("event", "publish_failed")
@@ -130,11 +141,11 @@ public class StatsIngestController {
                             IngestLogContext.traceId()));
         }
 
-        metrics.accepted(statType);
+        metrics.accepted(statType, source);
         // T-050 / DL-147: metered on acceptance so a 503-then-resend counts once.
-        metrics.tsServerCycleOffset(statType, accepted.tsServer());
+        metrics.tsServerCycleOffset(statType, source, accepted.tsServer());
         if (accepted.tsDeviceCorrected()) {
-            metrics.tsDeviceCorrected(statType);
+            metrics.tsDeviceCorrected(statType, source);
         }
         log.atDebug()
                 .addKeyValue("event", "published")

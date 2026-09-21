@@ -68,6 +68,13 @@ info:
       tie-breaker a paginated query can return the same row on two pages or skip
       one entirely. (STA-36A)
     - **Pagination is keyset, never offset.** (ARD v1.1 AD-14)
+    - **Three ways in, one tenant predicate.** A tenant-wide list
+      (`/stats/{type}?from&to`), a device-scoped range
+      (`/stats/{type}/{clsbox}/{from}` and `/stats/{type}/{clsbox}/{from}/{to}`,
+      added 21 Sep 2026 — DL-151), and a single record by `uid`
+      (`/stats/{type}/{uid}`). All three carry the token's tenant into the query;
+      none accepts it from the caller. The device-scoped paths and the `uid` path
+      are told apart by segment count, never by inspecting the value.
 
     ## Query and retention basis
 
@@ -133,10 +140,14 @@ paths:
 
         `from` and `to` are **required**. An unbounded scan over a table holding up
         to 115.2 million records a day is not a query anyone recovers from, so the
-        contract refuses to express one.
+        contract refuses to express one. This is the **tenant-wide** list and it is
+        the only operation subject to `query_window_exceeded`; a single gateway's
+        history is read through `/stats/{type}/{clsbox}/{from}[/{to}]`, which the
+        covering index bounds by construction. There is no `clsbox` query parameter
+        here — one query, one spelling (DL-151).
 
         **Continuation.** Follow `nextCursor` to fetch the next page, resending
-        `from`, `to` and `clsbox` unchanged. The cursor carries the filters it was
+        `from` and `to` unchanged. The cursor carries the filters it was
         issued for; changing one mid-walk invalidates it (`invalid_cursor`) rather
         than silently returning a page from a different query. A `null` or absent
         `nextCursor` means the last page has been reached.
@@ -145,7 +156,6 @@ paths:
       parameters:
         - $ref: '#/components/parameters/From'
         - $ref: '#/components/parameters/To'
-        - $ref: '#/components/parameters/Gateway'
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
       responses:
@@ -193,6 +203,11 @@ paths:
         that does not exist at all. The response deliberately cannot be used to
         probe whether a record exists in another tenant. Cross-tenant lookup by
         `uid` is a named release gate. (STA-35A, STA-35B, ADR-006)
+
+        **Routing.** This path has three segments; the device-scoped reads have four
+        or five. The two are never distinguished by looking at the value — a
+        `CLSCON-`-prefixed `uid` and a 12-hex `clsbox` are only ever read from the
+        position the path puts them in.
       responses:
         '200':
           description: The record.
@@ -211,6 +226,128 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+
+  /stats/{type}/{clsbox}/{from}:
+    parameters:
+      - $ref: '#/components/parameters/StatType'
+      - $ref: '#/components/parameters/ClsboxPath'
+      - $ref: '#/components/parameters/FromPath'
+    get:
+      tags: [stats]
+      operationId: listStatsByClsboxFrom
+      summary: List one gateway's records of one stat type from a point in time until now.
+      description: |
+        Returns a keyset-paginated page of records of `{type}` reported by the gateway
+        `{clsbox}` with `ts.device >= {from}`, belonging to the tenant in the caller's
+        token, ordered `ts.device DESC, uid DESC`. Added 21 Sep 2026 at management's
+        request (DL-151): *"a GET call with MAC address and timestamp — from to now"*.
+        `{clsbox}` **is** the MAC address; the wire name is kept (ADR-007 §1).
+
+        **"Until now" means open-ended, not `to = now`.** There is deliberately no
+        upper bound. Input accepts a `ts.device` up to `max-clock-skew` (5 min) ahead
+        of arrival, so a gateway whose clock runs a few seconds fast has records with
+        `ts.device` in the near future; a literal `to = now` would hide its newest
+        record on every call. An open bound also keeps the cursor stable — a moving
+        `to` would be a different filter on every page.
+
+        **Tenant scope is unchanged.** The tenant predicate is the token's, exactly as
+        on the list. A `{clsbox}` that reports under another tenant — or does not
+        exist — returns an empty `items` array and `200`, never `404`: the response
+        must not disclose whether another tenant's gateway exists. (STA-35A, ADR-006)
+
+        **No window limit.** `(tenant, clsbox, ts_device DESC, uid DESC)` is the
+        covering index, so the scan is proportional to the result and the page size
+        bounds each request. A `{from}` older than the retention window is valid and
+        returns what is retained. `query_window_exceeded` does not apply here.
+
+        **Continuation.** Follow `nextCursor`, resending the same path. The cursor
+        binds `{type}`, `{clsbox}`, `{from}` and the tenant; presenting it on a
+        different path is `400 invalid_cursor`.
+
+        Requires the read-only role. (STA-33A)
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: |
+            A page of records. An authenticated caller with no visible data for the
+            gateway and range receives an empty `items` array and `200` — never a
+            `403` or a `404`, either of which would disclose whether another tenant's
+            gateway exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatsPage'
+              examples:
+                lorastatsPage:
+                  $ref: '#/components/examples/LorastatsPage'
+                emptyPage:
+                  $ref: '#/components/examples/EmptyPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /stats/{type}/{clsbox}/{from}/{to}:
+    parameters:
+      - $ref: '#/components/parameters/StatType'
+      - $ref: '#/components/parameters/ClsboxPath'
+      - $ref: '#/components/parameters/FromPath'
+      - $ref: '#/components/parameters/ToPath'
+    get:
+      tags: [stats]
+      operationId: listStatsByClsboxRange
+      summary: List one gateway's records of one stat type within a time range.
+      description: |
+        The bounded form of `/stats/{type}/{clsbox}/{from}`: records of `{type}`
+        reported by `{clsbox}` with `{from} <= ts.device < {to}`, belonging to the
+        tenant in the caller's token, ordered `ts.device DESC, uid DESC` (DL-151).
+
+        `[from, to)` — inclusive lower bound, exclusive upper bound — exactly as on
+        the tenant-wide list, so a consumer can walk consecutive windows without
+        overlapping or dropping a boundary record. `{from} >= {to}` is
+        `400 invalid_time_range`.
+
+        Tenant scope, the empty-page rule, the absence of a window limit and cursor
+        binding are as for the open-ended form; the cursor additionally binds `{to}`.
+
+        Requires the read-only role. (STA-33A)
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: |
+            A page of records. An authenticated caller with no visible data for the
+            gateway and range receives an empty `items` array and `200` — never a
+            `403` or a `404`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatsPage'
+              examples:
+                lorastatsPage:
+                  $ref: '#/components/examples/LorastatsPage'
+                emptyPage:
+                  $ref: '#/components/examples/EmptyPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '405':
           $ref: '#/components/responses/MethodNotAllowed'
         '503':
@@ -306,27 +443,52 @@ components:
         $ref: '#/components/schemas/UnixSeconds'
       example: 1787057700
 
-    Gateway:
+    ClsboxPath:
       name: clsbox
-      in: query
-      required: false
+      in: path
+      required: true
       description: |
-        Exact-match filter on the reporting gateway: 12 hexadecimal characters,
-        matched case-insensitively. There is no prefix or wildcard form.
+        The reporting gateway — its MAC address, 12 hexadecimal characters, matched
+        case-insensitively. This is `clsbox` on the wire, in the column and here
+        (ADR-007 §1); "MAC" is what it is, `clsbox` is what it is called. There is
+        no prefix or wildcard form.
 
         Case-insensitivity is delivered by normalisation, not by the predicate:
         `clsbox` is stored uppercase (the Writer uppercases it, and a CHECK
         constraint enforces it — DL-115), so the filter is `clsbox = upper(:clsbox)`
-        and still uses the covering index. A predicate of the form
-        `upper(clsbox) = ...` would not, and would seq-scan every live partition.
-
-        Supplying it widens the permitted query window — see `query_window_exceeded`
-        — because `(tenant, clsbox, ts_device DESC, uid DESC)` is the covering
-        index and a clsbox-scoped scan is bounded in a way an open one is not.
+        and still uses the covering index `(tenant, clsbox, ts_device DESC, uid DESC)`.
+        A predicate of the form `upper(clsbox) = ...` would not, and would seq-scan
+        every live partition. A value that is not 12 hex characters is
+        `400 invalid_parameter` before any query is built.
       schema:
         type: string
         pattern: '^[0-9A-Fa-f]{12}$'
       example: A1B2C3D4E5F6
+
+    FromPath:
+      name: from
+      in: path
+      required: true
+      description: |
+        **Inclusive** lower bound on `ts.device`, in Unix epoch **seconds**, as a
+        path segment. Same bounds and rejection rule as the `from` query parameter:
+        2000-01-01 … 2100-01-01, and a 13-digit millisecond value is
+        `invalid_parameter`, never reinterpreted.
+      schema:
+        $ref: '#/components/schemas/UnixSeconds'
+      example: 1787054100
+
+    ToPath:
+      name: to
+      in: path
+      required: true
+      description: |
+        **Exclusive** upper bound on `ts.device`, in Unix epoch **seconds**, as a
+        path segment. `[from, to)`, as on the list; `from >= to` is
+        `400 invalid_time_range`.
+      schema:
+        $ref: '#/components/schemas/UnixSeconds'
+      example: 1787057700
 
     Limit:
       name: limit
@@ -1112,7 +1274,7 @@ components:
             | `unknown_stat_type` | 400 | `{type}` is not one of the five V1 types. |
             | `invalid_parameter` | 400 | A parameter is malformed, out of range, or a millisecond timestamp. |
             | `invalid_time_range` | 400 | `from >= to`. |
-            | `query_window_exceeded` | 400 | `to - from` exceeds the permitted window. |
+            | `query_window_exceeded` | 400 | `to - from` exceeds the permitted window on the tenant-wide list. Device-scoped reads are not subject to it. |
             | `invalid_cursor` | 400 | Cursor is malformed, expired, tampered with, or issued for different filters. |
             | `unauthorized` | 401 | Missing, malformed, expired, wrongly issued or wrongly audienced token. |
             | `forbidden` | 403 | Authenticated, but lacks the read-only role **or has no usable `tenant` claim** — absent and empty both fail closed here (ADR-006). |
@@ -1349,20 +1511,21 @@ components:
       summary: Range wider than the permitted window
       description: |
         `PROVISIONAL — pending consumer confirmation and load testing.` The
-        current limits are **7 days with a `clsbox` filter** and **1 hour
-        without one**. Narrow the range, or add `clsbox` to widen it.
+        current limit on the tenant-wide list is **1 hour**. Narrow the range, or
+        read one gateway through `/stats/{type}/{clsbox}/{from}[/{to}]`, which has no
+        window limit (DL-151).
       value:
         type: https://stats.example/errors/query-window-exceeded
         title: Query window exceeded
         status: 400
-        detail: Range spans 172800 seconds; the maximum without a clsbox filter is 3600.
+        detail: Range spans 172800 seconds; the maximum on the tenant-wide list is 3600.
         instance: /v1/stats/lorastats
         statType: lorastats
         traceId: 44c1e0b7f2a68d39
         errors:
           - field: to
             code: query_window_exceeded
-            message: Narrow the range or supply a clsbox filter.
+            message: Narrow the range, or read one gateway via /stats/{type}/{clsbox}/{from}.
 
     ProblemUnauthorized:
       summary: Missing or unusable token

@@ -5,6 +5,7 @@ import com.zenner.datahub.stats.common.error.ErrorCode;
 import com.zenner.datahub.stats.common.error.ProblemDetails;
 import com.zenner.datahub.stats.input.config.RequestLimitProperties;
 import com.zenner.datahub.stats.input.ingest.IngestMetrics;
+import com.zenner.datahub.stats.input.log.IngestLoggingFilter;
 import com.zenner.datahub.stats.input.log.IngestLogContext;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -66,7 +67,7 @@ public class IngestRateLimitFilter extends OncePerRequestFilter {
             return;
         }
 
-        metrics.rateLimited();
+        metrics.rateLimited(IngestLoggingFilter.source(request));
         IngestLogContext.errorCode(ErrorCode.TOO_MANY_REQUESTS);
         log.atWarn()
                 .addKeyValue("event", "rate_limited")

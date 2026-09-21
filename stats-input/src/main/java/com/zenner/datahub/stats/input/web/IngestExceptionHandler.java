@@ -5,6 +5,7 @@ import com.zenner.datahub.stats.common.error.FieldError;
 import com.zenner.datahub.stats.common.error.FieldError.SafeMessage;
 import com.zenner.datahub.stats.common.error.ProblemDetails;
 import com.zenner.datahub.stats.input.ingest.IngestMetrics;
+import com.zenner.datahub.stats.input.log.IngestLoggingFilter;
 import com.zenner.datahub.stats.input.log.IngestLogContext;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
@@ -61,7 +62,7 @@ public class IngestExceptionHandler {
             return payloadTooLarge(request);
         }
 
-        metrics.validationFailed(null);
+        metrics.validationFailed(null, IngestLoggingFilter.source(request));
         IngestLogContext.errorCode(ErrorCode.INVALID_PARAMETER);
         log.atWarn()
                 .addKeyValue("event", "validation_failed")
@@ -76,7 +77,7 @@ public class IngestExceptionHandler {
     }
 
     private ResponseEntity<ProblemDetails> payloadTooLarge(HttpServletRequest request) {
-        metrics.requestTooLarge();
+        metrics.requestTooLarge(IngestLoggingFilter.source(request));
         IngestLogContext.errorCode(ErrorCode.PAYLOAD_TOO_LARGE);
         log.atWarn()
                 .addKeyValue("event", "request_too_large")

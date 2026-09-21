@@ -73,7 +73,7 @@ class ChunkedRequestSizeLimitTest {
     private static MockHttpServletRequest chunkedRequestOf(int bodyBytes) {
         byte[] body = "x".repeat(bodyBytes).getBytes(StandardCharsets.UTF_8);
         MockHttpServletRequest request =
-                new MockHttpServletRequest("POST", "/stats") {
+                new MockHttpServletRequest("POST", "/internal/stats") {
                     @Override
                     public long getContentLengthLong() {
                         return -1; // chunked: no declared length

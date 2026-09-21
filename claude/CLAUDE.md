@@ -6,6 +6,32 @@ It is still auto-loaded every session: the repository-root `CLAUDE.md` is a
 pointer file whose only content is an `@claude/CLAUDE.md` import. Edit this file,
 not the pointer.
 
+> **Version 1.17 — 21 September 2026.** No decision in 1.16 changes. What changes is
+> that **management's ask of 20 September is designed, and half of it is built**.
+> Governing entry: **DL-151**.
+>
+> * **`stats-input` has two doors and one handler.** `POST /internal/stats` is Heimdal's;
+>   `POST /external/stats` is everyone else's. Same gate, same publisher-confirm rule,
+>   same limits (one shared rate bucket), same auth filter — they differ only in the path
+>   the ingress routes and in `source="internal"|"external"` on every Input metric and
+>   `ingestSource` on every log line. `stats.input.endpoint.path` is gone; it is
+>   `internal-path` and `external-path`, which must differ and may not sit under
+>   `/actuator`. **The split is not a second authentication mechanism and does not bind a
+>   record's `tenant` to the caller** — read DL-151's residual before exposing the
+>   external door anywhere.
+> * **The read API gains the device-scoped paths management asked for, contract-only.**
+>   `GET /v1/stats/{type}/{clsbox}/{from}` and `…/{from}/{to}` — `{clsbox}` *is* the MAC
+>   address, and keeps its wire name (ADR-007 §1). Tenant from the token as everywhere
+>   else; an unknown or foreign gateway is an empty `200`, never `404`. **"From to now"
+>   is open-ended, not `to = now`** — a clock a few seconds fast would otherwise lose its
+>   newest record on every call. No window limit on device-scoped reads; the `clsbox`
+>   *query* parameter on `/stats/{type}` is removed. `stats-api` still has no controller:
+>   these join T-038…T-046 in Phase 4.
+> * **Gates:** `stats-input` 67 → **75** tests; `redocly lint` clean on both contracts;
+>   the drift gate and `build-html.sh` pass. No schema or fixture moved.
+> * **What to do next:** unchanged — **T-036 `omsstats`** from the sysstats slice. The
+>   device paths need a tracker row under Phase 4.
+>
 > **Version 1.16 — 20 September 2026.** No decision in 1.15 changes. What changes is
 > that **the stack was run end to end for the first time, and two silent losses fell out
 > of it**. Governing entries: **DL-149** and **DL-150**.
@@ -110,12 +136,13 @@ not the pointer.
 > * **`heimdal-input-contract-v1.md` §0 is the handover table** — URL, success code,
 >   retry sets, limits, replay cap, credential, `maxRetry` — each row marked built /
 >   PROVISIONAL / OPEN. Its §5 no longer says the replay cap is "not yet agreed".
-> * **A `/stats/mac/{clsbox}`-style device-first read endpoint was raised by
+> * ~~**A `/stats/mac/{clsbox}`-style device-first read endpoint was raised by
 >   management on 17 Sep and is NOT designed** — the phrase *"not stopped by a Spring
 >   controller"* is unresolved. Every reading but one collides with rule 3 / ADR-006;
 >   the harmless reading is an additive, tenant-scoped, cross-type lookup that the
 >   `(tenant, clsbox, ts_device DESC, uid DESC)` index already serves. Ask before
->   building.
+>   building.~~ **Designed 21 Sep 2026 (DL-151)** as the harmless reading: per type,
+>   tenant from the token, `/v1/stats/{type}/{clsbox}/{from}[/{to}]`. See 1.17.
 >
 > **Version 1.12 — 12 September 2026.** No decision in 1.11 changes. What changes is
 > that **the four Phase 1/2 rows that were PARTIAL are DONE, the DLQ has a redrive, and the
@@ -1103,13 +1130,13 @@ only `README.md` (the index) and a `CLAUDE.md` pointer that imports this file.
 | `docs/decisions/POSTGRESQL_BASELINE.md` | Persistence direction, table/index draft, sizing |
 | `docs/architecture/adr/ADR-001…007` | Platform, AMQP topology, retention/indexes, OMS timestamps, delivery/idempotency, tenant isolation, **production wire format** |
 | `docs/architecture/Stats_App_Flow.png` | End-to-end flow diagram |
-| `docs/contracts/heimdal-input-contract-v1.md` | Inbound HTTP contract — **§0 is the handover table for ZC** — response matrix, auth |
-| `docs/contracts/openapi-input.yaml` | **The inbound contract as OpenAPI 3.1** — `POST /stats`, every built status code, the field-code catalogue, candidate auth schemes. `$ref`s the read contract's schemas; linted in CI (DL-145) |
+| `docs/contracts/heimdal-input-contract-v1.md` | Inbound HTTP contract — **§0 is the handover table for ZC** (Heimdal's door is `/internal/stats`) — response matrix, auth |
+| `docs/contracts/openapi-input.yaml` | **The inbound contract as OpenAPI 3.1** — `POST /internal/stats` (Heimdal) and `POST /external/stats` (everyone else; same handler, DL-151), every built status code, the field-code catalogue, candidate auth schemes. `$ref`s the read contract's schemas; linted in CI (DL-145) |
 | `docs/contracts/build-html.sh` | Renders **both** contracts onto one page, `stats-api-v1-draft.html` — generated, never committed (DL-117); CI uploads it as a workflow artifact |
 | `docs/contracts/amqp-topology-v1.md` | Exchange, per-type queues, retry/DLQ, redrive |
 | `docs/contracts/writer-metrics-v1.md` | **Every Writer metric, its labels and its measurement boundary** — what `records_persisted` does and does not count, why a failed broker poll is NaN, how replicas aggregate (DL-136, DL-137) |
 | `docs/runbooks/dlq-redrive.md` | **The DLQ redrive procedure** — access, one-record pilot, audit line, stop conditions, and the 90-day trap made checkable against `records_expired_on_arrival` (DL-138) |
-| `docs/contracts/openapi.yaml` | **The API contract.** OpenAPI 3.1, GET-only, `/v1/stats/{type}`. Draft pending ZC confirmation; gates Phase 4 |
+| `docs/contracts/openapi.yaml` | **The API contract.** OpenAPI 3.1, GET-only: `/v1/stats/{type}` (tenant-wide list), `/v1/stats/{type}/{clsbox}/{from}[/{to}]` (one gateway, DL-151) and `/v1/stats/{type}/{uid}`. Draft pending ZC confirmation; gates Phase 4 |
 | `docs/contracts/openapi-v1-design.md` | Design input for the above. Converted 21 Aug 2026 — the YAML wins where they differ |
 | `docs/schemas/` | JSON Schema catalogue, per-type schemas, the 85-file fixture set (`fixtures/MANIFEST.md`), and `validate-fixtures.py` for CI |
 | `docs/decisions/2B-ANSWERS-18AUG2026.md` | The seven §2b answers of 18 Aug 2026 and every engineering decision derived from them |

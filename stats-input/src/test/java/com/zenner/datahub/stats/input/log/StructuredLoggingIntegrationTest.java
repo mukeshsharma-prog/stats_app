@@ -47,7 +47,7 @@ class StructuredLoggingIntegrationTest {
         when(publisher.publish(eq(StatType.LORASTATS), any())).thenReturn(PublishOutcome.CONFIRMED);
 
         mockMvc.perform(
-                        post("/stats")
+                        post("/internal/stats")
                                 .contentType(MediaType.APPLICATION_JSON)
                                 .header("Authorization", "Bearer must-never-reach-a-log")
                                 .content(fixture()))
@@ -65,6 +65,8 @@ class StructuredLoggingIntegrationTest {
         assertThat(event.path("tenant").asText()).isEqualTo("mzc");
         assertThat(event.path("clsbox").asText()).isEqualTo("04B64810652B");
         assertThat(event.path("errorCode").asText()).isEqualTo("none");
+        // DL-151: which door, on every line of the request.
+        assertThat(event.path("ingestSource").asText()).isEqualTo("internal");
 
         assertThat(line)
                 .doesNotContain("rx_nr_pkts")
@@ -77,7 +79,7 @@ class StructuredLoggingIntegrationTest {
     void malformedBodyUsesSafePlaceholdersAndDoesNotEchoInput(CapturedOutput output)
             throws Exception {
         mockMvc.perform(
-                        post("/stats")
+                        post("/internal/stats")
                                 .contentType(MediaType.APPLICATION_JSON)
                                 .content("{\"secret\":\"must-not-be-echoed\","))
                 .andExpect(status().isBadRequest());
@@ -91,6 +93,7 @@ class StructuredLoggingIntegrationTest {
         assertThat(event.path("tenant").asText()).isEqualTo("unknown");
         assertThat(event.path("clsbox").asText()).isEqualTo("unknown");
         assertThat(event.path("errorCode").asText()).isEqualTo("invalid_parameter");
+        assertThat(event.path("ingestSource").asText()).isEqualTo("internal");
         assertThat(line).doesNotContain("must-not-be-echoed");
     }
 

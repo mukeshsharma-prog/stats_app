@@ -6,6 +6,10 @@
 > YAML wins and records why in a comment: it takes **Unix seconds** rather than
 > RFC 3339 (ARD v1.1 §8.2), **required** rather than optional `from`/`to`, and
 > `limit` rather than `pageSize`. Item 1 of §6 below is done; items 2–5 are not.
+> **Since 21 Sep 2026 (DL-151)** the YAML also differs in shape: the `clsbox` query
+> parameter below is gone, replaced by the device-scoped paths
+> `/v1/stats/{type}/{clsbox}/{from}` and `/v1/stats/{type}/{clsbox}/{from}/{to}` that
+> management asked for; the tenant predicate and the ordering are unchanged.
 
 **Base path:** `/v1`  
 **Security:** Keycloak OAuth2/OIDC bearer JWT. ADR-006 is **ACCEPTED**: audience `stats-api`, read role `stats.readOnly`, tenant claim `tenant` (single-valued String). ZC's confirmation of those names (Q8b-2) is a config change.

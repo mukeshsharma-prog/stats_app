@@ -8,11 +8,14 @@
 # describes what stats-input is built to do today; the Markdown records what was
 # agreed and what is still draft. Both are updated in the same change.
 #
-# SCOPE: the single ingest operation stats-input exposes to Heimdal Core. It is kept
-# out of openapi.yaml on purpose (see the SCOPE note there): different caller,
-# different authentication, no /v1 version segment, and a release cadence tied to
-# ZC's ForwardRule configuration rather than to API consumers. The two files share
-# their schemas by $ref so the envelope can never be described two ways.
+# SCOPE: the ingest operation stats-input exposes — on TWO paths since DL-151
+# (21 Sep 2026): /internal/stats for Heimdal Core and /external/stats for every other
+# caller. Both are one handler behind one gate; they differ only in the path the ingress
+# routes and in the `source` label on every Input metric. It is kept out of openapi.yaml
+# on purpose (see the SCOPE note there): different caller, different authentication, no
+# /v1 version segment, and a release cadence tied to ZC's ForwardRule configuration
+# rather than to API consumers. The two files share their schemas by $ref so the
+# envelope can never be described two ways.
 #
 # EVERY STATUS CODE BELOW IS PRODUCED BY CODE THAT EXISTS. The response matrix is
 # derived from StatsIngestController, EnvelopeGate, ClockSkewPolicy,
@@ -26,7 +29,7 @@ openapi: 3.1.0
 info:
   title: Zenner Datahub Core — Stats App Ingest (Heimdal inbound)
   version: 1.0.0-draft
-  summary: The HTTP POST endpoint Heimdal Core delivers gateway statistics to.
+  summary: The HTTP POST endpoint gateway statistics are delivered to — one door for Heimdal Core, one for external callers.
   description: |
     The inbound half of the Stats App. **Heimdal Core** — the Datahub's forwarding
     service — pushes one statistics record per HTTP request to this endpoint. The
@@ -78,7 +81,8 @@ info:
 
     | Item | Proposed value | Status |
     |---|---|---|
-    | URL | `https://<ingress-host>/stats` — one record per `POST`, `Content-Type: application/json` | Path is **DRAFT**: confirm against the deployed Datahub convention (D-03). Externalised as `stats.input.endpoint.path`, so a prefix is a property change. |
+    | URL (Heimdal) | `https://<ingress-host>/internal/stats` — one record per `POST`, `Content-Type: application/json` | Path is **DRAFT**: confirm against the deployed Datahub convention (D-03). Externalised as `stats.input.endpoint.internal-path`, so a prefix is a property change. |
+    | URL (external callers) | `https://<ingress-host>/external/stats` — identical request, identical responses | **Not for Heimdal.** Added 21 Sep 2026 (DL-151) at management's request. Same gate, same publisher, same limits, same authentication filter; the ingress routes and restricts the two separately and every metric says which door was used. `stats.input.endpoint.external-path`. |
     | Success status | `200`, empty body | Built; `202` is the only alternative the code admits (`stats.input.endpoint.success-status`). |
     | Retry on | `503`, `429` (after `Retry-After`), other `5xx` | Built. |
     | Never retry on | `400`, `413` | Built — the outcome is the same every time. |
@@ -123,18 +127,21 @@ tags:
 
 paths:
 
-  /stats:
+  /internal/stats:
     post:
       tags: [ingest]
-      operationId: ingestStatsRecord
-      summary: Deliver one statistics record
+      operationId: ingestStatsRecordInternal
+      summary: Deliver one statistics record — Heimdal Core (internal door)
       description: |
         Accepts exactly one record in the production wire format (ADR-007), validates
         the envelope, publishes it unchanged to `app_stats_input` with routing key
         `{type}`, and answers **200 only after the publisher confirm**.
 
-        `PROVISIONAL` — the path `/stats` is the engineering default
-        (`stats.input.endpoint.path`) awaiting D-03.
+        `PROVISIONAL` — the path `/internal/stats` is the engineering default
+        (`stats.input.endpoint.internal-path`) awaiting D-03.
+
+        **This is Heimdal's door.** The ingress exposes it to the Datahub's own network
+        only. Records accepted here are metered with `source="internal"` (DL-151).
 
         **Idempotency.** Resending a record the Stats App already holds is harmless:
         the Writer's `PRIMARY KEY (ts_device, uid)` with `ON CONFLICT DO NOTHING`
@@ -147,51 +154,59 @@ paths:
         follows the record from this response to the database row (DL-134). Quote it
         in any support request.
       requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: './openapi.yaml#/components/schemas/Envelope'
-            examples:
-              lorastatsProduction:
-                summary: A production lorastats record (dialect A)
-                description: |
-                  `docs/schemas/fixtures/valid/lorastats-production-canonical.json`,
-                  with the one permitted deviation — `tenant` and `maintenant` made to
-                  differ, because an example that repeats production's
-                  `tenant == maintenant` teaches every generated client the project's
-                  highest-risk trap.
-                value:
-                  uid: CLSCON-11d3ec4c-f6e1-403a-a9ef-b6f5fe909eee
-                  tenant: mzc
-                  maintenant: mzc-ops
-                  clsbox: 04B64810652B
-                  type: lorastats
-                  version: 1
-                  ts:
-                    server: 1787833739
-                    datastore: 1787833739
-                    converter: 1787833739
-                    device: 1787833739
-                    expiresOn: "2026-08-27T12:28:59.074Z"
-                  data:
-                    rx_nr_pkts: 219
-                    fsk_received: 0
-                    rx_crc_missing: 0
-                    rx_crc_bad: 48
-                    tx_peek_index_zero: 0
-                    tx_success: 0
-                    rx_short_pkt: 166
-                    timespan: 1800
-                    chip_comm_error: 0
-                    tx_failed: 0
-                    tx_override: 0
-                    util_fopen_failed: 0
-                    tx_peek: 0
-                    tx_type_beacon: 0
-                    tx_busy: 0
-                    tx_dequeue_error: 0
-                  status: ["conversion ok"]
+        $ref: '#/components/requestBodies/StatsRecord'
+      responses:
+        '200':
+          description: |
+            **Accepted and publisher-confirmed.** The record is durable on the broker
+            and will be persisted; Heimdal may discard its copy. The body is empty.
+
+            `PROVISIONAL` — `200` is the built default; `202` is the only other value
+            `stats.input.endpoint.success-status` admits. Either way the meaning is
+            identical: *do not resend*.
+          headers:
+            X-Trace-Id:
+              $ref: '#/components/headers/TraceId'
+        '400':
+          $ref: '#/components/responses/EnvelopeRejected'
+        '401':
+          $ref: '#/components/responses/IngestUnauthorized'
+        '403':
+          $ref: '#/components/responses/IngestForbidden'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/NotAccepted'
+
+  /external/stats:
+    post:
+      tags: [ingest]
+      operationId: ingestStatsRecordExternal
+      summary: Deliver one statistics record — external callers (external door)
+      description: |
+        **The same operation as `/internal/stats`, on the path the ingress exposes to
+        callers that are not Heimdal Core** (DL-151, 21 Sep 2026). Same request body,
+        same envelope gate, same publisher-confirm rule, same request limits, same
+        status codes, same authentication filter. The only observable difference is
+        `source="external"` on every Input metric and `ingestSource=external` on every
+        log line, so what external callers send can be watched separately from what
+        Heimdal sends.
+
+        `PROVISIONAL` — the path `/external/stats` is the engineering default
+        (`stats.input.endpoint.external-path`) awaiting D-03.
+
+        **What this door does not do.** It is not a second authentication mechanism,
+        and it does not check that the caller is entitled to the `tenant` in the record:
+        with `stats.input.auth.mode` shared by both doors, an external caller that can
+        reach this path can submit a record under any tenant's name. Restricting who
+        reaches it is the ingress's job until Q8a-2 gives the filter an identity to
+        check — recorded as the residual of DL-151.
+
+        Heimdal Core must **not** be configured against this path.
+      requestBody:
+        $ref: '#/components/requestBodies/StatsRecord'
       responses:
         '200':
           description: |
@@ -218,6 +233,58 @@ paths:
           $ref: '#/components/responses/NotAccepted'
 
 components:
+
+  requestBodies:
+
+    StatsRecord:
+      description: |
+        One record in the production wire format (ADR-007). Shared by both ingest
+        doors so the body can never be described two ways.
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: './openapi.yaml#/components/schemas/Envelope'
+          examples:
+            lorastatsProduction:
+              summary: A production lorastats record (dialect A)
+              description: |
+                `docs/schemas/fixtures/valid/lorastats-production-canonical.json`,
+                with the one permitted deviation — `tenant` and `maintenant` made to
+                differ, because an example that repeats production's
+                `tenant == maintenant` teaches every generated client the project's
+                highest-risk trap.
+              value:
+                uid: CLSCON-11d3ec4c-f6e1-403a-a9ef-b6f5fe909eee
+                tenant: mzc
+                maintenant: mzc-ops
+                clsbox: 04B64810652B
+                type: lorastats
+                version: 1
+                ts:
+                  server: 1787833739
+                  datastore: 1787833739
+                  converter: 1787833739
+                  device: 1787833739
+                  expiresOn: "2026-08-27T12:28:59.074Z"
+                data:
+                  rx_nr_pkts: 219
+                  fsk_received: 0
+                  rx_crc_missing: 0
+                  rx_crc_bad: 48
+                  tx_peek_index_zero: 0
+                  tx_success: 0
+                  rx_short_pkt: 166
+                  timespan: 1800
+                  chip_comm_error: 0
+                  tx_failed: 0
+                  tx_override: 0
+                  util_fopen_failed: 0
+                  tx_peek: 0
+                  tx_type_beacon: 0
+                  tx_busy: 0
+                  tx_dequeue_error: 0
+                status: ["conversion ok"]
 
   securitySchemes:
     heimdalOAuth2:
@@ -406,7 +473,7 @@ components:
         type: https://stats.example/errors/invalid_parameter
         title: Invalid request parameter
         status: 400
-        instance: /stats
+        instance: /internal/stats
         traceId: 7b3f1c8e2a904d51
         errors:
           - field: /
@@ -419,7 +486,7 @@ components:
         type: https://stats.example/errors/invalid_parameter
         title: Invalid request parameter
         status: 400
-        instance: /stats
+        instance: /internal/stats
         statType: lorastats
         traceId: 3e9a41d07c8b2f56
         errors:
@@ -433,7 +500,7 @@ components:
         type: https://stats.example/errors/unknown_stat_type
         title: Unknown stat type
         status: 400
-        instance: /stats
+        instance: /internal/stats
         traceId: a1c6d2e9f04b3857
         errors:
           - field: /type
@@ -446,7 +513,7 @@ components:
         type: https://stats.example/errors/invalid_parameter
         title: Invalid request parameter
         status: 400
-        instance: /stats
+        instance: /internal/stats
         statType: sysstats
         traceId: 5d80b3f7e1c24a96
         errors:
@@ -461,7 +528,7 @@ components:
         title: Payload too large
         status: 413
         detail: The request body exceeds the configured maximum of 262144 bytes.
-        instance: /stats
+        instance: /internal/stats
         traceId: 9f2c7a1e5b4d0836
 
     ProblemTooManyRequests:
@@ -471,7 +538,7 @@ components:
         title: Too many requests
         status: 429
         detail: This instance is at its configured ingest rate. Retry after 1 second.
-        instance: /stats
+        instance: /internal/stats
         traceId: c409e7b21d8f5a63
 
     ProblemNotAccepted:
@@ -481,6 +548,6 @@ components:
         title: Service unavailable
         status: 503
         detail: The record was not accepted. Retry.
-        instance: /stats
+        instance: /internal/stats
         statType: lorastats
         traceId: e7a13f5c9b2d4068

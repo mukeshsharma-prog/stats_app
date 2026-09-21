@@ -54,7 +54,7 @@ class BrokerUnavailableIngestTest {
     @DisplayName("a valid record with no broker is 503 problem+json, and is metered")
     void validRecordWithNoBrokerIsServiceUnavailable() throws Exception {
         mockMvc.perform(
-                        post("/stats")
+                        post("/internal/stats")
                                 .contentType(MediaType.APPLICATION_JSON)
                                 .content(fixture("valid/lorastats-production-canonical.json")))
                 .andExpect(status().isServiceUnavailable())
@@ -67,7 +67,9 @@ class BrokerUnavailableIngestTest {
                                 .counter(
                                         IngestMetrics.PUBLISH_FAILED,
                                         "type",
-                                        StatType.LORASTATS.wireName())
+                                        StatType.LORASTATS.wireName(),
+                                        "source",
+                                        "internal")
                                 .count())
                 .isEqualTo(1.0d);
         // Nothing was returned, because nothing was ever published. An unroutable

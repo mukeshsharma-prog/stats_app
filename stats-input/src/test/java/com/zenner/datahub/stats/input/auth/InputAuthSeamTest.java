@@ -32,11 +32,12 @@ class InputAuthSeamTest {
                     .withUserConfiguration(TestProperties.class, InputAuthConfiguration.class)
                     .withPropertyValues(
                             "stats.input.auth.required-role=stats.ingest",
-                            "stats.input.endpoint.path=/stats",
+                            "stats.input.endpoint.internal-path=/internal/stats",
+                            "stats.input.endpoint.external-path=/external/stats",
                             "stats.input.endpoint.success-status=200");
 
     @Test
-    @DisplayName("mode=none starts, registers the filter on the ingest path, and WARNs")
+    @DisplayName("mode=none starts, registers the filter on both ingest paths, and WARNs")
     void noneModeStartsAndAnnouncesItself(CapturedOutput output) {
         runner.withPropertyValues("stats.input.auth.mode=none")
                 .run(
@@ -44,7 +45,9 @@ class InputAuthSeamTest {
                             assertThat(context).hasNotFailed();
                             FilterRegistrationBean<?> registration =
                                     context.getBean(FilterRegistrationBean.class);
-                            assertThat(registration.getUrlPatterns()).containsExactly("/stats");
+                            // DL-151: one mechanism, registered on both doors and nothing else.
+                            assertThat(registration.getUrlPatterns())
+                                    .containsExactlyInAnyOrder("/internal/stats", "/external/stats");
                             assertThat(registration.getOrder())
                                     .isEqualTo(UnauthenticatedIngestFilter.ORDER);
                             // The WARN is a courtesy, not the control — but a deferral nobody

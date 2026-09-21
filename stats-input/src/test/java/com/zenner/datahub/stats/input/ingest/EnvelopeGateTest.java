@@ -29,7 +29,7 @@ import org.junit.jupiter.params.provider.ValueSource;
  */
 class EnvelopeGateTest {
 
-    private static final String INSTANCE = "/stats";
+    private static final String INSTANCE = "/internal/stats";
 
     private final EnvelopeGate gate =
             new EnvelopeGate(

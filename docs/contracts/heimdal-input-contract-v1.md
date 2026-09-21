@@ -12,7 +12,7 @@ The values Heimdal needs to deliver to this endpoint, with what is built and wha
 | Item | Our value | Status |
 |---|---|---|
 | Transport | HTTP `POST`, one record per request, `Content-Type: application/json` | **Confirmed 17 Sep 2026** — relayed to engineering by management; the ForwardRule question below is what turns this into a configuration |
-| URL | `https://<ingress-host>/stats` | Path **DRAFT** — confirm against the deployed Datahub convention (D-03). `stats.input.endpoint.path`, so a prefix is a property change |
+| URL — **Heimdal** | `https://<ingress-host>/internal/stats` | Path **DRAFT** — confirm against the deployed Datahub convention (D-03). `stats.input.endpoint.internal-path`, so a prefix is a property change. **Two doors since 21 Sep 2026 (DL-151):** this one is Heimdal's; `/external/stats` is for callers that are not Heimdal and must not be configured in the ForwardRule |
 | Success response | `200`, empty body, `X-Trace-Id` header | Built. `202` is the only alternative the code admits (`stats.input.endpoint.success-status`) |
 | Retry on | `503`, `429` (after `Retry-After: 1`), any other `5xx` | Built — §2 |
 | Never retry on | `400`, `413` | Built — the verdict is deterministic; resending the same bytes gets the same answer |
@@ -30,11 +30,13 @@ The values Heimdal needs to deliver to this endpoint, with what is built and wha
 | Item | Draft value |
 |---|---|
 | Method | `POST` |
-| Path | `/stats` (confirm against the deployed Datahub API convention) |
+| Path | `/internal/stats` for Heimdal Core; `/external/stats` for every other caller (confirm both against the deployed Datahub API convention, D-03) |
 | Content type | `application/json` |
 | Body | One canonical statistics record per request |
 | Success meaning | The record passed validation and RabbitMQ publisher confirmation completed. |
 | Correlation | `uid` from the record; platform trace header may be added if approved. |
+
+**Two doors, one behaviour (DL-151, 21 Sep 2026).** Management asked for one ingest endpoint for internal calls — Heimdal Core — and one for external calls. Both paths are bound to the same handler: the same envelope gate, the same publisher-confirm rule, the same 256 KB / 4,000 req/s bounds (one shared rate bucket per instance), the same authentication filter. The ingress routes and restricts them separately, and every Input metric carries `source="internal"` or `source="external"` (every log line `ingestSource`), so what external callers send is visible apart from what Heimdal sends. **What the split does not do:** it is not a second authentication mechanism, and it does not check that an external caller is entitled to the `tenant` in the record — until Q8a-2 gives the filter an identity, restricting who reaches `/external/stats` is the ingress's job. This document is Heimdal's contract; `/external/stats` is described in `openapi-input.yaml` beside it.
 
 The Input Module validates the received message and publishes it byte-identically/canonically as answered. Stats App does not transform `omsstats` timestamps because Heimdal already sends `ts.server`.
 
@@ -171,11 +173,20 @@ PostgreSQL retains a uniqueness defence even though Heimdal states duplicates ar
 Beyond the per-type counters in §2 (`records_accepted`, `records_validation_failed`,
 `records_clock_skew_rejected`, `records_converter_ts_present`, `records_publish_failed`,
 `records_unroutable`), two observations are metered **on acceptance** — after the publisher
-confirm, so a record Heimdal resends after a 503 is counted once (T-050, DL-147):
+confirm, so a record Heimdal resends after a 503 is counted once (T-050, DL-147).
+
+**Since DL-151 every Input series except `records_unroutable` also carries
+`source="internal"|"external"`** — which door the request used — and the two untyped
+request counters (`requests_too_large`, `requests_rate_limited`) carry it too. Sum over
+`source` for the totals a dashboard had before the split; `records_unroutable` is a fact
+about the broker's bindings and is incremented where the door is not known. A request the
+logging filter never saw is labelled `unknown`, never left unlabelled.
+
+The histogram below carries the same label:
 
 | Metric | Meaning |
 |---|---|
-| `records_ts_server_cycle_offset_seconds{type}` | `ts.server mod 600` per accepted record, as a histogram with twenty cumulative 30-second buckets. The Q13b measurement (DL-104): jitter fills the twenty slots evenly, a synchronised fleet fills one or two. Hardware is not sized down until 24 h of this say jitter. Query in `ops/prometheus/README.md` |
+| `records_ts_server_cycle_offset_seconds{type,source}` | `ts.server mod 600` per accepted record, as a histogram with twenty cumulative 30-second buckets. The Q13b measurement (DL-104): jitter fills the twenty slots evenly, a synchronised fleet fills one or two. Hardware is not sized down until 24 h of this say jitter. Query in `ops/prometheus/README.md` |
 | `records_ts_device_corrected{type}` | Records carrying `meta.tsDeviceCorrected: true` — Heimdal rewrote `ts.device` to `ts.server` (DL-146). Read to be counted and for nothing else; the number to put beside Q15f |
 
 Both live in Input rather than the Writer because Input sees every type from the first

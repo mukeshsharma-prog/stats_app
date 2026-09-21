@@ -3,6 +3,7 @@ package com.zenner.datahub.stats.input.log;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.zenner.datahub.stats.common.error.ErrorCode;
 import com.zenner.datahub.stats.common.model.StatType;
+import com.zenner.datahub.stats.input.config.IngestSource;
 import java.util.Map;
 import java.util.UUID;
 import org.slf4j.MDC;
@@ -16,6 +17,8 @@ public final class IngestLogContext {
     public static final String TENANT = "tenant";
     public static final String CLSBOX = "clsbox";
     public static final String ERROR_CODE = "errorCode";
+    /** DL-151: which ingest door the request came through — {@code internal} or {@code external}. */
+    public static final String INGEST_SOURCE = "ingestSource";
 
     public static final String UNKNOWN = "unknown";
     public static final String NO_ERROR = "none";
@@ -40,6 +43,7 @@ public final class IngestLogContext {
         MDC.put(TENANT, UNKNOWN);
         MDC.put(CLSBOX, UNKNOWN);
         MDC.put(ERROR_CODE, NO_ERROR);
+        MDC.put(INGEST_SOURCE, UNKNOWN);
         return new Scope(previous, previousActive);
     }
 
@@ -58,6 +62,13 @@ public final class IngestLogContext {
     public static void statType(StatType statType) {
         if (active() && statType != null) {
             MDC.put(STAT_TYPE, statType.wireName());
+        }
+    }
+
+    /** Binds the ingest door once the logging filter has matched the path (DL-151). */
+    public static void source(IngestSource source) {
+        if (active() && source != null) {
+            MDC.put(INGEST_SOURCE, source.label());
         }
     }
 

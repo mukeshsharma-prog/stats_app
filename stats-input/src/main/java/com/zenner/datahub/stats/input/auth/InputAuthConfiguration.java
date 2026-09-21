@@ -50,10 +50,11 @@ public class InputAuthConfiguration {
 
         FilterRegistrationBean<UnauthenticatedIngestFilter> registration =
                 new FilterRegistrationBean<>(new UnauthenticatedIngestFilter());
-        // The ingest path only. Actuator is deliberately outside this: the container
-        // health-checks /actuator/health/readiness, and an authenticated probe fails
-        // the deployment rather than protecting anything (D13, D-10).
-        registration.addUrlPatterns(endpointProperties.path());
+        // Both ingest paths and only those (DL-151: one mechanism, two doors). Actuator
+        // is deliberately outside this: the container health-checks
+        // /actuator/health/readiness, and an authenticated probe fails the deployment
+        // rather than protecting anything (D13, D-10).
+        registration.addUrlPatterns(endpointProperties.paths().toArray(String[]::new));
         registration.setOrder(UnauthenticatedIngestFilter.ORDER);
         return registration;
     }
@@ -74,7 +75,8 @@ public class InputAuthConfiguration {
     private static void warnThatIngestIsUnauthenticated(IngestEndpointProperties endpoint) {
         log.atWarn()
                 .addKeyValue("event", "authentication_disabled")
-                .addKeyValue("path", endpoint.path())
+                .addKeyValue("internalPath", endpoint.internalPath())
+                .addKeyValue("externalPath", endpoint.externalPath())
                 .log(
                         "INGEST IS UNAUTHENTICATED: stats.input.auth.mode=none. This is acceptable "
                                 + "on a local dev stack and nowhere else; the prod profile refuses "
