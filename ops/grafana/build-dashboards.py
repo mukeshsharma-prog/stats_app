@@ -176,6 +176,11 @@ ingest = layout([
             _target('sum (rate(http_server_requests_seconds_sum{job="stats-input", uri=~"/(internal|external)/stats"}[5m])) / sum (rate(http_server_requests_seconds_count{job="stats-input", uri=~"/(internal|external)/stats"}[5m]))', "mean"),
             _target('max (http_server_requests_seconds_max{job="stats-input", uri=~"/(internal|external)/stats"})', "max")], "s",
               description="Confirm latency, not throughput, is what turns a burst into 503s (T-048)."),
+        panel(0, "Publisher confirm latency (T-048) — the number that turns a burst into 503s", [
+            _target('histogram_quantile(0.99, sum by (type, le) (rate(records_publish_confirm_seconds_bucket{outcome="confirmed"}[5m])))', "p99 {{type}}"),
+            _target('histogram_quantile(0.50, sum by (type, le) (rate(records_publish_confirm_seconds_bucket{outcome="confirmed"}[5m])))', "p50 {{type}}")], "s",
+              description="Time from publish to the broker's confirm. Fixed edges 1 ms .. 5 s; the confirm timeout is at the top edge. Read with the 503 rate on the Ingest row."),
+        panel(0, "Publish outcomes / s (not confirmed = a 503)", [_target('sum by (outcome) (rate(records_publish_confirm_seconds_count[5m]))', "{{outcome}}")], "reqps"),
         panel(0, "Input replicas up", [_target('sum(up{job="stats-input"})', "replicas")], "short", kind="stat", thresholds=OK_GREEN_RED),
     ]),
     ("Q13b — do gateways jitter across the 10-minute cycle? (DL-104; read for the first 24 h)", [

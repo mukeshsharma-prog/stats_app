@@ -6,6 +6,8 @@ import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Instant;
+import io.micrometer.core.instrument.Timer;
+import java.time.Duration;
 import java.util.Objects;
 import org.springframework.stereotype.Component;
 
@@ -85,6 +87,33 @@ public class IngestMetrics {
     /** Type label used when the record's own {@code type} could not be resolved. */
     public static final String UNKNOWN_TYPE = "unknown";
 
+    /**
+     * Time from handing the record to the broker to the outcome that decides the HTTP
+     * status: the confirm, a nack, a return, the timeout, or an error (T-048, DL-159).
+     * Exported as a histogram (Micrometer suffixes {@code _seconds_bucket/_count/_sum/_max})
+     * so p99 is readable in Prometheus — confirm latency, not throughput, is what turns a
+     * burst into 503s (Q13a). No {@code source} label: the publisher does not know the
+     * door, and a slow confirm is the same incident whichever door the record used.
+     */
+    public static final String PUBLISH_CONFIRM = "records_publish_confirm";
+
+    /** Outcomes of one publish, the {@code outcome} label's closed vocabulary. */
+    public static final String OUTCOME_CONFIRMED = "confirmed";
+    public static final String OUTCOME_NACK = "nack";
+    public static final String OUTCOME_RETURNED = "returned";
+    public static final String OUTCOME_TIMEOUT = "timeout";
+    public static final String OUTCOME_ERROR = "error";
+
+    /**
+     * Fixed, comparable edges from 1 ms to 5 s. The confirm timeout is the last edge's
+     * neighbourhood; the interesting movement under burst is between 5 ms and 500 ms.
+     */
+    private static final Duration[] CONFIRM_BUCKETS = {
+        Duration.ofMillis(1), Duration.ofMillis(2), Duration.ofMillis(5), Duration.ofMillis(10),
+        Duration.ofMillis(25), Duration.ofMillis(50), Duration.ofMillis(100), Duration.ofMillis(250),
+        Duration.ofMillis(500), Duration.ofSeconds(1), Duration.ofMillis(2_500), Duration.ofSeconds(5),
+    };
+
     private final MeterRegistry meterRegistry;
 
     public IngestMetrics(MeterRegistry meterRegistry) {
@@ -152,6 +181,25 @@ public class IngestMetrics {
     }
 
     /** DL-146: Heimdal flagged this record's {@code ts.device} as corrected. */
+    /** One publish attempt took {@code elapsed} to reach {@code outcome}. */
+    public void publishConfirm(StatType statType, String outcome, Duration elapsed) {
+        publishConfirmTimer(statType, outcome).record(Objects.requireNonNull(elapsed, "elapsed"));
+    }
+
+    /** Registers the series so the {@code confirmed} histogram exports from startup, at zero. */
+    public void registerPublishConfirm(StatType statType) {
+        publishConfirmTimer(statType, OUTCOME_CONFIRMED);
+    }
+
+    private Timer publishConfirmTimer(StatType statType, String outcome) {
+        return Timer.builder(PUBLISH_CONFIRM)
+                .description("Time from publish to the broker's answer, by outcome (T-048)")
+                .serviceLevelObjectives(CONFIRM_BUCKETS)
+                .tag("type", statType == null ? UNKNOWN_TYPE : statType.wireName())
+                .tag("outcome", Objects.requireNonNull(outcome, "outcome"))
+                .register(meterRegistry);
+    }
+
     public void tsDeviceCorrected(StatType statType, IngestSource source) {
         counter(TS_DEVICE_CORRECTED, "Records on which Heimdal rewrote ts.device (meta.tsDeviceCorrected)", statType, source)
                 .increment();

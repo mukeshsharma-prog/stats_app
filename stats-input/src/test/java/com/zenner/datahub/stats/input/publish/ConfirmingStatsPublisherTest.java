@@ -94,6 +94,7 @@ class ConfirmingStatsPublisherTest {
 
         assertThat(publisher.publish(StatType.LORASTATS, BODY))
                 .isEqualTo(PublishOutcome.NOT_CONFIRMED);
+        assertThat(confirmTimings(IngestMetrics.OUTCOME_NACK)).isEqualTo(1L);
     }
 
     @Test
@@ -111,6 +112,7 @@ class ConfirmingStatsPublisherTest {
 
         assertThat(outcome).isEqualTo(PublishOutcome.NOT_CONFIRMED);
         assertThat(elapsed).isLessThan(Duration.ofSeconds(2));
+        assertThat(confirmTimings(IngestMetrics.OUTCOME_TIMEOUT)).isEqualTo(1L);
     }
 
     @Test
@@ -124,6 +126,7 @@ class ConfirmingStatsPublisherTest {
 
         assertThat(publisher.publish(StatType.LORASTATS, BODY))
                 .isEqualTo(PublishOutcome.NOT_CONFIRMED);
+        assertThat(confirmTimings(IngestMetrics.OUTCOME_ERROR)).isEqualTo(1L);
     }
 
     @Test
@@ -147,6 +150,7 @@ class ConfirmingStatsPublisherTest {
                                 .counter(IngestMetrics.UNROUTABLE, "type", StatType.LORASTATS.wireName())
                                 .count())
                 .isEqualTo(1.0d);
+        assertThat(confirmTimings(IngestMetrics.OUTCOME_RETURNED)).isEqualTo(1L);
     }
 
     @Test
@@ -156,6 +160,34 @@ class ConfirmingStatsPublisherTest {
 
         assertThat(publisher.publish(StatType.LORASTATS, BODY)).isEqualTo(PublishOutcome.CONFIRMED);
         assertThat(meterRegistry.find(IngestMetrics.UNROUTABLE).counter()).isNull();
+        assertThat(confirmTimings(IngestMetrics.OUTCOME_CONFIRMED)).isEqualTo(1L);
+    }
+
+    /**
+     * T-048 (DL-159): confirm latency, not throughput, is what turns a burst into 503s,
+     * so every outcome is timed and the histogram for the happy path exists from
+     * construction — a p99 panel over a series that appears on the first record is empty
+     * for exactly the period it is wanted.
+     */
+    @Test
+    @DisplayName("the confirmed histogram exists for every type before the first record")
+    void theConfirmHistogramExportsFromConstruction() {
+        for (StatType type : StatType.values()) {
+            assertThat(meterRegistry.find(IngestMetrics.PUBLISH_CONFIRM)
+                            .tag("type", type.wireName())
+                            .tag("outcome", IngestMetrics.OUTCOME_CONFIRMED)
+                            .timer())
+                    .as("%s confirmed timer", type.wireName())
+                    .isNotNull();
+        }
+    }
+
+    private long confirmTimings(String outcome) {
+        var timer = meterRegistry.find(IngestMetrics.PUBLISH_CONFIRM)
+                .tag("type", StatType.LORASTATS.wireName())
+                .tag("outcome", outcome)
+                .timer();
+        return timer == null ? 0L : timer.count();
     }
 
     private void answerConfirmWith(CorrelationData.Confirm confirm, ReturnedMessage returned) {

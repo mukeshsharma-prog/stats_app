@@ -92,6 +92,15 @@ Set the threshold to a small multiple of that baseline, update the rule, the tes
 residual in `claude/DECISIONS.md` §12. Do not set it to zero, and do not leave it at 1 %
 because nobody looked.
 
+## The publisher-confirm histogram — an Input metric (T-048, DL-159)
+
+`records_publish_confirm_seconds{type,outcome}` times every publish from hand-off to the
+broker's answer (`confirmed` / `nack` / `returned` / `timeout` / `error`), fixed edges 1 ms
+… 5 s. `histogram_quantile(0.99, sum by (type, le) (rate(records_publish_confirm_seconds_bucket{outcome="confirmed"}[5m])))`
+is the number that turns a burst into 503s; measured at 15.7 ms (4,000/s) and 49.8 ms
+(11,400/s) in `docs/runbooks/load-test-burst.md`. No alert on it yet: the confirm timeout
+is 5 s and the 503 rate on `records_publish_failed` already says when it is hit.
+
 ## The Q13b histogram — an Input metric, not an alert
 
 > **Every `stats-input` series except `records_unroutable` carries `source="internal"|"external"`

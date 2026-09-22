@@ -7,6 +7,7 @@ import com.zenner.datahub.stats.input.ingest.IngestMetrics;
 import com.zenner.datahub.stats.input.log.IngestLogContext;
 import java.nio.charset.StandardCharsets;
 import java.util.Date;
+import java.time.Duration;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
@@ -78,6 +79,10 @@ public final class ConfirmingStatsPublisher implements StatsPublisher {
         this.rabbitTemplate = Objects.requireNonNull(rabbitTemplate, "rabbitTemplate");
         this.properties = Objects.requireNonNull(properties, "properties");
         this.metrics = Objects.requireNonNull(metrics, "metrics");
+        for (StatType type : StatType.values()) {
+            // The p99 a dashboard reads must exist before the first record (DL-158).
+            metrics.registerPublishConfirm(type);
+        }
     }
 
     @Override
@@ -87,6 +92,7 @@ public final class ConfirmingStatsPublisher implements StatsPublisher {
 
         String routingKey = AmqpTopology.routingKey(statType);
         CorrelationData correlation = new CorrelationData(UUID.randomUUID().toString());
+        long started = System.nanoTime();
 
         try {
             rabbitTemplate.send(properties.exchange(), routingKey, message(body), correlation);
@@ -97,6 +103,7 @@ public final class ConfirmingStatsPublisher implements StatsPublisher {
                             .get(properties.confirmTimeout().toMillis(), TimeUnit.MILLISECONDS);
 
             if (confirm == null || !confirm.isAck()) {
+                metrics.publishConfirm(statType, IngestMetrics.OUTCOME_NACK, Duration.ofNanos(System.nanoTime() - started));
                 IngestLogContext.errorCode(ErrorCode.SERVICE_UNAVAILABLE);
                 log.atError()
                         .addKeyValue("event", "publish_failed")
@@ -110,6 +117,7 @@ public final class ConfirmingStatsPublisher implements StatsPublisher {
 
             ReturnedMessage returned = correlation.getReturned();
             if (returned != null) {
+                metrics.publishConfirm(statType, IngestMetrics.OUTCOME_RETURNED, Duration.ofNanos(System.nanoTime() - started));
                 // Acked AND returned: accepted by the broker, wanted by no queue.
                 // The ERROR log with the routing key is emitted by the ReturnsCallback
                 // in InputAmqpConfiguration; this is the counter and the decision.
@@ -117,9 +125,11 @@ public final class ConfirmingStatsPublisher implements StatsPublisher {
                 return PublishOutcome.NOT_CONFIRMED;
             }
 
+            metrics.publishConfirm(statType, IngestMetrics.OUTCOME_CONFIRMED, Duration.ofNanos(System.nanoTime() - started));
             return PublishOutcome.CONFIRMED;
 
         } catch (TimeoutException e) {
+            metrics.publishConfirm(statType, IngestMetrics.OUTCOME_TIMEOUT, Duration.ofNanos(System.nanoTime() - started));
             // We do not know whether it was published. 503 is the honest answer:
             // a duplicate on Heimdal's resend is absorbed by ON CONFLICT DO NOTHING
             // (ADR-005), whereas a 200 here would be a record nobody holds.
@@ -133,6 +143,7 @@ public final class ConfirmingStatsPublisher implements StatsPublisher {
                                     + "outcome unknown, answering 503 (STA-04A, STA-06A)");
             return PublishOutcome.NOT_CONFIRMED;
         } catch (InterruptedException e) {
+            metrics.publishConfirm(statType, IngestMetrics.OUTCOME_ERROR, Duration.ofNanos(System.nanoTime() - started));
             Thread.currentThread().interrupt();
             IngestLogContext.errorCode(ErrorCode.SERVICE_UNAVAILABLE);
             log.atError()
@@ -142,6 +153,7 @@ public final class ConfirmingStatsPublisher implements StatsPublisher {
                     .log("Interrupted while waiting for the publisher confirm; answering 503");
             return PublishOutcome.NOT_CONFIRMED;
         } catch (ExecutionException | AmqpException e) {
+            metrics.publishConfirm(statType, IngestMetrics.OUTCOME_ERROR, Duration.ofNanos(System.nanoTime() - started));
             IngestLogContext.errorCode(ErrorCode.SERVICE_UNAVAILABLE);
             log.atError()
                     .addKeyValue("event", "publish_failed")

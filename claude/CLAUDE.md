@@ -6,6 +6,27 @@ It is still auto-loaded every session: the repository-root `CLAUDE.md` is a
 pointer file whose only content is an `@claude/CLAUDE.md` import. Edit this file,
 not the pointer.
 
+> **Version 1.25 — 22 September 2026 (small hours, later).** No decision in 1.24 changes.
+> What changes is that **the burst is measured at the headroom, and Input exports the
+> histogram that says so**. Governing entry: **DL-159** (T-048).
+>
+> * **`records_publish_confirm_seconds{type,outcome}`** — every publish outcome timed
+>   from hand-off to the broker's answer; the `confirmed` series exists from startup.
+>   `ops/load/BurstLoad.java` is the open-loop, dependency-free generator;
+>   `docs/runbooks/load-test-burst.md` holds the first measurement.
+> * **The confirm holds at 13,333/s; Tomcat's threads are the ceiling.** With the
+>   4,000/s per-instance limit lifted, one instance sustained 11,426/s of 200s with
+>   zero 503s and confirm p99 **49.8 ms** (timeout: 5 s) — and saturated on the default
+>   200 request threads (≈ 200 ÷ 17 ms). At the shipped limit, 4,000/s × 50 ms = 200:
+>   the limiter and the pool are sized together, and raising one without the other is
+>   the trap, now recorded beside `max-requests-per-second`. Against the limit,
+>   13,333/s is 134,263 × 429 and zero 503s: backpressure, working.
+> * **Phase 5 rows T-051, T-054, T-055, T-056, T-048 are all DONE (DL-155…DL-159).**
+>   The Compose `observability` profile exists but was not rendered on 21 Sep (no
+>   registry access); first render is the first task on a networked machine.
+> * **What to do next:** T-034 stays BLOCKED on D-12 P3; the two "send to ZC / Hasan"
+>   rows and the first-24-h histogram reading lead `Next Up`.
+>
 > **Version 1.24 — 22 September 2026 (small hours).** No decision in 1.23 changes. What
 > changes is that **the dashboards exist, are generated and gated, and every series they
 > read exports from startup**. Governing entry: **DL-158** (T-056).
@@ -1127,6 +1148,7 @@ plan is not written against a repository that no longer exists. Full reasoning:
 | DL-150 | **A Writer log line never repeats a key the MDC scope owns.** Seven `WARN` sites were being dropped by the ECS encoder since T-005 — silently after the fourth. `WriterLogsDoNotShadowMdcKeysTest` fails the build; `EcsEncoderDropsDuplicateKeysTest` pins why | T-005 (amended), every fan-out task |
 | DL-151 | **Two ingest doors, one handler; device-scoped read paths in the contract.** `/internal/stats` and `/external/stats` share everything but the `source` label; `/{type}/{clsbox}/{from}[/{to}]` is tenant-scoped, open-ended, empty-200 on a foreign gateway, contract-only. Residual: no tenant binding on the external door | T-013/T-017/T-018 (amended), **T-067**, **T-068** |
 | DL-152 | **Documents and tracker reconciled** to DL-145…DL-151; ADR-006 amended — 404 is the `uid` lookup's answer, the empty page is the device list's; T-067/T-068/T-069 exist | — |
+| DL-159 | **Burst measured at the headroom; the confirm histogram exists.** `records_publish_confirm_seconds{type,outcome}`; open-loop `BurstLoad.java`; 4,000/s → p99 15.7 ms; 13,333/s limited → 429s, no 503s; unlimited → 11,426/s, no 503s, p99 49.8 ms, ceiling = Tomcat's 200 threads = 4,000/s × 50 ms — limiter and pool are sized together | T-048 |
 | DL-158 | **Dashboards generated and gated; every series exports from startup.** Writer / Input / PostgreSQL from `build-dashboards.py`; `check-dashboards.py` in CI (series exist, no `sum` over a shared gauge); gate + retention series registered per type at writer construction; the six registry-only series asserted at `/actuator/prometheus` | T-056 |
 | DL-157 | **`DETACH CONCURRENTLY` measured against a live writer, with a control.** Sweep 17 ms / worst insert 1.9 ms; behind an open reader the sweep waits 1.56 s and 13,436 inserts continue; plain `DETACH` stalls inserts 1,515 ms; `inhdetachpending` zero after every phase | T-055 |
 | DL-156 | **Lock contention drilled between two replicas and two processes; a sweep that never runs is visible.** Two pools, twenty simultaneous rounds, pools clean afterwards; the compose drill ran green. Retention gauges `NaN` until the first sweep; `retention_last_sweep_timestamp_seconds{type}` stamped last; `StatsAppRetentionSweepMissing` (26 h, `max by (type)`, never-ran arm). Found: the stack Writer had not swept for 29 h and read `0.0` | T-054, T-056 |
@@ -1327,6 +1349,7 @@ only `README.md` (the index) and a `CLAUDE.md` pointer that imports this file.
 | `docs/contracts/build-html.sh` | Renders **both** contracts onto one page, `stats-api-v1-draft.html` — generated, never committed (DL-117); CI uploads it as a workflow artifact |
 | `docs/contracts/amqp-topology-v1.md` | Exchange, per-type queues, retry/DLQ, redrive |
 | `docs/contracts/writer-metrics-v1.md` | **Every Writer metric, its labels and its measurement boundary** — what `records_persisted` does and does not count, why a failed broker poll is NaN, how replicas aggregate (DL-136, DL-137) |
+| `docs/runbooks/load-test-burst.md` | **The burst load test** — the open-loop generator, the three-run shape, the first measurement and the `threads.max ≈ rate × confirm p99` sizing rule (T-048, DL-159) |
 | `docs/runbooks/partition-restore.md` | **The per-partition restore procedure** — load-then-attach, four preconditions (pause the sweep first), four post-attach checks, measured timings from the drill that runs in every build (T-051, DL-155) |
 | `docs/runbooks/dlq-redrive.md` | **The DLQ redrive procedure** — access, one-record pilot, audit line, stop conditions, and the 90-day trap made checkable against `records_expired_on_arrival` (DL-138) |
 | `docs/contracts/openapi.yaml` | **The API contract.** OpenAPI 3.1, GET-only: `/v1/stats/{type}` (tenant-wide list), `/v1/stats/{type}/{clsbox}/{from}[/{to}]` (one gateway, DL-151) and `/v1/stats/{type}/{uid}`. Draft pending ZC confirmation; gates Phase 4 |

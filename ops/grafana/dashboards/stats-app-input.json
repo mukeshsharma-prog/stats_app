@@ -315,6 +315,99 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
+      "description": "Time from publish to the broker's confirm. Fixed edges 1 ms .. 5 s; the confirm timeout is at the top edge. Read with the 503 rate on the Ingest row.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 26
+      },
+      "id": 9,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.99, sum by (type, le) (rate(records_publish_confirm_seconds_bucket{outcome=\"confirmed\"}[5m])))",
+          "legendFormat": "p99 {{type}}",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.50, sum by (type, le) (rate(records_publish_confirm_seconds_bucket{outcome=\"confirmed\"}[5m])))",
+          "legendFormat": "p50 {{type}}",
+          "refId": "B"
+        }
+      ],
+      "title": "Publisher confirm latency (T-048) \u2014 the number that turns a burst into 503s",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 26
+      },
+      "id": 10,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (outcome) (rate(records_publish_confirm_seconds_count[5m]))",
+          "legendFormat": "{{outcome}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Publish outcomes / s (not confirmed = a 503)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "description": "",
       "fieldConfig": {
         "defaults": {
@@ -339,9 +432,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 26
+        "y": 34
       },
-      "id": 9,
+      "id": 11,
       "options": {
         "colorMode": "background",
         "graphMode": "none",
@@ -371,9 +464,9 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 34
+        "y": 42
       },
-      "id": 10,
+      "id": 12,
       "panels": [],
       "title": "Q13b \u2014 do gateways jitter across the 10-minute cycle? (DL-104; read for the first 24 h)",
       "type": "row"
@@ -394,9 +487,9 @@
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 35
+        "y": 43
       },
-      "id": 11,
+      "id": 13,
       "options": {
         "calculate": false,
         "yAxis": {
@@ -433,9 +526,9 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 35
+        "y": 43
       },
-      "id": 12,
+      "id": 14,
       "options": {
         "legend": {
           "displayMode": "list",

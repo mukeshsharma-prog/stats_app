@@ -5285,3 +5285,59 @@ exists for.
 **Residual.** Grafana and `postgres_exporter` images could not be pulled on 21 Sep (no
 registry access), so the dashboards were validated by the checker and by reading, not by
 rendering; first render is the first task on a networked machine.
+
+### DL-159 — The burst is measured at the headroom: the confirm holds, the servlet threads are the ceiling, and Input exports the histogram that says so
+
+**21 September 2026** · `ENGINEERING` / `OPERATIONS` · NFR-04, STA-04A, ADR-003 D8, DL-104 (Q13a), DL-109 (Q13c), DL-121 (T-018), DL-158 · T-048
+
+**Trigger.** T-048: *"13,333/s design target, not the 1,333/s average. Measure p99
+publisher-confirm latency under burst — confirm latency, not throughput, is what turns a
+burst into 503s."* Input exported no confirm timer, so the number the task asks for did not
+exist to be read.
+
+**Decision.**
+
+1. **`records_publish_confirm_seconds{type,outcome}`** — a Micrometer `Timer` in
+   `IngestMetrics` with fixed edges 1 ms … 5 s (the confirm timeout at the top), recorded
+   in `ConfirmingStatsPublisher` for every outcome — `confirmed`, `nack`, `returned`,
+   `timeout`, `error` — from the hand-off to the broker to the answer that decides the
+   HTTP status. No `source` label: the publisher does not know the door and a slow confirm
+   is the same incident from either. The `confirmed` series is registered for all five
+   types at construction so the dashboard's p99 exists before the first record (DL-158's
+   rule); `ManagementSurfaceTest` asserts it at the endpoint. The Input dashboard gains the
+   p50/p99 and outcome panels.
+2. **`ops/load/BurstLoad.java`** — a dependency-free, single-file Java 21 generator:
+   **open loop** at a fixed offered rate on virtual threads (a closed loop slows down when
+   the server does and measures the client's patience; a Heimdal replay does not slow
+   down), unique `uid` and re-stamped `ts.*` per record (no `ON CONFLICT` absorption, no
+   clock-skew or late-arrival rejection), per-second 503s, client percentiles, and a
+   before/after scrape of the histogram reduced to p50/p99 the way `histogram_quantile`
+   does. `ops/drills/t048-burst-load.sh` runs the three-run shape.
+3. **`docs/runbooks/load-test-burst.md`** records the first measurement (one instance,
+   this laptop, sharing CPU with the generator and the whole stack):
+   * **A** 4,000/s (the shipped per-instance limit): 80,000 × 200, confirm p99 **15.7 ms**.
+   * **B** 13,333/s against that limit: 134,263 × 429, **zero 503s**, confirm p99 49.5 ms
+     on the ~4,250/s that got through — the backpressure channel working (DL-121).
+   * **C** 13,333/s with the limit lifted: **11,426/s** sustained, 230,219 × 200,
+     **zero 503s**, confirm p99 **49.8 ms** — one hundredth of the timeout — and client
+     p50 127 ms. The gap is queueing in front of the confirm: Tomcat's default 200
+     request threads, each held for one ~17 ms confirm, is ≈ 11,700 req/s, which is where
+     it stopped.
+
+**What was learned.** The broker is not where a burst breaks; the servlet thread pool is,
+and it is sized *with* the rate limiter: at 4,000/s × 50 ms p99 = 200 concurrent = the
+default. The two defaults agree, and the trap is raising one without the other — recorded
+beside `max-requests-per-second` in `application.properties`, with the sizing rule
+`threads.max ≈ rate × confirm p99 (measured at that rate)`. ADR-003 D8's answer to the
+headroom is instances, and this measurement says four at the shipped limit.
+
+**Rejected.** *k6 / vegeta / hey* — none installed, none pinned, and the histogram
+read-back needs code anyway. *A closed-loop generator* — measures the wrong thing under
+overload. *Raising `server.tomcat.threads.max` now* — the shipped limit and the shipped
+pool agree; a change is a sizing decision for the deployment shape (D8), with this runbook
+as its input. *Running with the limit lifted as the only run* — run B is the production
+behaviour; run C is the answer to the question.
+
+**Residual.** One instance, one laptop, generator and stack sharing CPU: the shape is the
+finding, the absolutes are conservative. Run C left 244,371 records for the single local
+Writer to drain — the T-050 alert's job, watched, not this test's. The DLQ took nothing.

@@ -95,6 +95,11 @@ class ManagementSurfaceTest {
             }
         }
         assertThat(response.getBody())
-                .contains("records_validation_failed_total{source=\"unknown\",type=\"unknown\"} 1.0");
+                .contains("records_validation_failed_total{source=\"unknown\",type=\"unknown\"} 1.0")
+                // T-048 (DL-159): the confirm histogram, by its exported names, before any
+                // record has been published -- what the Input dashboard's p99 reads.
+                .contains("records_publish_confirm_seconds_bucket{outcome=\"confirmed\",type=\"lorastats\",le=\"0.001\"} 0")
+                .contains("records_publish_confirm_seconds_bucket{outcome=\"confirmed\",type=\"omsstats\",le=\"5.0\"} 0")
+                .contains("records_publish_confirm_seconds_count{outcome=\"confirmed\",type=\"sysstats\"} 0");
     }
 }
