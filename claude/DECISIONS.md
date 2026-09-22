@@ -4701,7 +4701,7 @@ where the code is written.
 `errorCode` — are the scope's to set (`WriterLogContext.open`, `bindRecord`,
 `errorCode`) and no `stats-writer` statement adds them as a key-value pair. The seven
 sites are corrected; the lines lose nothing, because the scope was already carrying
-the same value. `WriterLogsDoNotShadowMdcKeysTest` in `stats-common`'s architecture
+the same value. `LogsDoNotShadowMdcKeysTest` in `stats-common`'s architecture
 package scans the module: the four delivery-only keys are forbidden everywhere;
 `statType` and `errorCode` are allowed only in the three files that provably run on
 the scheduler or poll thread with no delivery open (`PartitionMaintenance`,
@@ -4718,11 +4718,16 @@ reporting it. *Dropping the MDC in favour of pairs* — the scope exists so that
 statements in code that never sees the envelope (the retry router, the ACK path) still
 carry the identifiers.
 
-**Residual.** `stats-input` has its own MDC context (`IngestLogContext`) and one
-`addKeyValue("uid", …)` in `InputAmqpConfiguration` — outside any request scope, on the
-confirm callback thread, so it does not collide today. The guard is scoped to the
-Writer because that is where the encoder is ECS; extending it to Input when Input
-adopts structured console output is a one-line change to `MODULE`.
+**Residual — closed 22 Sep 2026.** `stats-input` renders ECS too
+(`logging.structured.format.console=ecs`), so the guard now covers both modules, each
+against its own scope's keys (`IngestLogContext` adds `ingestSource`). The rule was also
+sharpened: it is about the *thread*, not the key. A file that provably never runs under
+the scope — `InputAmqpConfiguration`'s `ReturnsCallback` on the broker connection thread,
+the Writer's scheduler and poll threads — may add any of the keys, because there a pair is
+the only way to say which record the line is about; every other file adds none. The
+earlier two-tier key split (four keys forbidden everywhere, two allowed off-thread) was
+replaced by that single rule. Renamed `LogsDoNotShadowMdcKeysTest`; Input had no offending
+site, so no Input log line changed.
 
 ### DL-151 — Two ingest doors with one behaviour, and a device-scoped read path: the 20 September management ask
 
@@ -4954,7 +4959,7 @@ changed, no test of either type changed, and the retention layer needed nothing
 omsstats bootstrap, whole-window pre-creation, the sweep and the guard — DL-149). The two
 things the tracker note said the copy must *not* re-add were not re-added: no per-type
 pre-creation, and no `addKeyValue` of a key `WriterLogContext` owns —
-`WriterLogsDoNotShadowMdcKeysTest` passes over the new processor and writer. The only
+`LogsDoNotShadowMdcKeysTest` passes over the new processor and writer. The only
 edits outside the new files are the additive ones every type makes: the two guard
 whitelists (`StatTypeFanOutTest`, `VersionIsNotADiscriminatorTest`), the properties
 block, `ManagementSurfaceTest`'s five scraped series under `type="omsstats"`, the fixture

@@ -204,7 +204,7 @@ not the pointer.
 >   drops the line — reporting only the first four, then silently. `payload_rejected`,
 >   `expired_on_arrival`, `upstream_status_not_ok`, `write_failed`: none reached the
 >   console. The six MDC keys are the scope's alone now, and
->   `WriterLogsDoNotShadowMdcKeysTest` fails the build on the next repeat. DL-150.
+>   `LogsDoNotShadowMdcKeysTest` fails the build on the next repeat. DL-150.
 > * **`docker/demo.sh` is the demo.** Ten steps against the compose stack, each naming the
 >   rule it proves; DEVELOPMENT.md §3.4 points at it. Two local gotchas it works around are
 >   recorded there: a host PostgreSQL on 5432 shadows the container's, and `.env` must be
@@ -1000,7 +1000,7 @@ the `dead_lettered` line (which repeats no key) keeps arriving, and every
 `payload_rejected`, `expired_on_arrival`, `upstream_status_not_ok` and `write_failed`
 `WARN` is silently gone — exactly the lines an operator needs when the counters move.
 Since **DL-150** the six keys — `traceId`, `uid`, `statType`, `tenant`, `clsbox`,
-`errorCode` — are the scope's alone and `WriterLogsDoNotShadowMdcKeysTest` fails the
+`errorCode` — are the scope's alone and `LogsDoNotShadowMdcKeysTest` fails the
 build on the next repeat; `EcsEncoderDropsDuplicateKeysTest` pins the encoder behaviour
 so the rule stays justified. The rule for every new type's processor and writer: **the
 scope logs the identifiers — you log the event.** The guard covers `stats-writer` only;
@@ -1145,7 +1145,7 @@ plan is not written against a repository that no longer exists. Full reasoning:
 | DL-147 | **The main queues are watched.** Input stamps the AMQP `timestamp`; `queue_oldest_message_age_seconds{type}` is sampled at delivery and zeroed by the poll on an empty queue; a retry re-entry is not sampled. `ops/prometheus/writer-alerts.yml`: aging (warning 300 s / critical 1,800 s, both `for: 5m`), **no consumer** and **consumer stalled** as the gauge's companions, stale-observation, `StatsAppLateArrival` on the hourly increase of `records_expired_on_arrival` (D5b), and `StatsAppUpstreamStatusNotOk` on a **provisional** 1 % ratio. The Q13b histogram `records_ts_server_cycle_offset_seconds{type}` and `records_ts_device_corrected{type}` are Input's. The management-API head timestamp was rejected for now (a credential and a client DL-137 declined); the stamp makes it addable later, and the DLQ's age with it | T-050 |
 | DL-148 | **`sysstats` is built, additively — and the three shared things that lived in the lorastats slice are shared now.** Writer beans are `<type>BatchWriter` and processors qualify on them (the interface injection was ambiguous with two writers); the exchanges and processor selector are `WriterAmqpConfiguration`; the deployment constants are `StatTypeDeployment`. `V6__sysstats_table.sql` has the CHECK, `data_extra`, `(ts_device, uid)` and the two ADR-003 indexes from its first row. `timespan` `"300"` → `bigint`, range-checked before conversion; an overflow is `unmappable`, never truncated. Fixture `valid/sysstats-timespan-overflow.json`. `SysstatsPersistenceConsumerIntegrationTest` runs both real consumers in one context | T-035, T-036 |
 | DL-149 | **Partition pre-creation covers the whole window.** Every pass — startup and daily — ensures `[cutoffDay, today + pre-create-days]` from `RetentionWindow`. Ahead-only pre-creation had left every valid in-window record older than first deployment with no partition: `23514`, dead-lettered as permanent, found by the first end-to-end run. FLOW.md window 15 | T-012 (amended), T-051 |
-| DL-150 | **A Writer log line never repeats a key the MDC scope owns.** Seven `WARN` sites were being dropped by the ECS encoder since T-005 — silently after the fourth. `WriterLogsDoNotShadowMdcKeysTest` fails the build; `EcsEncoderDropsDuplicateKeysTest` pins why | T-005 (amended), every fan-out task |
+| DL-150 | **A Writer log line never repeats a key the MDC scope owns.** Seven `WARN` sites were being dropped by the ECS encoder since T-005 — silently after the fourth. `LogsDoNotShadowMdcKeysTest` fails the build; `EcsEncoderDropsDuplicateKeysTest` pins why | T-005 (amended), every fan-out task |
 | DL-151 | **Two ingest doors, one handler; device-scoped read paths in the contract.** `/internal/stats` and `/external/stats` share everything but the `source` label; `/{type}/{clsbox}/{from}[/{to}]` is tenant-scoped, open-ended, empty-200 on a foreign gateway, contract-only. Residual: no tenant binding on the external door | T-013/T-017/T-018 (amended), **T-067**, **T-068** |
 | DL-152 | **Documents and tracker reconciled** to DL-145…DL-151; ADR-006 amended — 404 is the `uid` lookup's answer, the empty page is the device list's; T-067/T-068/T-069 exist | — |
 | DL-159 | **Burst measured at the headroom; the confirm histogram exists.** `records_publish_confirm_seconds{type,outcome}`; open-loop `BurstLoad.java`; 4,000/s → p99 15.7 ms; 13,333/s limited → 429s, no 503s; unlimited → 11,426/s, no 503s, p99 49.8 ms, ceiling = Tomcat's 200 threads = 4,000/s × 50 ms — limiter and pool are sized together | T-048 |

@@ -21,7 +21,7 @@ import org.springframework.core.env.StandardEnvironment;
  * Characterises the failure DL-150 closes, against the encoder production actually
  * runs: {@code logging.structured.format.console=ecs}.
  *
- * <p>This is the executable reason for {@code WriterLogsDoNotShadowMdcKeysTest}. A unit
+ * <p>This is the executable reason for {@code LogsDoNotShadowMdcKeysTest}. A unit
  * test with a plain test logger cannot see the problem — the statement "works" — and a
  * rule whose justification lives only in a javadoc is one Boot upgrade away from being
  * either unnecessary or insufficient without anyone noticing. If a future Boot release

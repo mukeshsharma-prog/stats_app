@@ -460,7 +460,7 @@ leave a trace someone can act on.
       keys (`traceId`, `uid`, `statType`, `tenant`, `clsbox`, `errorCode`) are
       `WriterLogContext`'s; repeating one as a pair makes the ECS encoder throw and
       logback **drop the line** — silently after the fourth. The build fails on it
-      (`WriterLogsDoNotShadowMdcKeysTest`, DL-150). In `stats-input` the scope is
+      (`LogsDoNotShadowMdcKeysTest`, DL-150). In `stats-input` the scope is
       `IngestLogContext` and the same discipline applies by hand
 - [ ] Does it carry `ingestSource` / the `source` label, so "external callers are
       producing all the 400s" and "Heimdal changed its envelope" stay different
