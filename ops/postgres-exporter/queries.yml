@@ -1,0 +1,22 @@
+# Custom queries for postgres_exporter (Compose `observability` profile; T-051, DL-155).
+#
+# Why this file exists: the exporter's built-in settings collector exports only numeric
+# and boolean server settings. `archive_mode` is an ENUM (off | on | always), so
+# `pg_settings_archive_mode` -- which postgres-alerts.yml gates StatsAppWalArchiveStale on
+# and StatsAppWalArchiveDisabled reads outright -- was never exported. A PromQL comparison
+# against an absent series matches nothing: both alerts were silent by construction
+# (found on the first live render, 22 Sep 2026, DL-160). This query is what makes the
+# series exist. The metric name is `<key>_<column>`; keep both spellings in step with the
+# rule file and ops/grafana/check-dashboards.py.
+#
+# Loaded with --extend.query-path (deprecated upstream in favour of collectors, still
+# supported in v0.17.1). Runs as the read-only role: current_setting() needs no privilege.
+pg_settings:
+  query: >-
+    SELECT CASE WHEN current_setting('archive_mode') IN ('on', 'always') THEN 1 ELSE 0 END
+           AS archive_mode
+  master: true
+  metrics:
+    - archive_mode:
+        usage: "GAUGE"
+        description: "1 when archive_mode is on or always (enum setting, not exported by the built-in settings collector)"

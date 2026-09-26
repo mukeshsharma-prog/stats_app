@@ -270,6 +270,15 @@ services:
         export DATA_SOURCE_USER="$$POSTGRES_RO_USER" DATA_SOURCE_PASS="$$POSTGRES_RO_PASSWORD"
         && exec /bin/postgres_exporter "$@"
       - --
+    command:
+      # archive_mode is an enum, which the built-in settings collector skips; the custom
+      # query is what exports pg_settings_archive_mode for postgres-alerts.yml (DL-160).
+      - --extend.query-path=/etc/postgres_exporter/queries.yml
+      # The wal collector calls pg_ls_waldir(), which needs pg_monitor: with the read-only
+      # role it fails every scrape and logs an ERROR in PostgreSQL. Nothing reads it.
+      - --no-collector.wal
+    volumes:
+      - ../ops/postgres-exporter/queries.yml:/etc/postgres_exporter/queries.yml:ro
     depends_on:
       postgres:
         condition: service_healthy

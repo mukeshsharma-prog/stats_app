@@ -75,7 +75,9 @@ class BrokerUnavailableIngestTest {
         // Nothing was returned, because nothing was ever published. An unroutable
         // counter that moved here would mean we were labelling an outage as a topology
         // fault, and the runbook entries for the two are different.
-        assertThat(meterRegistry.find(IngestMetrics.UNROUTABLE).counter()).isNull();
+        // The series exists from startup (DL-160); what must not have happened is a move.
+        assertThat(meterRegistry.find(IngestMetrics.UNROUTABLE).counters())
+                .allSatisfy(counter -> assertThat(counter.count()).isZero());
     }
 
     private static byte[] fixture(String name) {

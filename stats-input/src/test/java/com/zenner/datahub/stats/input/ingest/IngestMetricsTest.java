@@ -74,11 +74,19 @@ class IngestMetricsTest {
         assertThat(
                         registry.get(IngestMetrics.TS_DEVICE_CORRECTED)
                                 .tag("type", "sysstats")
+                                .tag("source", "internal")
                                 .counter()
                                 .count())
                 .isEqualTo(2.0d);
-        assertThat(registry.find(IngestMetrics.TS_DEVICE_CORRECTED).tag("type", "lorastats").counter())
-                .isNull();
+        // DL-160: the series for a type that has seen no event exists, at zero -- it is
+        // registered at construction so a dashboard can tell "none" from "not exported".
+        assertThat(
+                        registry.get(IngestMetrics.TS_DEVICE_CORRECTED)
+                                .tag("type", "lorastats")
+                                .tag("source", "internal")
+                                .counter()
+                                .count())
+                .isZero();
     }
 
     /**

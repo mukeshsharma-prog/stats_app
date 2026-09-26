@@ -6,6 +6,25 @@ It is still auto-loaded every session: the repository-root `CLAUDE.md` is a
 pointer file whose only content is an `@claude/CLAUDE.md` import. Edit this file,
 not the pointer.
 
+> **Version 1.26 — 22 September 2026 (morning).** No decision in 1.25 changes. What
+> changes is that **the observability profile has been rendered, and the render found
+> two alerts that could never fire**. Governing entry: **DL-160** (`Next Up` row 7).
+>
+> * **`pg_settings_archive_mode` did not exist.** `postgres_exporter` skips enum settings,
+>   so `StatsAppWalArchiveStale` (gated on it) and `StatsAppWalArchiveDisabled` (reading
+>   it) matched nothing — silent by construction, `promtool` green, because the unit tests
+>   supply the series. `ops/postgres-exporter/queries.yml` now exports it; the rules are
+>   unchanged. **On any other exporter, the query travels with the rules or both alerts
+>   are decoration.**
+> * **DL-158's rule now reaches Input.** Five Input counters appeared only on their first
+>   event, so "Rejected / s" and "Not accepted (503) / s" were empty on a healthy instance.
+>   `IngestMetrics` registers every per-record counter × type × door at construction.
+> * **Three things to know about the render:** rebuild the images first (the running ones
+>   were eleven commits old); the `stats-api` target is down (401) by design until T-038;
+>   Prometheus's 5-min staleness window can show the *previous* container's series.
+> * **What to do next:** unchanged — the first-24-h histogram reading, the two "send to
+>   ZC / Hasan" rows; T-034 stays BLOCKED on D-12 P3.
+>
 > **Version 1.25 — 22 September 2026 (small hours, later).** No decision in 1.24 changes.
 > What changes is that **the burst is measured at the headroom, and Input exports the
 > histogram that says so**. Governing entry: **DL-159** (T-048).
@@ -23,7 +42,8 @@ not the pointer.
 >   13,333/s is 134,263 × 429 and zero 503s: backpressure, working.
 > * **Phase 5 rows T-051, T-054, T-055, T-056, T-048 are all DONE (DL-155…DL-159).**
 >   The Compose `observability` profile exists but was not rendered on 21 Sep (no
->   registry access); first render is the first task on a networked machine.
+>   registry access); ~~first render is the first task on a networked machine~~ —
+>   **rendered 22 Sep 2026 (DL-160, version 1.26)**.
 > * **What to do next:** T-034 stays BLOCKED on D-12 P3; the two "send to ZC / Hasan"
 >   rows and the first-24-h histogram reading lead `Next Up`.
 >
@@ -1349,6 +1369,7 @@ only `README.md` (the index) and a `CLAUDE.md` pointer that imports this file.
 | `docs/contracts/build-html.sh` | Renders **both** contracts onto one page, `stats-api-v1-draft.html` — generated, never committed (DL-117); CI uploads it as a workflow artifact |
 | `docs/contracts/amqp-topology-v1.md` | Exchange, per-type queues, retry/DLQ, redrive |
 | `docs/contracts/writer-metrics-v1.md` | **Every Writer metric, its labels and its measurement boundary** — what `records_persisted` does and does not count, why a failed broker poll is NaN, how replicas aggregate (DL-136, DL-137) |
+| `ops/postgres-exporter/queries.yml` | **The one series `postgres_exporter` does not export on its own** — `pg_settings_archive_mode`, which two archiver alerts and one panel read. Travels with `ops/prometheus/postgres-alerts.yml` to any deployment (DL-160) |
 | `docs/runbooks/load-test-burst.md` | **The burst load test** — the open-loop generator, the three-run shape, the first measurement and the `threads.max ≈ rate × confirm p99` sizing rule (T-048, DL-159) |
 | `docs/runbooks/partition-restore.md` | **The per-partition restore procedure** — load-then-attach, four preconditions (pause the sweep first), four post-attach checks, measured timings from the drill that runs in every build (T-051, DL-155) |
 | `docs/runbooks/dlq-redrive.md` | **The DLQ redrive procedure** — access, one-record pilot, audit line, stop conditions, and the 90-day trap made checkable against `records_expired_on_arrival` (DL-138) |

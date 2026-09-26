@@ -118,6 +118,33 @@ public class IngestMetrics {
 
     public IngestMetrics(MeterRegistry meterRegistry) {
         this.meterRegistry = Objects.requireNonNull(meterRegistry, "meterRegistry");
+        registerAtStartup();
+    }
+
+    /**
+     * Registers every per-record counter for every type and both doors so each exports
+     * at zero from the first scrape (DL-158's rule, applied to Input on the first live
+     * render, DL-160). A counter that first appears on its first event is absent until
+     * then, and {@code rate()} of an absent series is absent too: the Input dashboard's
+     * "rejected / s" and "not accepted (503) / s" panels read empty on a healthy instance,
+     * which is the same picture as "this instance exports no such series". Both label
+     * sets are closed — five types, two doors — so this is sixty-five series, not a
+     * cardinality risk. The {@code unknown} type and source stay first-event: they mean
+     * "could not tell", and there is no pair to enumerate. The confirm histogram is
+     * registered by the publisher (DL-159), which owns its outcomes.
+     */
+    private void registerAtStartup() {
+        for (StatType type : StatType.values()) {
+            for (IngestSource source : IngestSource.values()) {
+                counter(ACCEPTED, "Records accepted and publisher-confirmed", type, source);
+                counter(VALIDATION_FAILED, "Records rejected at the envelope gate with 400", type, source);
+                counter(CLOCK_SKEW_REJECTED, "Records rejected because ts.device leads ts.server", type, source);
+                counter(CONVERTER_TS_PRESENT, "Records carrying ts.converter, which is never read", type, source);
+                counter(PUBLISH_FAILED, "Records not published or not confirmed, answered with 503", type, source);
+                counter(TS_DEVICE_CORRECTED, "Records on which Heimdal rewrote ts.device (meta.tsDeviceCorrected)", type, source);
+            }
+            unroutableCounter(type);
+        }
     }
 
     /** A record that passed the gate, was published, and was publisher-confirmed. */
@@ -161,13 +188,16 @@ public class IngestMetrics {
      * same 503 to Heimdal and completely different incidents to us.</p>
      */
     public void unroutable(StatType statType) {
+        unroutableCounter(statType).increment();
+    }
+
+    private Counter unroutableCounter(StatType statType) {
         // No source label: the publisher increments this and does not know the door,
         // and a missing binding is the same incident whichever door the record used.
-        Counter.builder(UNROUTABLE)
+        return Counter.builder(UNROUTABLE)
                 .description("Records the broker acked but no queue was bound to take")
                 .tag("type", statType == null ? UNKNOWN_TYPE : statType.wireName())
-                .register(meterRegistry)
-                .increment();
+                .register(meterRegistry);
     }
 
     /**

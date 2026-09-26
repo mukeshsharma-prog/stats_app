@@ -159,7 +159,8 @@ class ConfirmingStatsPublisherTest {
         answerConfirmWith(new CorrelationData.Confirm(true, null), null);
 
         assertThat(publisher.publish(StatType.LORASTATS, BODY)).isEqualTo(PublishOutcome.CONFIRMED);
-        assertThat(meterRegistry.find(IngestMetrics.UNROUTABLE).counter()).isNull();
+        assertThat(meterRegistry.find(IngestMetrics.UNROUTABLE).counters())
+                .allSatisfy(counter -> assertThat(counter.count()).isZero());
         assertThat(confirmTimings(IngestMetrics.OUTCOME_CONFIRMED)).isEqualTo(1L);
     }
 

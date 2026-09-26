@@ -5289,7 +5289,9 @@ exists for.
 
 **Residual.** Grafana and `postgres_exporter` images could not be pulled on 21 Sep (no
 registry access), so the dashboards were validated by the checker and by reading, not by
-rendering; first render is the first task on a networked machine.
+rendering; first render is the first task on a networked machine. **Rendered 22 Sep 2026 —
+DL-160**, which found one series the checker had taken on trust and one rule this entry
+had applied to the Writer but not to Input.
 
 ### DL-159 — The burst is measured at the headroom: the confirm holds, the servlet threads are the ceiling, and Input exports the histogram that says so
 
@@ -5346,3 +5348,97 @@ behaviour; run C is the answer to the question.
 **Residual.** One instance, one laptop, generator and stack sharing CPU: the shape is the
 finding, the absolutes are conservative. Run C left 244,371 records for the single local
 Writer to drain — the T-050 alert's job, watched, not this test's. The DLQ took nothing.
+
+### DL-160 — The first render: an enum setting is not a metric, and DL-158's rule reaches Input
+
+**22 September 2026** · `OPERATIONS` · NFR-05, ADR-003 D5, DL-111, DL-155, DL-158, DL-159 · T-051, T-056 (first render — `Next Up` row 7)
+
+**Trigger.** The Compose `observability` profile was built on 21 Sep on a machine with no
+registry access (DL-155, DL-158 residuals). First task on a networked machine: pull the
+images, render the three dashboards, confirm every panel draws, and confirm the
+`pg_stat_archiver_*` names on a live scrape. Done against the running stack with images
+rebuilt from the current checkout — the containers that were up were two days and eleven
+commits old, and a render against them would have proved nothing about DL-156…DL-159's
+series.
+
+**Found.**
+
+1. **`pg_settings_archive_mode` was never exported.** `postgres_exporter`'s settings
+   collector exports numeric and boolean settings only; `archive_mode` is an enum
+   (`off | on | always`) and is skipped. `StatsAppWalArchiveStale` is gated
+   `and on (instance) pg_settings_archive_mode == 1` and `StatsAppWalArchiveDisabled` is
+   `pg_settings_archive_mode == 0`: a comparison against an absent series matches
+   nothing, so **both alerts were silent by construction** — with `promtool test rules`
+   green, because the unit tests *supply* the series. The PostgreSQL dashboard's
+   "archive_mode on" stat was empty. This is the failure the rule file's own last comment
+   warns about (*"an absent series compares equal to nothing"*), one rule up from where it
+   was looking.
+2. **Five Input counters appeared only on their first event** — `records_validation_failed`,
+   `records_clock_skew_rejected`, `records_publish_failed`, `records_unroutable`,
+   `records_ts_device_corrected`. DL-158 registered the Writer's gate and retention series
+   at construction and DL-159 the confirm timer, and stopped there. On a fresh Input the
+   dashboard's "Rejected / s" and "Not accepted after the broker (503) / s" panels were
+   empty, which is the same picture as *this instance exports no such series*. The
+   first check missed it: Prometheus's five-minute staleness window was still answering
+   `rate(...[5m])` from the previous container's series.
+3. **The `wal` collector fails every scrape** under the read-only role (`pg_ls_waldir()`
+   needs `pg_monitor`) and logs an `ERROR` in PostgreSQL every fifteen seconds. Nothing
+   reads it.
+4. **The `stats-api` scrape target is down (401).** By design until T-038:
+   `ApiSecurityConfiguration` keeps `/actuator/prometheus` behind the bearer token and
+   says scrape access is that task's decision. No panel or rule reads a `stats-api` series.
+
+**Decision.**
+
+1. **`ops/postgres-exporter/queries.yml`** defines `pg_settings_archive_mode` as a custom
+   query (`current_setting('archive_mode') IN ('on','always')` → 1/0, run as `stats_ro`,
+   which needs no privilege for it); the Compose profile loads it with
+   `--extend.query-path`. The rules and the dashboard are **unchanged** — the fix is to
+   make the series exist, not to re-derive the alerts from a proxy. `check-dashboards.py`
+   and `ops/prometheus/README.md` say where the series comes from, because on any other
+   exporter deployment the query has to travel with the rules or the two alerts are
+   decoration again.
+2. **`IngestMetrics` registers every per-record counter for every type and both doors at
+   construction** (sixty-five series; both label sets are closed). `unknown` type and
+   source stay first-event — they mean *could not tell* and have no pair to enumerate.
+   `ManagementSurfaceTest` asserts every name × type × door at `/actuator/prometheus`
+   before any event; four assertions elsewhere that used *the counter does not exist* to
+   mean *the counter did not move* now say the latter.
+3. **`--no-collector.wal`** on the exporter. The boring fix: nothing reads the collector,
+   and granting `pg_monitor` to the read-only role is a privilege change for a series
+   nobody asked for.
+4. The `stats-api` target stays in `prometheus.yml`, commented as expected-down until
+   T-038, so its absence is not rediscovered as an outage when the API lands.
+
+**Result.** 51 panel expressions across the three dashboards, 0 errors; empties reduced
+to the two first-event-by-design series (`records_retried_total`,
+`records_dead_lettered_total`) plus the retention gauges that are `NaN` until the first
+sweep (DL-156). Three of the four `pg_stat_archiver_*` names confirmed on a live scrape;
+`pg_settings_archive_mode` = 1 from the custom query; `pg_stat_archiver_failed_count` = 0
+with `archive_mode=on`, `archive_timeout=300` after the T-051 recreate. Active alerts:
+`StatsAppDlqContainsMessages` firing on residue from earlier drills (lorastats 6,
+sysstats 3) — the rule working. `stats-input` 77 tests, 0 failures.
+
+**Rejected.** *Gating the stale alert on `pg_settings_archive_timeout_seconds > 0`* — a
+proxy: `archive_mode=off` with a timeout set is exactly the silent case, and the dashboard
+stat would still read nothing. *Granting `pg_monitor` to `stats_ro` for the `wal`
+collector* — a role change for a series nothing reads. *Registering `unknown` series at
+startup* — the label means the pair could not be determined; enumerating it would invent
+one. *Opening `/actuator/prometheus` on the API for the scrape* — T-038's decision, not a
+render's side effect.
+
+**What was learned.** A rule file that is unit-tested with hand-supplied series proves
+its *logic*, never that the series exist — the same gap DL-158 closed for panels with
+`check-dashboards.py`, which took the exporter's names on documented trust and said so in
+a comment. The names the checker calls "infrastructure" are the ones it cannot verify from
+source, and the first live scrape is the only test of them. Second: "exports from startup"
+is a rule for *every* module's counters, and applying it to one module and one histogram
+left the next module's panels reading empty on a healthy day.
+
+**Residual.** The first-24-h histogram reading and the upstream-status threshold
+(`Next Up` row 1) are what the rendered dashboards are for and remain owed. The
+Prometheus staleness window (5 min) means a panel check straight after a container
+restart can still see the previous container's series — wait it out or check
+`/actuator/prometheus` directly. `--extend.query-path` is deprecated upstream in favour of
+collectors; if a future exporter release drops it, the query becomes a custom collector
+and the metric name must not change.

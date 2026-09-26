@@ -53,9 +53,10 @@ class ManagementSurfaceTest {
                 .isEqualTo(HttpStatus.OK);
         assertThat(response.getBody()).isNotNull();
 
-        String unroutable = sample(response.getBody(), IngestMetrics.UNROUTABLE);
-        assertThat(unroutable)
-                .isEqualTo("records_unroutable_total{type=\"sysstats\"} 1.0");
+        // Every type's series exists from startup (DL-160), so pick the one incremented.
+        assertThat(response.getBody())
+                .contains("records_unroutable_total{type=\"sysstats\"} 1.0")
+                .contains("records_unroutable_total{type=\"lorastats\"} 0.0");
 
         // These filters reject before reading a trusted body. Calling that state
         // type="unknown" would merge transport-level rejection with a record whose
@@ -64,6 +65,30 @@ class ManagementSurfaceTest {
                 .isEqualTo("requests_too_large_total{source=\"external\"} 1.0");
         assertThat(sample(response.getBody(), IngestMetrics.RATE_LIMITED))
                 .isEqualTo("requests_rate_limited_total{source=\"internal\"} 1.0");
+    }
+
+    /**
+     * DL-160 (DL-158's rule, applied to Input): every per-record counter exports for every
+     * type and both doors before any record has arrived. Asserted by exported name and
+     * label set, not by value -- the sibling tests in this context increment some of them.
+     */
+    @Test
+    void everyPerRecordCounterExportsForEveryTypeAndBothDoorsFromStartup() {
+        var response = rest.getForEntity("http://localhost:" + port + "/actuator/prometheus", String.class);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        for (StatType type : StatType.values()) {
+            for (IngestSource source : IngestSource.values()) {
+                for (String name : new String[] {IngestMetrics.ACCEPTED, IngestMetrics.VALIDATION_FAILED,
+                        IngestMetrics.CLOCK_SKEW_REJECTED, IngestMetrics.CONVERTER_TS_PRESENT,
+                        IngestMetrics.PUBLISH_FAILED, IngestMetrics.TS_DEVICE_CORRECTED}) {
+                    assertThat(response.getBody())
+                            .as("%s must export for %s via %s before its first event", name, type, source)
+                            .contains(name + "_total{source=\"" + source.label() + "\",type=\"" + type.wireName() + "\"} ");
+                }
+            }
+            assertThat(response.getBody())
+                    .contains(IngestMetrics.UNROUTABLE + "_total{type=\"" + type.wireName() + "\"} ");
+        }
     }
 
     private static String sample(String scrape, String metricName) {

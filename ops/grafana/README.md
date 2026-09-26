@@ -58,8 +58,20 @@ created when a failure is first routed: the `reason` label is an exception class
 cannot be enumerated in advance. Their panels are empty on a healthy replica; `dlq_depth`
 is the durable view of the same fact.
 
-## Not yet on a panel
+## First render — 22 September 2026 (DL-160)
 
-`records_publish_confirm_seconds` (T-048) — Input does not export a publisher-confirm
-histogram until T-048 adds it; the Input dashboard's HTTP row shows request time, which
-includes the confirm, until then.
+Rendered for the first time against the Compose stack with images built from the
+current checkout (the ones running were two days and eleven commits old, which is the
+first thing to check when a panel is empty). Every one of the 51 panel expressions ran
+without error against the live Prometheus; the empties were the two first-event series
+above and, before the rebuild, series the running image did not yet export.
+
+Found: `pg_settings_archive_mode` was never exported — `archive_mode` is an enum and the
+exporter's settings collector skips those — so the PostgreSQL dashboard's "archive_mode on"
+stat was empty and the two alerts that read it were silent. `ops/postgres-exporter/queries.yml`
+now exports it. `records_publish_confirm_seconds` (T-048) is on the Input dashboard since
+DL-159.
+
+The `stats-api` scrape target reads **down (401)** by design until T-038: its
+`/actuator/prometheus` stays behind the bearer token (`ApiSecurityConfiguration`), and no
+panel or rule reads a `stats-api` series yet.

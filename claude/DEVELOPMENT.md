@@ -142,8 +142,11 @@ and still read healthy. `retention_last_sweep_timestamp_seconds{type}` on
 `/actuator/prometheus` says when the last one ran (`NaN` = never on this replica);
 `ops/drills/t054-advisory-lock-contention.sh` fires the cron on demand.
 
-The `observability` profile adds Prometheus (9090) and `postgres_exporter` (9187)
-scraping the modules and evaluating every rule file in `ops/prometheus`:
+The `observability` profile adds Prometheus (9090), `postgres_exporter` (9187) and Grafana
+(3000, `admin`/`admin`, folder *Stats App*) scraping the modules and evaluating every rule
+file in `ops/prometheus`. The `stats-api` target reads down (401) until T-038 — expected.
+**Rebuild the images first** if the stack has been up for a while: a panel over a series the
+running image does not export yet is empty, not wrong (DL-160):
 
 ```bash
 docker compose --profile apps --profile observability up -d

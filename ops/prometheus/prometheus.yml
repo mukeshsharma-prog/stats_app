@@ -21,6 +21,8 @@ scrape_configs:
     metrics_path: /actuator/prometheus
     static_configs:
       - targets: ["stats-writer:8082"]
+  # Reads DOWN (401) until T-038 decides scrape access: the API keeps /actuator/prometheus
+  # behind the bearer token (ApiSecurityConfiguration). Nothing reads a stats-api series yet.
   - job_name: stats-api
     metrics_path: /actuator/prometheus
     static_configs:

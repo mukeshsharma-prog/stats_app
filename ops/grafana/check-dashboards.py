@@ -39,8 +39,10 @@ INFRASTRUCTURE_SERIES = {
     # Micrometer / Spring Boot built-ins
     "hikaricp_connections_active", "jvm_memory_used_bytes", "process_uptime_seconds",
     "http_server_requests_seconds_count", "http_server_requests_seconds_sum", "http_server_requests_seconds_max",
-    # postgres_exporter built-in pg_stat_archiver collector (v0.15+) -- verify on the first
-    # live scrape; the image could not be pulled when these were written (DL-155).
+    # postgres_exporter: three from the built-in pg_stat_archiver collector, verified on a
+    # live scrape on 22 Sep 2026 (DL-160) -- and pg_settings_archive_mode, which the built-in
+    # settings collector does NOT export (archive_mode is an enum). It exists only because
+    # ops/postgres-exporter/queries.yml defines it; keep the name in step with that file.
     "pg_up", "pg_stat_archiver_failed_count", "pg_stat_archiver_last_archive_age", "pg_settings_archive_mode",
 }
 

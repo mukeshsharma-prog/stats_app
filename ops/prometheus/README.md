@@ -178,11 +178,15 @@ before the server starts; the rule is what catches the next cause.
 | `StatsAppWalArchiveDisabled` | `archive_mode` off for 30 min — a configuration warning, expected on a scratch database | warning |
 | `StatsAppPostgresExporterDown` | `pg_up == 0` for 5 min — every rule above is blind while this is true | warning |
 
-Series names are `postgres_exporter`'s built-in `pg_stat_archiver` collector (v0.15+).
-**Verify them on the first real scrape**: the exporter image could not be pulled on the
-21 Sep machine (no registry access), so the rules were unit-tested with `promtool` against
-the documented names and not yet against a live `/metrics`. The runbook they point at is
-`docs/runbooks/partition-restore.md`.
+Three of the four series are `postgres_exporter`'s built-in `pg_stat_archiver` collector
+(v0.15+), verified on the first live scrape on 22 Sep 2026 (DL-160). **The fourth is not
+built in.** The exporter's settings collector exports only numeric and boolean settings;
+`archive_mode` is an enum (`off | on | always`) and is skipped — so `pg_settings_archive_mode`
+did not exist, `StatsAppWalArchiveStale` (gated on it) and `StatsAppWalArchiveDisabled`
+(reading it) matched nothing, and both were silent by construction with `promtool` green.
+`ops/postgres-exporter/queries.yml` is the custom query that exports it; the Compose profile
+loads it with `--extend.query-path`. On any other exporter deployment, carry that query — or
+the two rules are decoration. The runbook they point at is `docs/runbooks/partition-restore.md`.
 
 ## Retention sweep missing — T-054's alert
 
