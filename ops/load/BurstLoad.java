@@ -20,6 +20,13 @@
 // Every record gets a unique uid and ts.* re-stamped to now: duplicates would be absorbed
 // by ON CONFLICT (ADR-005) and hide the Writer's real cost, and a fixture dated 27 Aug
 // would trip the clock-skew gate (ADR-003 D9) or the late-arrival guard (D5b).
+//
+// T-049 (replay drill) adds the opposite mode, on purpose. --save-bodies FILE keeps every
+// body this run sent, byte for byte; --replay FILE sends those bodies again, cyclically,
+// at the target rate, with NO re-stamping -- a Heimdal replay is the same record again,
+// same uid and same ts.device, which is exactly what ON CONFLICT (ts_device, uid) keys on.
+// A replayed body that was re-stamped would be a NEW record to the Writer and would
+// measure nothing about duplicate suppression. ops/drills/t049-replay.sh runs the shape.
 
 import java.io.IOException;
 import java.net.URI;
@@ -50,6 +57,9 @@ import java.util.regex.Pattern;
 
 public final class BurstLoad {
 
+    /** Log prefix: the task whose shape this run has. */
+    static String TAG = "[T-048]";
+
     private static final Pattern UID = Pattern.compile("\"uid\"\\s*:\\s*\"[^\"]*\"");
     private static final Pattern TS = Pattern.compile("\"(server|device|datastore|converter)\"\\s*:\\s*\\d+");
     private static final Pattern BUCKET = Pattern.compile(
@@ -68,6 +78,9 @@ public final class BurstLoad {
         String metrics = opt.getOrDefault("metrics", URI.create(url).resolve("/actuator/prometheus").toString());
         String template = Files.readString(fixture, StandardCharsets.UTF_8);
         String runId = Long.toHexString(System.currentTimeMillis());
+        List<String> corpus = opt.containsKey("replay") ? Corpus.read(Path.of(opt.get("replay"))) : null;
+        Corpus save = opt.containsKey("save-bodies") ? Corpus.open(Path.of(opt.get("save-bodies"))) : null;
+        TAG = corpus != null ? "[T-049]" : "[T-048]";
 
         HttpClient client = HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_1_1)
@@ -75,32 +88,42 @@ public final class BurstLoad {
                 .executor(Executors.newVirtualThreadPerTaskExecutor())
                 .build();
 
-        System.out.printf(Locale.ROOT, "[T-048] target %s  rate %,d req/s  duration %d s  warm-up %d s  fixture %s  run %s%n",
-                url, rate, seconds, warmup, fixture.getFileName(), runId);
-        if (warmup > 0) {
-            Run w = run(client, url, template, runId + "-w", Math.min(rate, 500), warmup, maxInFlight, false);
-            System.out.printf(Locale.ROOT, "[T-048] warm-up: %,d requests, %s%n", w.sent.sum(), w.statuses());
+        if (corpus != null) {
+            System.out.printf(Locale.ROOT, "%s REPLAY of %,d stored bodies from %s (byte-identical, no re-stamp)  target %s  rate %,d req/s  duration %d s%n",
+                    TAG, corpus.size(), opt.get("replay"), url, rate, seconds);
+        } else {
+            System.out.printf(Locale.ROOT, "%s target %s  rate %,d req/s  duration %d s  warm-up %d s  fixture %s  run %s%n",
+                    TAG, url, rate, seconds, warmup, fixture.getFileName(), runId);
+        }
+        if (warmup > 0 && corpus == null) {
+            // The warm-up is never saved: its bodies are not part of the history a replay repeats.
+            Run w = run(client, url, template, runId + "-w", Math.min(rate, 500), warmup, maxInFlight, false, null, null);
+            System.out.printf(Locale.ROOT, "%s warm-up: %,d requests, %s%n", TAG, w.sent.sum(), w.statuses());
         }
 
         String before = scrape(client, metrics);
-        Run r = run(client, url, template, runId, rate, seconds, maxInFlight, true);
+        Run r = run(client, url, template, runId, rate, seconds, maxInFlight, true, corpus, save);
         String after = scrape(client, metrics);
+        if (save != null) {
+            save.close();
+            System.out.printf(Locale.ROOT, "%s saved %,d bodies to %s%n", TAG, r.sent.sum(), opt.get("save-bodies"));
+        }
 
         long[] lat = r.latencies();
         double achieved = r.sent.sum() / (r.elapsed.toNanos() / 1e9);
         System.out.println();
-        System.out.printf(Locale.ROOT, "[T-048] RESULT  sent=%,d in %.1f s  => achieved %,.0f req/s of %,d target  (could not send: %,d over --max-in-flight %d)%n",
-                r.sent.sum(), r.elapsed.toNanos() / 1e9, achieved, rate, r.shed.sum(), maxInFlight);
-        System.out.printf(Locale.ROOT, "[T-048]   statuses: %s%n", r.statuses());
-        System.out.printf(Locale.ROOT, "[T-048]   client latency (request to response): p50=%.1f ms  p90=%.1f ms  p99=%.1f ms  max=%.1f ms%n",
-                pct(lat, 0.50) / 1e6, pct(lat, 0.90) / 1e6, pct(lat, 0.99) / 1e6, lat.length == 0 ? 0 : lat[lat.length - 1] / 1e6);
-        System.out.printf(Locale.ROOT, "[T-048]   per-second 503s: %s%n", r.perSecond503());
+        System.out.printf(Locale.ROOT, "%s RESULT  sent=%,d in %.1f s  => achieved %,.0f req/s of %,d target  (could not send: %,d over --max-in-flight %d)%n",
+                TAG, r.sent.sum(), r.elapsed.toNanos() / 1e9, achieved, rate, r.shed.sum(), maxInFlight);
+        System.out.printf(Locale.ROOT, "%s   statuses: %s%n", TAG, r.statuses());
+        System.out.printf(Locale.ROOT, "%s   client latency (request to response): p50=%.1f ms  p90=%.1f ms  p99=%.1f ms  max=%.1f ms%n",
+                TAG, pct(lat, 0.50) / 1e6, pct(lat, 0.90) / 1e6, pct(lat, 0.99) / 1e6, lat.length == 0 ? 0 : lat[lat.length - 1] / 1e6);
+        System.out.printf(Locale.ROOT, "%s   per-second 503s: %s%n", TAG, r.perSecond503());
         Histogram h = Histogram.delta(before, after);
         if (h == null) {
-            System.out.println("[T-048]   publisher-confirm histogram: not exported by this Input (needs DL-159) -- client latency is the only number");
+            System.out.println(TAG + "   publisher-confirm histogram: not exported by this Input (needs DL-159) -- client latency is the only number");
         } else {
-            System.out.printf(Locale.ROOT, "[T-048]   publisher-confirm (server-side, outcome=confirmed): n=%,d  mean=%.1f ms  p50=%.1f ms  p99=%.1f ms  outcomes=%s%n",
-                    h.count, h.mean() * 1e3, h.quantile(0.50) * 1e3, h.quantile(0.99) * 1e3, h.outcomes);
+            System.out.printf(Locale.ROOT, "%s   publisher-confirm (server-side, outcome=confirmed): n=%,d  mean=%.1f ms  p50=%.1f ms  p99=%.1f ms  outcomes=%s%n",
+                    TAG, h.count, h.mean() * 1e3, h.quantile(0.50) * 1e3, h.quantile(0.99) * 1e3, h.outcomes);
         }
         if (opt.containsKey("json")) {
             Files.writeString(Path.of(opt.get("json")), r.json(rate, achieved, lat, h), StandardCharsets.UTF_8);
@@ -149,8 +172,8 @@ public final class BurstLoad {
         }
     }
 
-    static Run run(HttpClient client, String url, String template, String runId, int rate, int seconds, int maxInFlight, boolean verbose)
-            throws InterruptedException {
+    static Run run(HttpClient client, String url, String template, String runId, int rate, int seconds, int maxInFlight, boolean verbose,
+                   List<String> corpus, Corpus save) throws InterruptedException {
         Run r = new Run();
         AtomicInteger inFlight = new AtomicInteger();
         AtomicLong seq = new AtomicLong();
@@ -170,7 +193,10 @@ public final class BurstLoad {
                 continue;
             }
             long n = seq.incrementAndGet();
-            String body = stamp(template, runId, n);
+            String body = corpus != null ? corpus.get((int) ((n - 1) % corpus.size())) : stamp(template, runId, n);
+            if (save != null) {
+                save.append(body);
+            }
             inFlight.incrementAndGet();
             r.sent.increment();
             long sec = (now - r.startNanos) / 1_000_000_000L;
@@ -196,7 +222,7 @@ public final class BurstLoad {
                 }
             });
             if (verbose && i % rate == rate - 1) {
-                System.out.printf(Locale.ROOT, "[T-048]   t=%2ds  sent=%,d  in-flight=%d  %s%n", (i + 1) / rate, r.sent.sum(), inFlight.get(), r.statuses());
+                System.out.printf(Locale.ROOT, "%s   t=%2ds  sent=%,d  in-flight=%d  %s%n", TAG, (i + 1) / rate, r.sent.sum(), inFlight.get(), r.statuses());
             }
         }
         vt.shutdown();
@@ -216,6 +242,43 @@ public final class BurstLoad {
                     Thread.onSpinWait();
                 }
             }
+        }
+    }
+
+    /**
+     * The bodies a run sent, one file, separated by ASCII RS (0x1E) -- a byte that cannot
+     * occur in JSON text, so pretty-printed bodies with newlines survive unchanged. What is
+     * read back is what went on the wire.
+     */
+    static final class Corpus {
+        private static final char RS = '\u001e';
+        private final java.io.Writer out;
+
+        private Corpus(java.io.Writer out) { this.out = out; }
+
+        static Corpus open(Path path) throws IOException {
+            return new Corpus(Files.newBufferedWriter(path, StandardCharsets.UTF_8));
+        }
+
+        synchronized void append(String body) {
+            try {
+                out.write(body);
+                out.write(RS);
+            } catch (IOException e) {
+                throw new java.io.UncheckedIOException(e);
+            }
+        }
+
+        synchronized void close() throws IOException { out.close(); }
+
+        static List<String> read(Path path) throws IOException {
+            String all = Files.readString(path, StandardCharsets.UTF_8);
+            List<String> bodies = new ArrayList<>();
+            for (String b : all.split(String.valueOf(RS))) {
+                if (!b.isEmpty()) bodies.add(b);
+            }
+            if (bodies.isEmpty()) throw new IllegalArgumentException("no bodies in " + path);
+            return bodies;
         }
     }
 

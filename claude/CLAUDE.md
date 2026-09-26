@@ -6,6 +6,23 @@ It is still auto-loaded every session: the repository-root `CLAUDE.md` is a
 pointer file whose only content is an `@claude/CLAUDE.md` import. Edit this file,
 not the pointer.
 
+> **Version 1.27 — 22 September 2026 (afternoon).** No decision in 1.26 changes. What
+> changes is that **the replay at the agreed cap is rehearsed, with equality assertions**.
+> Governing entry: **DL-161** (T-049) — the last Phase 5 drill that needed only the stack.
+>
+> * **The replay is the same bytes.** `BurstLoad --save-bodies` / `--replay`: no
+>   re-stamping, because a re-stamped record is a new record and proves nothing about
+>   `ON CONFLICT (ts_device, uid)`. `ops/drills/t049-replay.sh`; runbook
+>   `docs/runbooks/replay-drill.md`.
+> * **2,667/s replay + 1,333/s live × 60 s: 240,000 × 200, zero 429/503.** Duplicates
+>   suppressed **+160,020 — exactly** the replayed 200s; persisted **+119,970 — exactly**
+>   the new ones; DLQ unchanged; no new alert. Queue age peaked **29 s** against the 300 s
+>   warning; one Writer consumed **3,137/s** peak on one type. A steady rate *at* the
+>   limit does not clip — the bucket holds a second of burst; above it does (T-048 B).
+> * **What to do next:** unchanged — the first-24-h histogram reading and the two "send
+>   to ZC / Hasan" rows. Every remaining build row is gated: T-034 (D-12 P3), T-037
+>   (Q15g), Phase 4 (D-09), T-068 (Q8a-2), T-028's read half (Phase 4).
+>
 > **Version 1.26 — 22 September 2026 (morning).** No decision in 1.25 changes. What
 > changes is that **the observability profile has been rendered, and the render found
 > two alerts that could never fire**. Governing entry: **DL-160** (`Next Up` row 7).
@@ -1370,6 +1387,7 @@ only `README.md` (the index) and a `CLAUDE.md` pointer that imports this file.
 | `docs/contracts/amqp-topology-v1.md` | Exchange, per-type queues, retry/DLQ, redrive |
 | `docs/contracts/writer-metrics-v1.md` | **Every Writer metric, its labels and its measurement boundary** — what `records_persisted` does and does not count, why a failed broker poll is NaN, how replicas aggregate (DL-136, DL-137) |
 | `ops/postgres-exporter/queries.yml` | **The one series `postgres_exporter` does not export on its own** — `pg_settings_archive_mode`, which two archiver alerts and one panel read. Travels with `ops/prometheus/postgres-alerts.yml` to any deployment (DL-160) |
+| `docs/runbooks/replay-drill.md` | **The replay drill** — byte-identical replay at the agreed 2,667/s cap on top of live traffic, four equality assertions from the Writer's counters, the first measurement, and how a real replay reads on the dashboards (T-049, DL-161) |
 | `docs/runbooks/load-test-burst.md` | **The burst load test** — the open-loop generator, the three-run shape, the first measurement and the `threads.max ≈ rate × confirm p99` sizing rule (T-048, DL-159) |
 | `docs/runbooks/partition-restore.md` | **The per-partition restore procedure** — load-then-attach, four preconditions (pause the sweep first), four post-attach checks, measured timings from the drill that runs in every build (T-051, DL-155) |
 | `docs/runbooks/dlq-redrive.md` | **The DLQ redrive procedure** — access, one-record pilot, audit line, stop conditions, and the 90-day trap made checkable against `records_expired_on_arrival` (DL-138) |

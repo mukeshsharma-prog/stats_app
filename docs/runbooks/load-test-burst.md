@@ -84,5 +84,8 @@ the p99 to use is the one this test measures at that rate on that broker, not th
   URL; run one per instance, or point it at the balancer.
 * The Writer keeping up: run C left a 244,371-record backlog on `app_statsstore.lorastats`
   for the single local Writer to drain, which is the T-050 alert's job to watch, not this
-  test's. The DLQ took nothing.
-* A replay at 2,667/s on top of steady state (DL-109) — run A at 4,000/s covers the sum.
+  test's. The DLQ took nothing. *(Measured since by T-049: one Writer consumed at a peak
+  3,137/s on one type — `docs/runbooks/replay-drill.md`.)*
+* ~~A replay at 2,667/s on top of steady state (DL-109) — run A at 4,000/s covers the sum.~~
+  **Measured 22 Sep 2026 — T-049, `docs/runbooks/replay-drill.md`**: the same 4,000/s, but
+  two thirds of it duplicates, which is what run A cannot say anything about.

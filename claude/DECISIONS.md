@@ -5442,3 +5442,59 @@ restart can still see the previous container's series — wait it out or check
 `/actuator/prometheus` directly. `--extend.query-path` is deprecated upstream in favour of
 collectors; if a future exporter release drops it, the query becomes a custom collector
 and the metric name must not change.
+
+### DL-161 — The replay is rehearsed: the same bytes at the agreed cap, absorbed and metered, and nothing alerts
+
+**22 September 2026** · `OPERATIONS` · NFR-04, STA-25A, ADR-005, DL-109 (Q13c), DL-118, DL-121, DL-133, DL-159 · T-049
+
+**Trigger.** T-049: *"2,667/s replay on top of live traffic. `records_duplicate_suppressed`
+will spike — assert NO alert fires. A 503 during replay is the backpressure channel
+working, not an incident."* Unblocked since DL-109; the last Phase 5 row that needed only
+the stack.
+
+**Decision.**
+
+1. **The replay is byte-identical.** `BurstLoad` gains `--save-bodies` (every sent body,
+   kept as sent, RS-separated) and `--replay` (those bodies again, cyclically, at the
+   target rate, **no re-stamping**). A replayed record with a fresh `uid` or `ts.*` is a
+   new record to the Writer and measures nothing about `ON CONFLICT (ts_device, uid)`;
+   Heimdal replays the record it has, so the drill does too.
+2. **`ops/drills/t049-replay.sh`** — history at the live rate, drain, then replay *and*
+   live concurrently, drain, and four assertions from the Writer's own counters:
+   duplicates suppressed **equal** the replayed 200s; persisted **equals** the new 200s;
+   nothing dead-lettered, failed, or in the DLQ; and the set of active Prometheus alerts
+   afterwards is the set from before. Equality, not "at least": a replay that stored one
+   record twice or lost one live record would pass a weaker check.
+3. **`docs/runbooks/replay-drill.md`** records the first measurement and how a real
+   replay reads on the dashboards — the duplicate/persisted gap is the replay and is
+   healthy; watch the *age*, never the depth; a DLQ that moves is the only thing that is
+   wrong; and a late-arrival alert during a replay after a long outage is D5b working.
+
+**Measured (22 Sep 2026, one instance of everything on this laptop).** 2,667/s replay +
+1,333/s live for 60 s: **240,000 × 200, zero 429s, zero 503s**, confirm p99 36.5 ms.
+`records_duplicate_suppressed` **+160,020** — exactly the replayed 200s; `records_persisted`
+**+119,970** — exactly 39,990 history + 79,980 live; DLQ 6 → 6; no new alert. The queue
+peaked at 85,555 with the oldest message **29 s** old (warning: 300 s for 5 min) and
+drained within 40 s of the replay ending. One Writer consumed at a peak **3,137/s** on
+one type, 2,092/s of it duplicates — above the ~2,000/s per type Q13a sized for.
+
+**What was learned.** *4,000/s at exactly the limit does not clip*: the token bucket holds
+one second of burst and refills continuously, so a steady rate at the cap passes and only a
+rate above it (T-048 run B) is answered 429 — recorded so a healthy "4,000/s, no 429s" is
+not read as a broken limiter. And a suppressed duplicate is not free: it is a round trip
+to an `INSERT` that does nothing, which is why the Writer's consume rate during a replay
+is higher than its persist rate and why the drain is the number to size on.
+
+**Rejected.** *A closed-loop replay* — slows down when the server does (DL-159's reason).
+*Asserting `duplicate_suppressed > 0`* — proves a duplicate was seen, not that every one
+was, and not that no live record was lost. *Alerting on the duplicate counter during the
+drill "to see it fire"* — ADR-005 says not to, and this drill is the evidence for that
+rule. *Purging the DLQ residue first so assertion D starts from zero* — the drill must
+work on a stack that already has alerts; before/after set difference does.
+
+**Residual.** One type, one instance of each module; a five-type replay is five of these,
+D8's shape is N Writers on one queue. The corpus is minutes old when replayed; a replay
+after a multi-week outage meets the late-arrival guard (DL-133), by design — the runbook
+says so, the drill cannot show it. Whether Heimdal honours the cap stays unmeasurable from
+here (DL-109).
+

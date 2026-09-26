@@ -12,6 +12,7 @@ a script here.
 | **T-054** lock contention | Two replicas (two pools) and two processes firing the maintenance cron together | `AdvisoryLockContentionIntegrationTest`; `t054-advisory-lock-contention.sh` | 20/20 simultaneous rounds: one drop each, loser skipped at DEBUG every time, pools clean. Live stack: each replica won once and lost once, no lock left, no ERROR |
 | **T-055** `DETACH CONCURRENTLY` | Writer insert latency and lock waits while a 300,000-row day is detached and dropped — with a control that *can* block | `DetachConcurrentlyLatencyIntegrationTest` | Sweep 17 ms, worst insert **1.9 ms** (baseline worst 5.4 ms). Sweep behind an open reader: sweep waits 1.56 s, **13,436 inserts continue**, worst 13 ms, no insert queued. Control (plain `DETACH` behind the same reader): worst insert **1,515 ms**, inserts queued on the parent |
 | **T-048** burst load | p99 publisher-confirm latency at the 13,333/s design headroom | `t048-burst-load.sh` → `ops/load/BurstLoad.java`; runbook `docs/runbooks/load-test-burst.md` | 4,000/s: confirm p99 **15.7 ms**, 80,000 × 200. 13,333/s with the 4,000/s limit: 134,263 × 429, **zero 503s**. 13,333/s with the limit lifted: **11,426/s** sustained, 230,219 × 200, zero 503s, confirm p99 **49.8 ms** — one instance saturates on Tomcat's 200 threads, not on the broker |
+| **T-049** replay | 2,667/s of already-stored records on top of 1,333/s live — duplicates absorbed and metered, nothing dead-letters, no alert fires | `t049-replay.sh` → `ops/load/BurstLoad.java --save-bodies` / `--replay`; runbook `docs/runbooks/replay-drill.md` | 22 Sep 2026: 160,020 replayed + 79,980 live in 60 s, **240,000 × 200, zero 429/503**; `records_duplicate_suppressed` +160,020 exactly, persisted +119,970 exactly, DLQ unchanged, no new alert. Queue peaked 85,555 / oldest **29 s** (warning: 300 s), drained in 40 s; Writer peak **3,137/s** on one type |
 
 ## T-055 — what the numbers say
 
@@ -38,4 +39,5 @@ an insert seen waiting on the parent's lock). Two readings to carry:
 ```bash
 docker compose --profile apps up -d          # the stack, from the repository's docker/
 ops/drills/t054-advisory-lock-contention.sh   # ~80 s; two extra Writer containers, removed afterwards
+ops/drills/t049-replay.sh                     # ~4 min; ~120k rows written; Prometheus on :9090 for the no-alert assertion
 ```
