@@ -9,6 +9,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
@@ -20,7 +21,7 @@ import org.springframework.test.web.servlet.MockMvc;
  * endpoint with it; one written as {@code /**} while "getting the healthcheck green"
  * would open the API. Both would pass a test that only asserted the probes.</p>
  *
- * <p>The database health indicator is disabled here so that readiness is exercised
+ * <p>The database and key-server health indicators are disabled here so that readiness is exercised
  * for its <em>authorization</em> outcome without opening a PostgreSQL connection: the
  * assertion is "not 401", and a 503 from a DOWN dependency would satisfy it just as a
  * 200 does. {@link com.zenner.datahub.stats.api.config.ReadinessGroupTest} already
@@ -28,12 +29,15 @@ import org.springframework.test.web.servlet.MockMvc;
  */
 @SpringBootTest(
         properties = {
-            "spring.security.oauth2.resourceserver.jwt.issuer-uri=http://localhost:0/realms/statsapp",
             "management.health.db.enabled=false",
+            // No key server here: the probe is exercised for its authorization outcome, and
+            // ApiSecurityIntegrationTest proves the keycloak contributor against a real one.
+            "management.health.keycloak.enabled=false",
             // Boot refuses a readiness group naming a contributor that does not exist,
             // which is the right guard in production and the one thing in the way here.
             "management.endpoint.health.validate-group-membership=false"
         })
+@TestPropertySource(locations = "classpath:api-test.properties")
 @AutoConfigureMockMvc
 class HealthProbesAreUnauthenticatedTest {
 

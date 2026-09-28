@@ -65,7 +65,12 @@ class VersionIsNotADiscriminatorTest {
             "stats-writer/src/main/java/com/zenner/datahub/stats/writer/persistence/"
                     + "OmsstatsBatchWriter.java",
             "The omsstats sibling (T-036, DL-153): the same record_version passthrough "
-                    + "and the same SMALLINT width guard, and again one dialect.");
+                    + "and the same SMALLINT width guard, and again one dialect.",
+            "stats-api/src/main/java/com/zenner/datahub/stats/api/query/RecordAssembler.java",
+            "The read side of the same passthrough (T-041, DL-162): record_version goes "
+                    + "back out verbatim as the envelope's version member. Its only "
+                    + "conditional is SQL NULL — whether there is a value to return — and "
+                    + "the dialect was normalised away before the row was ever stored.");
 
     @Test
     void noMainSourceOutsideThePassthroughMappingReadsTheEnvelopeVersion() {

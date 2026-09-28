@@ -1,51 +1,126 @@
 package com.zenner.datahub.stats.api.security;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.zenner.datahub.stats.api.web.ProblemResponses;
+import com.zenner.datahub.stats.api.web.ReadOnlyMethods;
+import com.zenner.datahub.stats.api.web.TraceId;
+import com.zenner.datahub.stats.common.error.ErrorCode;
 import org.springframework.boot.actuate.autoconfigure.security.servlet.EndpointRequest;
 import org.springframework.boot.actuate.health.HealthEndpoint;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.Ordered;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.oauth2.server.resource.web.BearerTokenAuthenticationEntryPoint;
+import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.access.AccessDeniedHandler;
 
 /**
- * The API's security posture until T-038 lands the real resource server (ADR-006).
+ * The Keycloak resource server (T-038) and who may read (T-039) — ADR-006, STA-31A,
+ * STA-34A.
  *
- * <p><strong>Why this exists before T-038.</strong> {@code spring-boot-starter-security}
- * and the OAuth2 resource server are already on this module's classpath, and Boot's
- * fallback chain for that combination requires a bearer token on <em>every</em>
- * request — {@code /actuator/health/readiness} included. That is the endpoint
- * {@code docker/docker-compose.yml} health-checks, so the container could never become
- * healthy: an authenticated probe fails the deployment rather than protecting
- * anything (D13, D-10). DL-120 predicted exactly this for {@code stats-input} and kept
- * the starter out of that module; here the starter is wanted, so the posture has to be
- * written down instead of inherited.</p>
+ * <p><strong>What validates what.</strong> Boot's resource server validates the token's
+ * signature, expiry, {@code iss} ({@code issuer-uri}) and {@code aud} ({@code audiences})
+ * — any failure is a 401. {@link ReadAccess} then requires the {@code stats.readOnly}
+ * realm role and a usable {@code tenant} claim on every {@code GET /v1/**} — either
+ * missing is a 403. Every value is a property with no default in code; an unset one
+ * stops the context rather than starting with a guessed posture (Q8b-2).</p>
  *
- * <p><strong>What is carved out is the health endpoint and nothing else.</strong> The
- * probes disclose only UP/DOWN. {@code /actuator/prometheus} and {@code /actuator/info}
- * stay behind the token — scrape access is a T-038 decision, not a side effect of
- * making the healthcheck pass. Every other path is {@code authenticated()}, so the
- * fail-closed default is preserved; the {@code stats.readOnly} role and the
- * {@code tenant} claim are enforced by T-038, not here.</p>
+ * <p><strong>What is carved out is the health endpoint and nothing else</strong> (D13,
+ * D-10): the container health-checks readiness, which discloses only UP/DOWN.
+ * {@code /actuator/prometheus} stays behind the token — scrape access is recorded as a
+ * residual in DL-162, not decided as a side effect.</p>
+ *
+ * <p><strong>Filter order.</strong> {@link TraceId} runs first so every response —
+ * a 401 included — carries {@code X-Trace-Id}; {@link ReadOnlyMethods} runs next, before
+ * the security chain, so a non-GET is a 405 for every caller (T-043). CSRF is disabled:
+ * this is a stateless bearer-token API with no cookie to forge, and with CSRF on an
+ * authenticated POST would be a 403 instead of the contract's 405.</p>
  */
 @Configuration(proxyBeanMethods = false)
+@EnableConfigurationProperties(SecurityProperties.class)
 public class ApiSecurityConfiguration {
 
     @Bean
-    public SecurityFilterChain apiSecurityFilterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain apiSecurityFilterChain(
+            HttpSecurity http, SecurityProperties properties, ProblemResponses problems)
+            throws Exception {
+        AuthenticationEntryPoint unauthorized = unauthorized(problems);
+        AccessDeniedHandler forbidden = forbidden(problems);
         http.authorizeHttpRequests(
                         authorize ->
                                 authorize
                                         .requestMatchers(EndpointRequest.to(HealthEndpoint.class))
                                         .permitAll()
+                                        .requestMatchers(HttpMethod.GET, "/v1/**")
+                                        .access(new ReadAccess(properties))
                                         .anyRequest()
                                         .authenticated())
                 // Bearer tokens only: no form login and no HTTP basic, which Boot's
                 // fallback would otherwise offer on a machine-to-machine API.
-                .oauth2ResourceServer(oauth2 -> oauth2.jwt(Customizer.withDefaults()))
+                .oauth2ResourceServer(
+                        oauth2 ->
+                                oauth2.jwt(Customizer.withDefaults())
+                                        .authenticationEntryPoint(unauthorized)
+                                        .accessDeniedHandler(forbidden))
+                .exceptionHandling(
+                        exceptions ->
+                                exceptions
+                                        .authenticationEntryPoint(unauthorized)
+                                        .accessDeniedHandler(forbidden))
+                .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(
                         session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
         return http.build();
+    }
+
+    @Bean
+    public ProblemResponses problemResponses(ObjectMapper objectMapper) {
+        return new ProblemResponses(objectMapper);
+    }
+
+    @Bean
+    public FilterRegistrationBean<TraceId> traceIdFilter() {
+        FilterRegistrationBean<TraceId> registration = new FilterRegistrationBean<>(new TraceId());
+        registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
+        return registration;
+    }
+
+    @Bean
+    public FilterRegistrationBean<ReadOnlyMethods> readOnlyMethodsFilter(ProblemResponses problems) {
+        FilterRegistrationBean<ReadOnlyMethods> registration =
+                new FilterRegistrationBean<>(new ReadOnlyMethods(problems));
+        // After TraceId, before Spring Security's chain (DEFAULT_FILTER_ORDER = -100).
+        registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 10);
+        return registration;
+    }
+
+    /**
+     * 401 with the RFC 6750 {@code WWW-Authenticate} challenge Spring computes, and a
+     * problem body. The challenge may say why (expired, wrong issuer); the body never
+     * echoes the token.
+     */
+    private static AuthenticationEntryPoint unauthorized(ProblemResponses problems) {
+        BearerTokenAuthenticationEntryPoint challenge = new BearerTokenAuthenticationEntryPoint();
+        return (request, response, failure) -> {
+            challenge.commence(request, response, failure);
+            problems.write(request, response, ErrorCode.UNAUTHORIZED, "A valid bearer token is required.");
+        };
+    }
+
+    private static AccessDeniedHandler forbidden(ProblemResponses problems) {
+        return (request, response, denied) ->
+                problems.write(
+                        request,
+                        response,
+                        ErrorCode.FORBIDDEN,
+                        "The token does not grant the required role or carries no usable tenant claim.");
     }
 }

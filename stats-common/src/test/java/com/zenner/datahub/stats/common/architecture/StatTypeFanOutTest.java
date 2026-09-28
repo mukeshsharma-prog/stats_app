@@ -56,7 +56,15 @@ class StatTypeFanOutTest {
             "stats-writer/src/main/java/com/zenner/datahub/stats/writer/consumer/"
                     + "OmsstatsConsumerDescriptor.java",
             "The omsstats sibling (T-036, DL-153): the one place the omsstats identity "
-                    + "is spelled in the Writer.");
+                    + "is spelled in the Writer.",
+            "stats-api/src/main/java/com/zenner/datahub/stats/api/query/LorastatsReader.java",
+            "The API's one per-type artifact (T-040, DL-162), as the consumer descriptor is "
+                    + "the Writer's: the single place the lorastats identity is spelled in "
+                    + "stats-api. A new type adds a sibling reader and never edits this one.",
+            "stats-api/src/main/java/com/zenner/datahub/stats/api/query/SysstatsReader.java",
+            "The sysstats sibling of the above (DL-162).",
+            "stats-api/src/main/java/com/zenner/datahub/stats/api/query/OmsstatsReader.java",
+            "The omsstats sibling of the above (DL-162).");
 
 
     @Test

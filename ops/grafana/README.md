@@ -72,6 +72,7 @@ stat was empty and the two alerts that read it were silent. `ops/postgres-export
 now exports it. `records_publish_confirm_seconds` (T-048) is on the Input dashboard since
 DL-159.
 
-The `stats-api` scrape target reads **down (401)** by design until T-038: its
-`/actuator/prometheus` stays behind the bearer token (`ApiSecurityConfiguration`), and no
-panel or rule reads a `stats-api` series yet.
+The `stats-api` scrape target reads **down (401)** by design: T-038 (DL-162) kept its
+`/actuator/prometheus` behind the bearer token (`ApiSecurityConfiguration`) and recorded
+scrape access as a residual rather than opening it as a side effect. No panel or rule
+reads a `stats-api` series yet; the first one that does has to decide it.

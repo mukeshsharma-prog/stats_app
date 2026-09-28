@@ -6,6 +6,35 @@ It is still auto-loaded every session: the repository-root `CLAUDE.md` is a
 pointer file whose only content is an `@claude/CLAUDE.md` import. Edit this file,
 not the pointer.
 
+> **Version 1.28 — 26 September 2026.** No decision in 1.27 changes. What changes is that
+> **`stats-api` is built — Phase 4, ahead of ZC's confirmation of the contract, by
+> decision**. Governing entry: **DL-162** (T-038…T-046, T-067, T-028's read half).
+>
+> * **The tenant comes from the token on every page, and nowhere else.** One SQL builder;
+>   every statement's first predicate is `tenant = ?` — the `uid` lookup included, so a
+>   foreign `uid` is the **same 404** as a missing one. `maintenant` is returned and never
+>   filtered. A token without `stats.readOnly` or without one non-blank String `tenant` is
+>   **403** before any controller runs.
+> * **The cursor is a position, not a tenant.** HMAC-signed over its filters *and* the
+>   tenant, neither written into it: another filter, path, type or tenant is
+>   `400 invalid_cursor`, never a page. New secret: **`STATS_API_CURSOR_SIGNING_KEY`**
+>   (≥ 32 bytes, same on every replica) — `stats-api` will not start without it; add it to
+>   any `.env` older than this version.
+> * **Non-GET is 405 before authentication, on every `/v1/**` route.** Problem type URIs
+>   are the wire code with underscores, as Input ships (closes the DL-145 residual; the read
+>   contract's examples are corrected). `ltestats`/`netstats` read as empty until their
+>   table exists, and a guard fails the build the day one does without a reader.
+> * **Tested against production artifacts:** the Writer's migrations and the shipped role
+>   script, as `stats_ro`, with real RS256 tokens. `stats-api` 12 → **228** tests; full build
+>   **1,008 tests, 0 failures**; mutation-checked (a `maintenant` filter fails 53).
+> * **Owed:** an **independent review of the isolation and security suites** (their author
+>   wrote the code — T-028 asks otherwise); D-09 itself; scrape access to the API's metrics
+>   (still 401). Quiz 2 of this change (the foreign-`uid` answer) was **waived, not passed** —
+>   DL-162 records the answer.
+> * **What to do next:** the review above; then unchanged — the first-24-h histogram reading
+>   and the two "send to ZC / Hasan" rows. T-034 (D-12 P3), T-037 (Q15g) and T-068 (Q8a-2)
+>   stay gated.
+>
 > **Version 1.27 — 22 September 2026 (afternoon).** No decision in 1.26 changes. What
 > changes is that **the replay at the agreed cap is rehearsed, with equality assertions**.
 > Governing entry: **DL-161** (T-049) — the last Phase 5 drill that needed only the stack.
@@ -1185,6 +1214,7 @@ plan is not written against a repository that no longer exists. Full reasoning:
 | DL-150 | **A Writer log line never repeats a key the MDC scope owns.** Seven `WARN` sites were being dropped by the ECS encoder since T-005 — silently after the fourth. `LogsDoNotShadowMdcKeysTest` fails the build; `EcsEncoderDropsDuplicateKeysTest` pins why | T-005 (amended), every fan-out task |
 | DL-151 | **Two ingest doors, one handler; device-scoped read paths in the contract.** `/internal/stats` and `/external/stats` share everything but the `source` label; `/{type}/{clsbox}/{from}[/{to}]` is tenant-scoped, open-ended, empty-200 on a foreign gateway, contract-only. Residual: no tenant binding on the external door | T-013/T-017/T-018 (amended), **T-067**, **T-068** |
 | DL-152 | **Documents and tracker reconciled** to DL-145…DL-151; ADR-006 amended — 404 is the `uid` lookup's answer, the empty page is the device list's; T-067/T-068/T-069 exist | — |
+| DL-162 | **Phase 4 built, ahead of D-09 by decision.** Resource server (401 on iss/aud/signature/expiry), `ReadAccess` (role + one non-blank String tenant claim, else 403), `ReadOnlyMethods` (non-GET → 405 before auth), `StatsQueryBuilder` (`tenant = ?` first on every statement, `clsbox = upper(?)`, fixed sort, keyset row comparison), `RecordAssembler` (envelope + passthrough + `data_extra`; unset omitted), HMAC cursor bound to filters and tenant, `keycloak` readiness. Unbuilt types read empty behind a table-coverage guard. Underscore type URIs (DL-145 residual closed). 228 API tests on real migrations and real tokens; isolation suite **awaits independent review** | T-038…T-046, T-067, T-028 |
 | DL-159 | **Burst measured at the headroom; the confirm histogram exists.** `records_publish_confirm_seconds{type,outcome}`; open-loop `BurstLoad.java`; 4,000/s → p99 15.7 ms; 13,333/s limited → 429s, no 503s; unlimited → 11,426/s, no 503s, p99 49.8 ms, ceiling = Tomcat's 200 threads = 4,000/s × 50 ms — limiter and pool are sized together | T-048 |
 | DL-158 | **Dashboards generated and gated; every series exports from startup.** Writer / Input / PostgreSQL from `build-dashboards.py`; `check-dashboards.py` in CI (series exist, no `sum` over a shared gauge); gate + retention series registered per type at writer construction; the six registry-only series asserted at `/actuator/prometheus` | T-056 |
 | DL-157 | **`DETACH CONCURRENTLY` measured against a live writer, with a control.** Sweep 17 ms / worst insert 1.9 ms; behind an open reader the sweep waits 1.56 s and 13,436 inserts continue; plain `DETACH` stalls inserts 1,515 ms; `inhdetachpending` zero after every phase | T-055 |
@@ -1391,7 +1421,7 @@ only `README.md` (the index) and a `CLAUDE.md` pointer that imports this file.
 | `docs/runbooks/load-test-burst.md` | **The burst load test** — the open-loop generator, the three-run shape, the first measurement and the `threads.max ≈ rate × confirm p99` sizing rule (T-048, DL-159) |
 | `docs/runbooks/partition-restore.md` | **The per-partition restore procedure** — load-then-attach, four preconditions (pause the sweep first), four post-attach checks, measured timings from the drill that runs in every build (T-051, DL-155) |
 | `docs/runbooks/dlq-redrive.md` | **The DLQ redrive procedure** — access, one-record pilot, audit line, stop conditions, and the 90-day trap made checkable against `records_expired_on_arrival` (DL-138) |
-| `docs/contracts/openapi.yaml` | **The API contract.** OpenAPI 3.1, GET-only: `/v1/stats/{type}` (tenant-wide list), `/v1/stats/{type}/{clsbox}/{from}[/{to}]` (one gateway, DL-151) and `/v1/stats/{type}/{uid}`. Draft pending ZC confirmation; gates Phase 4 |
+| `docs/contracts/openapi.yaml` | **The API contract.** OpenAPI 3.1, GET-only: `/v1/stats/{type}` (tenant-wide list), `/v1/stats/{type}/{clsbox}/{from}[/{to}]` (one gateway, DL-151) and `/v1/stats/{type}/{uid}`. Draft pending ZC confirmation — **built against since 26 Sep 2026 (DL-162)**, so a change ZC asks for is rework in `stats-api` too |
 | `docs/contracts/openapi-v1-design.md` | Design input for the above. Converted 21 Aug 2026 — the YAML wins where they differ |
 | `docs/schemas/` | JSON Schema catalogue, per-type schemas, the 85-file fixture set (`fixtures/MANIFEST.md`), and `validate-fixtures.py` for CI |
 | `docs/decisions/2B-ANSWERS-18AUG2026.md` | The seven §2b answers of 18 Aug 2026 and every engineering decision derived from them |

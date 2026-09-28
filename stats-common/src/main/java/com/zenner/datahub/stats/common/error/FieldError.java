@@ -88,7 +88,13 @@ public final class FieldError {
         MANDATORY_FIELD_ABSENT("Mandatory field is absent."),
         INVALID_FIELD_TYPE("Field has an invalid type."),
         INVALID_PARAMETER("Field has an invalid value."),
-        UNSUPPORTED_STAT_TYPE("Not a supported stat type.");
+        UNSUPPORTED_STAT_TYPE("Not a supported stat type."),
+        // Read API (openapi.yaml FieldError catalogue, T-044). The wording of the first
+        // two is the contract's own example text.
+        TIME_RANGE_INVERTED("Must be earlier than 'to'."),
+        QUERY_WINDOW_EXCEEDED(
+                "Narrow the range, or read one gateway via /stats/{type}/{clsbox}/{from}."),
+        INVALID_CURSOR("Cursor is malformed, expired, or was issued for a different query.");
 
         private final String text;
 

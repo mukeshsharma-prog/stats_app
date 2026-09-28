@@ -26,7 +26,8 @@ flow, because a specified flow and a running one are not the same claim.
 
 `stats-common` is complete, `stats-writer` and `stats-input` are substantially
 built — three stat types end to end, watched, and run end to end on the Compose stack —
-and `stats-api` is still a stub with a contract that now carries three operations.
+and `stats-api` serves the contract's three operations since 26 Sep 2026 (DL-162) —
+built ahead of ZC's confirmation of `openapi.yaml` (D-09), by decision.
 
 | Component | Status |
 |---|---|
@@ -74,8 +75,8 @@ and `stats-api` is still a stub with a contract that now carries three operation
 | No Writer log line repeats a key the MDC scope owns | **`BUILT`** (DL-150). `LogsDoNotShadowMdcKeysTest` fails the build; `EcsEncoderDropsDuplicateKeysTest` pins why. Seven `WARN` sites had been silently dropped by the ECS encoder since T-005 |
 | End-to-end demo against the Compose stack | **`BUILT`** (T-069; `docker/demo.sh`, 20 Sep 2026). Ten steps, each naming the rule it proves; found DL-149 and DL-150 on its first run |
 | `stats-input` — two doors, one handler | **`BUILT`** (DL-151). `POST /internal/stats` (Heimdal) and `POST /external/stats` bound to the same handler, same filter chain, one rate bucket; `source="internal"\|"external"` on every Input metric but `records_unroutable`, `ingestSource` on every log line. **Not a second auth mechanism; no tenant binding on the external door** — T-068, blocked on Q8a-2 |
-| `stats-api` — device-scoped read paths `/{type}/{clsbox}/{from}[/{to}]` | **`SPECIFIED`** (DL-151; T-067). In `openapi.yaml`, linted; open-ended one-argument form; foreign `clsbox` is an empty 200; no window limit; the `clsbox` query parameter is gone |
-| `stats-api` | `@SpringBootApplication` **stub only** — Phase 4, gated on D-09 |
+| `stats-api` — device-scoped read paths `/{type}/{clsbox}/{from}[/{to}]` | **`BUILT`** (T-067; DL-151, DL-162, 26 Sep 2026). Open-ended one-argument form (no upper bound, so a fast clock's newest record is returned); foreign `clsbox` is an empty 200 byte-identical to an unknown one; no window limit; `clsbox = upper(?)` |
+| `stats-api` | **`BUILT`** (T-038…T-046, T-067, T-028 read half; DL-162, 26 Sep 2026) — **ahead of D-09, by decision**. Resource server (iss/aud/signature/expiry → 401), `ReadAccess` (role + one non-blank String tenant claim → else 403), `ReadOnlyMethods` (non-GET → 405 before auth), one SQL builder with `tenant = ?` first on every statement, HMAC-signed keyset cursor bound to tenant and filters, `keycloak` readiness. 228 tests against the Writer's real migrations as `stats_ro` with real RS256 tokens; mutation-checked. **Isolation suite awaits an independent review** (T-028) |
 
 So: the **shared vocabulary** is real, and so is one type's whole path. Since
 5 Sep 2026 a record travels from Heimdal to a queue, from the queue into a partition,
@@ -99,7 +100,8 @@ own table. Since **20 Sep 2026 the whole stack has been run end to end** (`docke
 T-069) — which found that partitions only ever covered the days *ahead* (DL-149) and that
 every Writer `WARN` with a `uid` on it was being dropped by the log encoder (DL-150); both
 are fixed and guarded. Since **21 Sep 2026** the ingest endpoint is two doors on one handler
-(DL-151) and the read contract carries the device-scoped paths (T-067, contract only). The
+(DL-151) and the read contract carries the device-scoped paths (T-067). Since **26 Sep
+2026 `stats-api` serves all three operations** (DL-162), ahead of ZC's confirmation. The
 ranked order is `Stats_App_Tracker.xlsx` → `Next Up`. Phase 2 finished
 `lorastats` first (DL-030 rationale; see `CODE_START_CHECKLIST.md` §B).
 
@@ -147,7 +149,7 @@ ranked order is `Stats_App_Tracker.xlsx` → `Next Up`. Phase 2 finished
                            │ read-only, tenant-scoped
                            ▼
 ┌──────────────────────────────────────────────────────────┐
-│ MODULE 3 — stats-api                            SPECIFIED│
+│ MODULE 3 — stats-api                                BUILT│
 │   GET only.  Keycloak bearer → tenant claim →            │
 │   predicate IN THE QUERY → keyset page                   │
 │   No broker connection at all.                           │
@@ -586,7 +588,7 @@ indexes
 
 ---
 
-## 5. Read — `stats-api`   `SPECIFIED`, contract `BLOCKED` on D-09 (three operations since DL-151; the device paths are T-067)
+## 5. Read — `stats-api`   `BUILT` (DL-162, 26 Sep 2026) — ahead of the contract's confirmation (D-09 still open)
 
 ### 5.1 Request flow
 
@@ -603,7 +605,9 @@ Authorization: Bearer <token>
   The (tenant, clsbox, ts_device DESC, uid DESC) index serves it; no window
   limit applies, the page size bounds each request. Tenant predicate identical.
   │
-  ├─ 1. NOT A GET?           ⇒ 405, no side effect, on EVERY route (DL-070)
+  ├─ 1. NOT A GET?           ⇒ 405 + Allow: GET, no side effect, on EVERY
+  │                          /v1/** route, before authentication, for every
+  │                          caller (DL-070; ReadOnlyMethods, DL-162)
   │
   ├─ 2. VALIDATE TOKEN       signature, exp, iss (string compare, never
   │                          fetched), aud = stats-api
@@ -612,7 +616,8 @@ Authorization: Bearer <token>
   ├─ 3. ROLE                 stats.readOnly required   ⇒ else 403
   │
   ├─ 4. TENANT CLAIM         single-valued String `tenant`
-  │                          absent or empty ⇒ 403 — NEVER "all tenants"
+  │                          absent, empty, blank, multi-valued or not a
+  │                          String ⇒ 403 — NEVER "all tenants", never IN (…)
   │                          (DL-061; note: ADR-006 wins over the 401 in
   │                          an older openapi.yaml)
   │
@@ -652,7 +657,9 @@ not yours" versus a 404 for "does not exist" turns the API into an
 enumeration oracle — an attacker learns which records exist in other
 tenants without ever reading one. Because timing is part of the
 observable, this cannot be a late check on an already-fetched row
-(DL-062).
+(DL-062). **As built (DL-162):** the lookup is one statement, `WHERE tenant = ? AND uid = ?`,
+so a foreign `uid` and a missing one run the same query and get the same 404 — asserted
+equal in status, headers and body by `TenantIsolationIntegrationTest`.
 
 ### 5.3 Pagination walk
 
@@ -666,9 +673,12 @@ page 2:  GET …?from=X&to=Y&limit=100&cursor=…      ← from/to/gateway RESEN
 last:    → items[n], nextCursor = null
 ```
 
-The cursor **carries the filters it was issued for**. Changing one
-mid-walk returns `invalid_cursor` rather than silently returning a page
-from a different query (DL-072).
+The cursor **is signed over the filters it was issued for and the tenant it was issued
+to** — neither is written into it; both are inside the HMAC, recomputed from every
+request. Changing a filter mid-walk, or presenting the cursor under another tenant's
+token, returns `invalid_cursor` rather than a page from a different query (DL-072,
+DL-162). **The tenant in the SQL always comes from the token**; the cursor can only fail
+to verify against it.
 
 ---
 

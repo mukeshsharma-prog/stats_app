@@ -94,7 +94,9 @@ separately".~~ **Closed 21 Aug 2026.** It was never delivered, and it was always
 ours to produce — ZC's answer to C2 was *"please create an OpenAPI definition and
 we will confirm/decline it."* `docs/contracts/openapi.yaml` is that artifact:
 OpenAPI 3.1, GET-only, Unix-seconds filters, keyset pagination. It is a draft
-pending ZC confirmation and it gates Phase 4.
+pending ZC confirmation. It was to gate Phase 4; **Phase 4 was built against it on
+26 Sep 2026, ahead of confirmation, by decision (DL-162)** — a change ZC asks for is now
+rework in `stats-api` as well.
 
 ---
 
@@ -326,7 +328,7 @@ reconciled the same day (DL-152).
 | **Now** | **Send Q8a-2 + Q8a-3 to ZC** — the answer now also unblocks **T-068**, the tenant binding the external door lacks (DL-151 residual). **Send Q15e–Q15g to Hasan** — Q15g decides whether T-037 `netstats` is built for a type that never arrives | **Read the first 24 h** of `records_ts_server_cycle_offset_seconds` (sum over the new `source` label) and set the `StatsAppUpstreamStatusNotOk` threshold; then **T-036 `omsstats`**, copied from the sysstats slice — it inherits whole-window pre-creation and the MDC guard from shared code, so re-adding either is a build failure |
 | **Then** | T-051 — the timed per-partition restore drill (RTO 1 h, DL-111); since DL-149 the restored day's partition is guaranteed pre-created, so the re-attach is the only new thing | T-054, T-055 against the built sweep; T-056 dashboards (aggregate replicas with `max`, sum Input series over `source`); T-048 at the 13,333/s headroom |
 | **After T-036** — ~~pending~~ **done 21 Sep 2026 (DL-153)** | reviews each fan-out end to end | ~~T-062~~ **done 21 Sep (DL-154)**, then T-034 `ltestats` (after D-12 P3; schema survived 1,980 live records), then T-037 `netstats` (after Q15g) |
-| **Held** | T-039, T-042, T-045, T-046 — and **T-068**, BLOCKED on Q8a-2 | T-038, T-040, T-041, T-043, T-044, **T-067** — all gated on ZC confirming `openapi.yaml` (D-09), which since DL-151 carries the device-scoped paths and has lost the `clsbox` query parameter |
+| **Held** | ~~T-039, T-042, T-045, T-046~~ **built 26 Sep 2026 (DL-162)** — **review the isolation and security suites (T-028, T-045): their author wrote the code** — and **T-068**, BLOCKED on Q8a-2 | ~~T-038, T-040, T-041, T-043, T-044, **T-067**~~ **built 26 Sep 2026 (DL-162), ahead of D-09 by decision** — D-09 is still open, and a contract change is now rework here too |
 
 > **Do not expose `/external/stats` anywhere shared before T-068.** With identical
 > authentication on both doors, anything that can reach the external path can write

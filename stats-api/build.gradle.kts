@@ -47,4 +47,33 @@ dependencies {
     testImplementation(libs.spring.security.test)
     testImplementation(libs.testcontainers.junit.jupiter)
     testImplementation(libs.testcontainers.postgresql)
+    // NOT stats-testsupport: it exports spring-amqp and the RabbitMQ client (`api`), and
+    // NoBrokerConnectionTest asserts neither is on this module's classpath in ANY scope
+    // (Q3a). The API tests start their own PostgreSQL on the same image instead.
+    // The read tests run against the Writer's REAL migrations, applied as the Writer's
+    // owner, and read as stats_ro — so the schema the API is tested against cannot drift
+    // from the one production has. Flyway is test scope only: this module never migrates
+    // (it connects as stats_ro, which cannot), and `spring.flyway.enabled=false` in the
+    // test properties keeps Boot from trying.
+    testImplementation(libs.flyway.core)
+    testRuntimeOnly(libs.flyway.database.postgresql)
+}
+
+// T-028, T-045, T-046 (DL-162). The API is tested against two production artifacts rather
+// than copies of them: the PostgreSQL role bootstrap (so stats_ro has exactly the grants
+// it ships with — DL-135) and the Writer's Flyway migrations (so every column the API
+// reads is one the Writer creates). The migrations are passed as a directory rather than
+// put on the classpath, because stats-writer's resources also hold its
+// application.properties, which must never reach this module's test context.
+val writerMigrations = rootProject.file("stats-writer/src/main/resources/db/migration")
+
+sourceSets {
+    test {
+        resources.srcDir(rootProject.file("docker/postgres-init"))
+    }
+}
+
+tasks.test {
+    inputs.dir(writerMigrations)
+    systemProperty("stats.test.writer-migrations", writerMigrations.absolutePath)
 }

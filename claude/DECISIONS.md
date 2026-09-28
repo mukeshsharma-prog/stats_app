@@ -5498,3 +5498,123 @@ after a multi-week outage meets the late-arrival guard (DL-133), by design — t
 says so, the drill cannot show it. Whether Heimdal honours the cap stays unmeasurable from
 here (DL-109).
 
+
+### DL-162 — Phase 4 is built ahead of the contract's confirmation: three read operations, the tenant from the token on every page, and a cursor that can only fail to verify
+
+**26 September 2026** · `API` · `SECURITY` · STA-30A…STA-38A, STA-31A, STA-32A, STA-33A, STA-34A, STA-35A, STA-35B, STA-36A · ADR-006 (and its 17/21 Sep amendments), ADR-007 §1, DL-115, DL-124, DL-135, DL-142, DL-145, DL-151 · T-038, T-039, T-040, T-041, T-042, T-043, T-044, T-045, T-046, T-067, T-028 (read half)
+
+**Trigger.** Naman asked for T-039…T-046 to be completed. D-09 — ZC's confirmation of
+`openapi.yaml` — has gated the whole phase since 21 Aug and is still open. **Starting
+without it is a decision, taken by the approver on 26 Sep 2026**: the contract is stable
+enough to build against, and a change ZC asks for is now rework in `stats-api` as well as
+in the YAML. T-038 (below T-039) and T-067 (the device paths, sharing every mechanism) came
+in with them; so did the read half of T-028, which could not exist without a query path.
+
+**Quiz (IMPLEMENTATION_RULES §9, DL-005).** Three questions on the traps this change can
+fall into. *Isolation field* — passed first time. *Cursor and tenant* — passed on the third
+asking: the SQL's tenant comes from the token on every page and a cursor issued to another
+tenant is `invalid_cursor`, never a fallback. *Foreign `uid`* — **not passed; waived at the
+requester's instruction** after four askings ("tell correct and skip"). The answer is
+recorded here so the waiver is not mistaken for agreement: a `uid` that exists only under
+another tenant is **404, byte-identical to a `uid` that exists nowhere**, because the query
+is `WHERE tenant = :tokenTenant AND uid = :uid` — a 403 would disclose existence and a 200
+would disclose the record. The tests below assert it; they are what holds the rule now.
+
+**Decision.**
+
+1. **T-038 — resource server, fail-closed.** Boot validates signature, expiry, `iss`
+   (`issuer-uri`) and `aud` (`spring.security.oauth2.resourceserver.jwt.audiences` — Boot's
+   own property, so the parked `stats.security.audience` is not revived). Any failure is
+   **401** with the RFC 6750 challenge and a problem body. `stats.security.read-role`,
+   `stats.security.tenant-claim`, the audience and every `stats.api.*` value are properties
+   **with no default in code**; an unset one stops the context. A `keycloak` health
+   contributor probes the URL the decoder fetches keys from (JWK set if configured, else
+   discovery) and joins **readiness, never liveness** — closing the T-006 residual DL-103
+   carried on this task.
+2. **T-039 — `ReadAccess`, before any controller.** Every `GET /v1/**` needs the
+   `stats.readOnly` **realm** role (read from `realm_access.roles` on the token itself, not
+   from Spring's authority mapping, which a mocked test would bypass) **and** a usable tenant
+   claim: one non-blank String. Absent, empty, blank, multi-valued or non-string is **403** —
+   the same 403 as no role, and the body does not say which. `CallerTenant` is the one place
+   the tenant is read; no handler parameter is a tenant, so `?tenant=`, headers and bodies are
+   ignored by construction.
+3. **T-040/T-041/T-067 — one SQL builder, `tenant = ?` first.** `StatsQueryBuilder` is pure
+   and builds every statement the API runs; the first predicate is always `tenant = ?` bound
+   to the token's tenant, including the `uid` lookup. `maintenant` is selected and returned
+   and appears in no predicate or ordering. `clsbox = upper(?)` (DL-115); `ORDER BY ts_device
+   DESC, uid DESC` on every statement; keyset as `(ts_device, uid) < (?, ?)`; `LIMIT n+1` to
+   know whether a next page exists. The one-argument device form has **no upper bound**
+   (DL-151). The tenant-wide list's window is `stats.api.max-query-window=PT1H`, the
+   contract's provisional value; the device paths have none.
+4. **Records are rebuilt, not stored JSON.** `RecordAssembler` rebuilds the production
+   envelope from the typed columns, `passthrough` (`ts.datastore`, `ts.converter`,
+   `ts.expiresOn` in whichever spelling arrived, `ts.deviceOrig`, `status`, `meta`) and
+   `data_extra`; an unset column is **omitted, never null**; `sysstats.timespan` goes back as
+   the string it arrived as. One `StatReader` per table, each its own bean — a new type adds
+   a reader and touches none.
+5. **Types with no table answer honestly, and a guard stops that outliving the reason.**
+   `ltestats` and `netstats` are valid types with no table (T-034, T-037): an empty page, and
+   404 by `uid` — literally true of the database. `StatReadersCoverEveryTableTest` compares
+   the readers with the partitioned tables the Writer's migrations create and fails the day a
+   table appears without a reader.
+6. **T-042 — the cursor carries a position, not a tenant.** `base64url(payload).base64url(HMAC-SHA256)`;
+   the payload is the last row's `ts_device` and `uid` plus an expiry. The **binding** —
+   operation, type, tenant, canonical `clsbox`, `from`, `to` — is not in the payload: it is
+   inside the MAC, recomputed from each request. A changed filter, another path, another
+   type or another tenant's token all fail verification exactly as a tampered cursor does:
+   **400 `invalid_cursor`**, never a page. Key `stats.api.cursor.signing-key` (≥ 32 bytes,
+   no default, identical on every replica), TTL `PT15M`.
+7. **T-043 — `ReadOnlyMethods` before authentication.** Every method but GET on `/v1/**`,
+   mapped or not, with a token or without, is **405** with `Allow: GET` and a problem body.
+   Left to the framework the same question had three answers (405 mapped, 404 unmapped, 401
+   unauthenticated — and with CSRF on, 403 for an authenticated POST). CSRF is disabled: a
+   stateless bearer-token API has no cookie to forge.
+8. **T-044 — one error spelling.** Problems are built only from the shared `ErrorCode`
+   catalogue and `FieldError.SafeMessage` (three new reviewed messages in `stats-common`:
+   inverted range, window, cursor). **Type URIs use the wire code, underscores and all** —
+   what `ErrorCode.typeUri()` emits and Input already ships; the read contract's six
+   hyphenated examples are corrected (**closes the DL-145 residual**). Problem bodies are
+   written straight to the response so `Accept: application/json` still receives its
+   `application/problem+json`. A database outage is **503** and logs the exception *type*
+   only (DL-124's rule, applied here). Every response carries `X-Trace-Id`, minted as
+   Input mints it; the problem's `traceId` equals it.
+9. **Tests, against production artifacts.** The API is tested as `stats_ro` against
+   `docker/postgres-init/10-read-only-user.sql` and the Writer's real Flyway migrations
+   (passed as a directory, never put on the classpath), with real RS256 tokens from a local
+   JWK set — nothing mocks the decoder. `stats-testsupport` is **not** used: it exports
+   spring-amqp, and `NoBrokerConnectionTest` asserts no broker client in any scope.
+   **228 tests** in `stats-api` (was 12): generated-SQL isolation (78), cursor (22),
+   security suite (18), GET-only matrix (56), reads and record shapes (25), tenant isolation
+   on crafted fixtures (9 — beta's `maintenant` is alpha's tenant name; the minol shape; a
+   moved gateway; one `uid` in two tenants), pagination under a concurrent writer (2, four
+   rows per second so the `uid` tie-breaker is exercised).
+   **Mutation-checked:** filtering on `maintenant` fails 53 tests; dropping the tenant from
+   the MAC fails 2; letting a non-GET through fails 56; dropping the `uid` tie-breaker fails 19.
+
+**Rejected.** *Waiting for D-09* — the approver's call, recorded above. *A tenant field in
+the cursor, checked against the token* — equivalent protection, but a cursor in a log line
+would then name the tenant; inside the MAC it names nothing. *Clamping an out-of-range
+`limit`* — the parameter's schema says 1–1000, so outside it is `invalid_parameter`; the
+page's `limit` echoes the value applied after defaulting. *`unknown_stat_type` for
+`ltestats`/`netstats`* — the contract admits all five; "not built" is not "not a type".
+*503 for them* — a 503 invites a retry that can never succeed. *Answering a foreign `uid`
+with 403* — an existence oracle (STA-35B). *Opening `/actuator/prometheus`* — see residuals.
+*Using `stats-testsupport`* — puts a broker client on the classpath (Q3a).
+
+**Residual.**
+* **Separation of duties (T-028, T-045):** the isolation and security suites were written
+  by the author of the code they test, which the task text asks not to happen for a
+  security control. **They need an independent review — Mukesh — before Phase 4 is
+  released.** The mutation results above are what a reviewer should re-run.
+* **D-09 is still open.** If ZC changes the contract, `stats-api` changes with it.
+* **Scrape access:** `/actuator/prometheus` stays behind the bearer token, so Prometheus
+  reads the `stats-api` target as down (401). Nothing reads an API series yet; the first
+  panel or rule that does decides it (a scrape client credential, or an open metrics path
+  on a management port).
+* **Deployments need `STATS_API_CURSOR_SIGNING_KEY`** in `.env` — `stats-api` refuses to
+  start without it. `.env.example` documents it; a local `.env` predating this entry must
+  gain it before `docker compose --profile apps up`.
+* **Q8b-2 unchanged:** issuer, audience, role and claim names are still the proposal.
+* **Not measured:** query latency at production volume. The tenant-wide list relies on
+  partition pruning plus the primary key within a 1-hour window, which T-048-style load
+  should confirm before the window is widened.

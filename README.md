@@ -47,10 +47,12 @@ guard). Since **21 September 2026 the ingest endpoint has two doors on one handl
 `POST /internal/stats` for Heimdal Core and `POST /external/stats` for everyone else,
 identical in every rule and distinguished only by a `source` label on every Input metric
 (DL-151) — and the read contract carries the device-scoped paths management asked for,
-`GET /v1/stats/{type}/{clsbox}/{from}[/{to}]`, contract-only until Phase 4 (T-067).
+`GET /v1/stats/{type}/{clsbox}/{from}[/{to}]` (T-067).
 **Read DL-151's residual before exposing the external door anywhere:** it authenticates
-the caller and binds nothing to the record's tenant until Q8a-2 closes (T-068). `stats-api`
-is a stub awaiting the OpenAPI confirmation (D-09). See `claude/PROJECT_STATUS_AND_PLAN.md`
+the caller and binds nothing to the record's tenant until Q8a-2 closes (T-068). **Since 26 September 2026
+`stats-api` is built** — all three operations, Keycloak-secured, tenant-scoped, GET-only
+(DL-162) — ahead of ZC's confirmation of the contract (D-09), by decision: a change ZC
+asks for is rework, recorded as the risk. See `claude/PROJECT_STATUS_AND_PLAN.md`
 and `claude/FLOW.md` for what is BUILT versus SPECIFIED, and **`Stats_App_Tracker.xlsx`
 → the `Next Up` sheet** for the ranked answer to *what do I pick up now*.
 

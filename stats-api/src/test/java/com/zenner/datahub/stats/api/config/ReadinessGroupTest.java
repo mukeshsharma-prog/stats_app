@@ -18,10 +18,9 @@ import org.junit.jupiter.api.Test;
  * {@code rabbit} appearing in this group would be evidence that decision had been
  * reversed by accident. Its absence here is part of the decision, not an omission.</p>
  *
- * <p>Keycloak is a real readiness dependency and is deliberately <em>not</em> covered
- * yet: Boot ships no health indicator for an OAuth2 issuer, and the resource server
- * itself arrives with T-038. The probe is honest about covering the database only
- * rather than implying a check it does not perform.</p>
+ * <p>Keycloak is covered since T-038 (DL-162): Boot ships no health indicator for an
+ * OAuth2 issuer, so {@code KeycloakHealthIndicator} probes the URL the decoder fetches
+ * signing keys from. Without it readiness reported UP while every token failed.</p>
  *
  * <p>This asserts the shipped configuration rather than a running context, because the
  * defect it guards is a configuration one: Boot's default readiness group is
@@ -48,10 +47,10 @@ class ReadinessGroupTest {
     }
 
     @Test
-    @DisplayName("readiness probes PostgreSQL, and never a broker the API must not hold")
+    @DisplayName("readiness probes PostgreSQL and the key server, and never a broker the API must not hold")
     void readinessProbesTheDatabaseAndNotTheBroker() throws IOException {
         assertThat(group(READINESS))
-                .contains("readinessState", "db")
+                .contains("readinessState", "db", "keycloak")
                 .doesNotContain("rabbit");
     }
 

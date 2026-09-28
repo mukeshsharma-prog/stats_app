@@ -144,7 +144,9 @@ and still read healthy. `retention_last_sweep_timestamp_seconds{type}` on
 
 The `observability` profile adds Prometheus (9090), `postgres_exporter` (9187) and Grafana
 (3000, `admin`/`admin`, folder *Stats App*) scraping the modules and evaluating every rule
-file in `ops/prometheus`. The `stats-api` target reads down (401) until T-038 — expected.
+file in `ops/prometheus`. The `stats-api` target still reads down (401) — T-038 kept `/actuator/prometheus` behind the
+bearer token and left scrape access as a recorded residual (DL-162); nothing reads an API
+series yet.
 **Rebuild the images first** if the stack has been up for a while: a panel over a series the
 running image does not export yet is empty, not wrong (DL-160):
 

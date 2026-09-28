@@ -9,8 +9,10 @@
 #
 # Why this file exists: answered conflict C2. ZC's position was "please create an
 # OpenAPI definition and we will confirm/decline it", so writing this is our action,
-# not a wait on them (CLAUDE.md §7). It gates Phase 4 — controllers must not be
-# written against an unfrozen contract.
+# not a wait on them (CLAUDE.md §7). It was meant to gate Phase 4; on 26 Sep 2026 the
+# controllers were built against this draft ahead of confirmation, by decision (DL-162).
+# A change ZC asks for is now rework in stats-api as well as here — that is the accepted
+# risk, not a reason to treat this file as frozen.
 #
 # SCOPE: the read-only Stats API only. The Heimdal inbound POST contract is a
 # different audience, a different auth mode and a different release cadence; it
@@ -1226,7 +1228,10 @@ components:
           format: uri
           description: |
             Stable URI identifying the error class. The final path segment is the
-            machine-readable code; match on this, never on `title` or `detail`.
+            machine-readable code — the `FieldError.code` spelling exactly, underscores
+            and all (`…/errors/invalid_time_range`), as the inbound contract already
+            ships; match on this, never on `title` or `detail`. (The examples used a
+            hyphenated spelling until 26 Sep 2026; corrected with the build, DL-162.)
         title:
           type: string
           description: Short human-readable summary. Stable for a given `type`.
@@ -1481,7 +1486,7 @@ components:
     ProblemInvalidTimeRange:
       summary: from is not earlier than to
       value:
-        type: https://stats.example/errors/invalid-time-range
+        type: https://stats.example/errors/invalid_time_range
         title: Invalid time range
         status: 400
         detail: "'from' must be earlier than 'to'."
@@ -1496,7 +1501,7 @@ components:
     ProblemUnknownStatType:
       summary: Unrecognised stat type in the path
       value:
-        type: https://stats.example/errors/unknown-stat-type
+        type: https://stats.example/errors/unknown_stat_type
         title: Unknown stat type
         status: 400
         detail: Supported types are lorastats, ltestats, sysstats, netstats, omsstats.
@@ -1515,7 +1520,7 @@ components:
         read one gateway through `/stats/{type}/{clsbox}/{from}[/{to}]`, which has no
         window limit (DL-151).
       value:
-        type: https://stats.example/errors/query-window-exceeded
+        type: https://stats.example/errors/query_window_exceeded
         title: Query window exceeded
         status: 400
         detail: Range spans 172800 seconds; the maximum on the tenant-wide list is 3600.
@@ -1550,7 +1555,7 @@ components:
     ProblemNotFound:
       summary: No such record in this tenant
       value:
-        type: https://stats.example/errors/record-not-found
+        type: https://stats.example/errors/record_not_found
         title: Record not found
         status: 404
         detail: No record with that uid exists for this tenant.
@@ -1561,7 +1566,7 @@ components:
     ProblemMethodNotAllowed:
       summary: Non-GET on a read-only API
       value:
-        type: https://stats.example/errors/method-not-allowed
+        type: https://stats.example/errors/method_not_allowed
         title: Method not allowed
         status: 405
         detail: The Stats API is read-only. Only GET is supported.
@@ -1571,7 +1576,7 @@ components:
     ProblemServiceUnavailable:
       summary: A dependency is unavailable
       value:
-        type: https://stats.example/errors/service-unavailable
+        type: https://stats.example/errors/service_unavailable
         title: Service unavailable
         status: 503
         detail: The request was not served. Retry after the indicated interval.
