@@ -101,7 +101,7 @@ services:
     # nothing — you need `docker compose down -v` to drop Keycloak's H2 state.
     command: ["start-dev", "--import-realm"]
     # env_file supplies KC_BOOTSTRAP_ADMIN_* for the admin account and every
-    # STATS_* value the realm JSON resolves as ${env.NAME:default}.
+    # STATS_* value the realm JSON resolves as ${NAME:default}.
     env_file: ../.env
     environment:
       KC_HEALTH_ENABLED: "true"
@@ -243,6 +243,50 @@ services:
       timeout: 5s
       retries: 12
       start_period: 40s
+
+  # === Acceptance tests — Postman collection through Newman =================
+  # Run after the application profile is healthy:
+  #   docker compose --profile apps --profile test run --rm postman-tests
+  postman-tests:
+    profiles: ["test"]
+    image: postman/newman:alpine
+    container_name: stats-postman-tests
+    restart: "no"
+    env_file: ../.env
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - >-
+        newman run /etc/newman/stats-app.postman_collection.json
+        --environment /etc/newman/local.postman_environment.json
+        --delay-request 500
+        --reporters cli
+        --env-var inputBaseUrl=http://stats-input:8081
+        --env-var apiBaseUrl=http://stats-api:8083/v1
+        --env-var apiRootUrl=http://stats-api:8083
+        --env-var writerBaseUrl=http://stats-writer:8082
+        --env-var rabbitBaseUrl=http://rabbitmq:15672
+        --env-var tokenUrl=http://keycloak:8080/realms/statsapp/protocol/openid-connect/token
+        --env-var devClientId="$${STATS_DEV_CLI_CLIENT_ID}"
+        --env-var alphaReaderUsername="$${STATS_ALPHA_READER_USERNAME}"
+        --env-var alphaReaderPassword="$${STATS_ALPHA_READER_PASSWORD}"
+        --env-var noRoleUsername="$${STATS_NO_ROLE_USERNAME}"
+        --env-var noRolePassword="$${STATS_NO_ROLE_PASSWORD}"
+        --env-var noTenantUsername="$${STATS_NO_TENANT_USERNAME}"
+        --env-var noTenantPassword="$${STATS_NO_TENANT_PASSWORD}"
+        --env-var tenantAlpha="$${STATS_TENANT_A_ID}"
+        --env-var rabbitUsername="$${RABBITMQ_USER}"
+        --env-var rabbitPassword="$${RABBITMQ_PASSWORD}"
+    volumes:
+      - ../postman:/etc/newman:ro
+    depends_on:
+      stats-input:
+        condition: service_healthy
+      stats-writer:
+        condition: service_healthy
+      stats-api:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
 
   # === Observability — `observability` profile ===============================
   # Not Stats App deployables and not needed to run the stack: a Prometheus that

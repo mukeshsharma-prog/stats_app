@@ -5618,3 +5618,43 @@ with 403* — an existence oracle (STA-35B). *Opening `/actuator/prometheus`* �
 * **Not measured:** query latency at production volume. The tenant-wide list relies on
   partition pruning plus the primary key within a 1-hour window, which T-048-style load
   should confirm before the window is widened.
+
+---
+
+### DL-163 — Ingest success includes a JSON acknowledgement after publisher confirmation
+
+**6 October 2026** · `INPUT` · STA-01A, STA-04A, STA-06A, DL-118, DL-134, DL-151
+
+**Trigger.** Mukesh observed an empty HTTP 200 response while ingesting a record in
+Postman and requested an explicit acceptance status. The existing response relied
+on the HTTP code and X-Trace-Id alone.
+
+**Decision.** Both /internal/stats and /external/stats keep one handler and return
+application/json with {"status":"accepted","traceId":"<X-Trace-Id>"} only after
+PublishOutcome.CONFIRMED. The status remains configurable as 200 (default) or 202;
+both codes return the same body. The per-request trace ID is the existing header
+and AMQP correlation ID. Failed validation and unconfirmed publication keep their
+existing status codes and Problem Details responses. Publication remains byte-identical.
+
+**Why.** An explicit acknowledgement makes a successful handoff clear in Postman
+and provides a correlation ID in the response body. “accepted” describes RabbitMQ
+confirmation precisely: Writer validation, retention handling and database commits
+happen asynchronously and can still produce a DLQ entry or retention skip.
+
+**Rejected.** Saying “persisted” or returning the submitted record would imply a
+stronger outcome or echo unnecessary device data. Changing every deployment to 202
+would alter the existing configurable status contract without adding information.
+Returning acceptance before broker confirmation would violate STA-04A.
+
+**Verification.** All 78 Input tests passed, including confirmed and unconfirmed
+publication, byte-identical forwarding, matching acknowledgement/header trace IDs,
+and both ingest paths under configured 200 and 202. Both OpenAPI contracts passed
+Redocly 2.51.2 linting. The four Postman ingest requests now assert JSON acceptance
+and matching trace IDs in addition to the status code and header.
+
+**Delivery consequence.** Source contracts and Postman documentation describe this
+change. The immutable v3 archive still returns an empty success body; the new v4
+bundle is required to reproduce the acknowledgement from the packaged services.
+The v3 setup guide explicitly distinguishes the two versions. Consumers that ignore
+the success body retain the same status and retry behavior. Consumers that require
+an empty body must adjust to the new JSON response.

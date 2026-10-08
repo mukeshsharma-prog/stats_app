@@ -13,7 +13,7 @@ The values Heimdal needs to deliver to this endpoint, with what is built and wha
 |---|---|---|
 | Transport | HTTP `POST`, one record per request, `Content-Type: application/json` | **Confirmed 17 Sep 2026** — relayed to engineering by management; the ForwardRule question below is what turns this into a configuration |
 | URL — **Heimdal** | `https://<ingress-host>/internal/stats` | Path **DRAFT** — confirm against the deployed Datahub convention (D-03). `stats.input.endpoint.internal-path`, so a prefix is a property change. **Two doors since 21 Sep 2026 (DL-151):** this one is Heimdal's; `/external/stats` is for callers that are not Heimdal and must not be configured in the ForwardRule |
-| Success response | `200`, empty body, `X-Trace-Id` header | Built. `202` is the only alternative the code admits (`stats.input.endpoint.success-status`) |
+| Success response | `200`, JSON `{"status":"accepted","traceId":"…"}`, `X-Trace-Id` header matching `traceId` | Built (DL-163, 6 Oct 2026). `202` is the only alternative the code admits (`stats.input.endpoint.success-status`); it returns the same body |
 | Retry on | `503`, `429` (after `Retry-After: 1`), any other `5xx` | Built — §2 |
 | Never retry on | `400`, `413` | Built — the verdict is deterministic; resending the same bytes gets the same answer |
 | Body limit | 256 KB | Built, `PROVISIONAL` (DL-121) |
@@ -56,6 +56,15 @@ The Input Module validates the received message and publishes it byte-identicall
 | Request too large | 413 `payload_too_large` | Do not retry without correcting payload. |
 | Rate limited | 429 `too_many_requests`, with `Retry-After: 1` | Retry using approved backoff. |
 | Unexpected Input failure | 5xx | Heimdal dead-letter/retry handling applies. |
+
+**Success body (DL-163, 6 October 2026).** Both ingest paths return
+`Content-Type: application/json` with `{"status":"accepted","traceId":"<X-Trace-Id>"}`
+after RabbitMQ confirms publication. The body and header carry the same per-request
+identifier used as the AMQP correlation ID. `accepted` describes the broker handoff;
+it does not guarantee a PostgreSQL commit. Read through the API after Writer completes,
+or inspect Writer metrics and the DLQ if the record is not visible. Invalid envelopes
+and unconfirmed publishes still return Problem Details, never this acknowledgement.
+The immutable v3 archive predates this change and returns an empty success body.
 
 The exact successful status, retryable status list, retry schedule, and maximum retry/retention behavior must be approved with ZC.
 

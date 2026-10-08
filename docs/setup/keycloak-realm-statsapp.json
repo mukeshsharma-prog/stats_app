@@ -1,7 +1,7 @@
 {
-  "realm": "${env.STATS_REALM_NAME:statsapp}",
+  "realm": "${STATS_REALM_NAME:statsapp}",
   "enabled": true,
-  "displayName": "${env.STATS_REALM_DISPLAY_NAME:Datahub Core - Stats App (development)}",
+  "displayName": "${STATS_REALM_DISPLAY_NAME:Datahub Core - Stats App (development)}",
   "sslRequired": "none",
   "registrationAllowed": false,
   "accessTokenLifespan": 900,
@@ -9,18 +9,18 @@
   "roles": {
     "realm": [
       {
-        "name": "${env.STATS_READ_ONLY_ROLE:stats.readOnly}",
+        "name": "${STATS_READ_ONLY_ROLE:stats.readOnly}",
         "description": "Read tenant-scoped statistics through the Stats API. GET only."
       },
       {
-        "name": "${env.STATS_INGEST_ROLE:stats.ingest}",
+        "name": "${STATS_INGEST_ROLE:stats.ingest}",
         "description": "Publish statistics through the Stats Input endpoint. Service accounts only."
       }
     ]
   },
   "clients": [
     {
-      "clientId": "${env.STATS_API_CLIENT_ID:stats-api}",
+      "clientId": "${STATS_API_CLIENT_ID:stats-api}",
       "name": "Stats API (resource server)",
       "enabled": true,
       "protocol": "openid-connect",
@@ -29,7 +29,7 @@
       "standardFlowEnabled": false,
       "directAccessGrantsEnabled": false,
       "serviceAccountsEnabled": false,
-      "secret": "${env.STATS_API_CLIENT_SECRET:dev-only-stats-api-secret}",
+      "secret": "${STATS_API_CLIENT_SECRET:dev-only-stats-api-secret}",
       "protocolMappers": [
         {
           "name": "tenant",
@@ -37,8 +37,8 @@
           "protocolMapper": "oidc-usermodel-attribute-mapper",
           "consentRequired": false,
           "config": {
-            "user.attribute": "${env.STATS_TENANT_CLAIM:tenant}",
-            "claim.name": "${env.STATS_TENANT_CLAIM:tenant}",
+            "user.attribute": "${STATS_TENANT_CLAIM:tenant}",
+            "claim.name": "${STATS_TENANT_CLAIM:tenant}",
             "jsonType.label": "String",
             "id.token.claim": "true",
             "access.token.claim": "true",
@@ -52,7 +52,7 @@
       }
     },
     {
-      "clientId": "${env.STATS_INPUT_CLIENT_ID:stats-input}",
+      "clientId": "${STATS_INPUT_CLIENT_ID:stats-input}",
       "name": "Stats Input (Heimdal ingress)",
       "enabled": true,
       "protocol": "openid-connect",
@@ -61,7 +61,7 @@
       "standardFlowEnabled": false,
       "directAccessGrantsEnabled": false,
       "serviceAccountsEnabled": true,
-      "secret": "${env.STATS_INPUT_CLIENT_SECRET:dev-only-stats-input-secret}",
+      "secret": "${STATS_INPUT_CLIENT_SECRET:dev-only-stats-input-secret}",
       "protocolMappers": [
         {
           "name": "audience-stats-input",
@@ -69,7 +69,7 @@
           "protocolMapper": "oidc-audience-mapper",
           "consentRequired": false,
           "config": {
-            "included.client.audience": "${env.STATS_INPUT_CLIENT_ID:stats-input}",
+            "included.client.audience": "${STATS_INPUT_CLIENT_ID:stats-input}",
             "id.token.claim": "false",
             "access.token.claim": "true"
           }
@@ -77,7 +77,7 @@
       ]
     },
     {
-      "clientId": "${env.STATS_DEV_CLI_CLIENT_ID:stats-dev-cli}",
+      "clientId": "${STATS_DEV_CLI_CLIENT_ID:stats-dev-cli}",
       "name": "Local token helper (password grant)",
       "enabled": true,
       "protocol": "openid-connect",
@@ -93,8 +93,8 @@
           "protocolMapper": "oidc-usermodel-attribute-mapper",
           "consentRequired": false,
           "config": {
-            "user.attribute": "${env.STATS_TENANT_CLAIM:tenant}",
-            "claim.name": "${env.STATS_TENANT_CLAIM:tenant}",
+            "user.attribute": "${STATS_TENANT_CLAIM:tenant}",
+            "claim.name": "${STATS_TENANT_CLAIM:tenant}",
             "jsonType.label": "String",
             "id.token.claim": "true",
             "access.token.claim": "true",
@@ -108,7 +108,7 @@
           "protocolMapper": "oidc-audience-mapper",
           "consentRequired": false,
           "config": {
-            "included.client.audience": "${env.STATS_API_CLIENT_ID:stats-api}",
+            "included.client.audience": "${STATS_API_CLIENT_ID:stats-api}",
             "id.token.claim": "false",
             "access.token.claim": "true"
           }
@@ -118,101 +118,101 @@
   ],
   "users": [
     {
-      "username": "${env.STATS_ALPHA_READER_USERNAME:alpha-reader}",
+      "username": "${STATS_ALPHA_READER_USERNAME:alpha-reader}",
       "enabled": true,
       "emailVerified": true,
-      "firstName": "${env.STATS_ALPHA_READER_USERNAME:alpha-reader}",
+      "firstName": "${STATS_ALPHA_READER_USERNAME:alpha-reader}",
       "lastName": "dev",
-      "email": "${env.STATS_ALPHA_READER_USERNAME:alpha-reader}@${env.STATS_USER_EMAIL_DOMAIN:stats.local}",
+      "email": "${STATS_ALPHA_READER_USERNAME:alpha-reader}@${STATS_USER_EMAIL_DOMAIN:stats.local}",
       "credentials": [
         {
           "type": "password",
-          "value": "${env.STATS_ALPHA_READER_PASSWORD:alpha}",
+          "value": "${STATS_ALPHA_READER_PASSWORD:alpha}",
           "temporary": false
         }
       ],
       "attributes": {
         "tenant": [
-          "${env.STATS_TENANT_A_ID:tenant-alpha}"
+          "${STATS_TENANT_A_ID:tenant-alpha}"
         ]
       },
       "realmRoles": [
-        "${env.STATS_READ_ONLY_ROLE:stats.readOnly}"
+        "${STATS_READ_ONLY_ROLE:stats.readOnly}"
       ]
     },
     {
-      "username": "${env.STATS_BETA_READER_USERNAME:beta-reader}",
+      "username": "${STATS_BETA_READER_USERNAME:beta-reader}",
       "enabled": true,
       "emailVerified": true,
-      "firstName": "${env.STATS_BETA_READER_USERNAME:beta-reader}",
+      "firstName": "${STATS_BETA_READER_USERNAME:beta-reader}",
       "lastName": "dev",
-      "email": "${env.STATS_BETA_READER_USERNAME:beta-reader}@${env.STATS_USER_EMAIL_DOMAIN:stats.local}",
+      "email": "${STATS_BETA_READER_USERNAME:beta-reader}@${STATS_USER_EMAIL_DOMAIN:stats.local}",
       "credentials": [
         {
           "type": "password",
-          "value": "${env.STATS_BETA_READER_PASSWORD:beta}",
+          "value": "${STATS_BETA_READER_PASSWORD:beta}",
           "temporary": false
         }
       ],
       "attributes": {
         "tenant": [
-          "${env.STATS_TENANT_B_ID:tenant-beta}"
+          "${STATS_TENANT_B_ID:tenant-beta}"
         ]
       },
       "realmRoles": [
-        "${env.STATS_READ_ONLY_ROLE:stats.readOnly}"
+        "${STATS_READ_ONLY_ROLE:stats.readOnly}"
       ]
     },
     {
-      "username": "${env.STATS_NO_ROLE_USERNAME:no-role}",
+      "username": "${STATS_NO_ROLE_USERNAME:no-role}",
       "enabled": true,
       "emailVerified": true,
-      "firstName": "${env.STATS_NO_ROLE_USERNAME:no-role}",
+      "firstName": "${STATS_NO_ROLE_USERNAME:no-role}",
       "lastName": "dev",
-      "email": "${env.STATS_NO_ROLE_USERNAME:no-role}@${env.STATS_USER_EMAIL_DOMAIN:stats.local}",
+      "email": "${STATS_NO_ROLE_USERNAME:no-role}@${STATS_USER_EMAIL_DOMAIN:stats.local}",
       "credentials": [
         {
           "type": "password",
-          "value": "${env.STATS_NO_ROLE_PASSWORD:norole}",
+          "value": "${STATS_NO_ROLE_PASSWORD:norole}",
           "temporary": false
         }
       ],
       "attributes": {
         "tenant": [
-          "${env.STATS_TENANT_A_ID:tenant-alpha}"
+          "${STATS_TENANT_A_ID:tenant-alpha}"
         ]
       },
       "realmRoles": []
     },
     {
-      "username": "${env.STATS_NO_TENANT_USERNAME:no-tenant}",
+      "username": "${STATS_NO_TENANT_USERNAME:no-tenant}",
       "enabled": true,
       "emailVerified": true,
-      "firstName": "${env.STATS_NO_TENANT_USERNAME:no-tenant}",
+      "firstName": "${STATS_NO_TENANT_USERNAME:no-tenant}",
       "lastName": "dev",
-      "email": "${env.STATS_NO_TENANT_USERNAME:no-tenant}@${env.STATS_USER_EMAIL_DOMAIN:stats.local}",
+      "email": "${STATS_NO_TENANT_USERNAME:no-tenant}@${STATS_USER_EMAIL_DOMAIN:stats.local}",
       "credentials": [
         {
           "type": "password",
-          "value": "${env.STATS_NO_TENANT_PASSWORD:notenant}",
+          "value": "${STATS_NO_TENANT_PASSWORD:notenant}",
           "temporary": false
         }
       ],
       "realmRoles": [
-        "${env.STATS_READ_ONLY_ROLE:stats.readOnly}"
+        "${STATS_READ_ONLY_ROLE:stats.readOnly}"
       ]
     },
     {
-      "username": "${env.STATS_EMPTY_TENANT_USERNAME:empty-tenant}",
+      "username": "${STATS_EMPTY_TENANT_USERNAME:empty-tenant}",
       "enabled": true,
       "emailVerified": true,
-      "firstName": "${env.STATS_EMPTY_TENANT_USERNAME:empty-tenant}",
+      "firstName": "${STATS_EMPTY_TENANT_USERNAME:empty-tenant}",
       "lastName": "dev",
-      "email": "${env.STATS_EMPTY_TENANT_USERNAME:empty-tenant}@${env.STATS_USER_EMAIL_DOMAIN:stats.local}",
+      "email": "${STATS_EMPTY_TENANT_USERNAME:empty-tenant}@${STATS_USER_EMAIL_DOMAIN:stats.local}",
       "credentials": [
         {
           "type": "password",
-          "value": "${env.STATS_EMPTY_TENANT_PASSWORD:emptytenant}",
+          "value": "${STATS_EMPTY_TENANT_PASSWORD:emptytenant}",
           "temporary": false
         }
       ],
@@ -222,7 +222,7 @@
         ]
       },
       "realmRoles": [
-        "${env.STATS_READ_ONLY_ROLE:stats.readOnly}"
+        "${STATS_READ_ONLY_ROLE:stats.readOnly}"
       ]
     }
   ]

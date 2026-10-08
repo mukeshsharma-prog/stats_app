@@ -31,7 +31,7 @@ dependencies {
     // `management.endpoints.web.exposure.include` and
     // `management.endpoint.health.probes.enabled` are all inert, /actuator/prometheus
     // does not exist, and docker-compose's readiness healthcheck on 8082 can never
-    // pass. Only actuator is mapped; no controller exists in this module, and
+    // pass. Actuator and a static service-status page are served; no business controller exists, and
     // ManagementSurfaceTest asserts that stays true.
     implementation(libs.spring.boot.starter.web)
 

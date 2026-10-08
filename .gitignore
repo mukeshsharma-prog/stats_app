@@ -42,3 +42,7 @@ Stats_App_Tracker.xlsx
 # diff. CI uploads it as the `stats-api-v1-draft` workflow artifact:
 #     docs/contracts/build-html.sh
 stats-api-v1-draft.html
+
+# Generated offline Docker distribution archives. Rebuild from
+# docker/package-bundle.sh; never commit images or generated credentials.
+dist/

@@ -202,6 +202,25 @@ Or run all three as containers, infrastructure included:
 cd docker && docker compose --profile apps up -d --build
 ```
 
+To produce a single offline archive for another Docker host, including the
+application, infrastructure and Postman/Newman images:
+
+```bash
+./docker/package-bundle.sh
+```
+
+The recipient extracts the generated archive from `dist/` and runs:
+
+```bash
+./docker/start-stats-app.sh
+./docker/run-postman.sh
+```
+
+The runtime remains six independently managed containers; the archive is the
+single shareable delivery unit. `stats-common` is compiled into each application
+that uses it and is not a service. See `docker/BUNDLE.md` for ports, lifecycle,
+credential generation, and the local-only security boundary.
+
 ### 4. Verify
 
 ```bash

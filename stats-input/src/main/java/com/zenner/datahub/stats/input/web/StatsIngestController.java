@@ -80,7 +80,7 @@ public class StatsIngestController {
     @PostMapping(
             path = {"${stats.input.endpoint.internal-path}", "${stats.input.endpoint.external-path}"},
             consumes = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseEntity<ProblemDetails> ingest(
+    public ResponseEntity<?> ingest(
             @RequestBody(required = false) byte[] body, HttpServletRequest request) {
 
         String instance = request.getRequestURI();
@@ -150,7 +150,10 @@ public class StatsIngestController {
         log.atDebug()
                 .addKeyValue("event", "published")
                 .log("Record publisher-confirmed and accepted");
-        return ResponseEntity.status(endpointProperties.successStatus()).build();
+        // DL-163: acknowledge the confirmed handoff, not the asynchronous Writer commit.
+        return ResponseEntity.status(endpointProperties.successStatus())
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(new IngestAcknowledgement("accepted", IngestLogContext.traceId()));
     }
 
     private static ResponseEntity<ProblemDetails> problem(ProblemDetails problem) {

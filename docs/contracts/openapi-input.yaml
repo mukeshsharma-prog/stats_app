@@ -42,8 +42,8 @@ info:
 
     ## The one rule that explains every status code
 
-    **A 2xx is a promise.** It means *the record is persisted on the broker and will
-    reach the database* — Heimdal may discard its copy. It is returned only after the
+    **A 2xx is a promise.** It means *the record is publisher-confirmed on the broker
+    for asynchronous Writer processing* — Heimdal may discard its copy. It is returned only after the
     RabbitMQ publisher confirm; if the broker is unavailable, does not confirm within
     `stats.amqp.confirm-timeout` (5 s), or reports the message unroutable, the answer
     is **503** so that Heimdal resends. Nothing is buffered locally: `stats-input` is
@@ -83,7 +83,7 @@ info:
     |---|---|---|
     | URL (Heimdal) | `https://<ingress-host>/internal/stats` — one record per `POST`, `Content-Type: application/json` | Path is **DRAFT**: confirm against the deployed Datahub convention (D-03). Externalised as `stats.input.endpoint.internal-path`, so a prefix is a property change. |
     | URL (external callers) | `https://<ingress-host>/external/stats` — identical request, identical responses | **Not for Heimdal.** Added 21 Sep 2026 (DL-151) at management's request. Same gate, same publisher, same limits, same authentication filter; the ingress routes and restricts the two separately and every metric says which door was used. `stats.input.endpoint.external-path`. |
-    | Success status | `200`, empty body | Built; `202` is the only alternative the code admits (`stats.input.endpoint.success-status`). |
+    | Success status | `200`, JSON `{"status":"accepted","traceId":"…"}` | Built; `202` is the only alternative the code admits (`stats.input.endpoint.success-status`). |
     | Retry on | `503`, `429` (after `Retry-After`), other `5xx` | Built. |
     | Never retry on | `400`, `413` | Built — the outcome is the same every time. |
     | Credential | **None today.** `stats.input.auth.mode` has no default; `prod` refuses to start with `none` | **OPEN — Q8a-2 / Q8a-3.** Must close before any shared deployment. |
@@ -157,16 +157,9 @@ paths:
         $ref: '#/components/requestBodies/StatsRecord'
       responses:
         '200':
-          description: |
-            **Accepted and publisher-confirmed.** The record is durable on the broker
-            and will be persisted; Heimdal may discard its copy. The body is empty.
-
-            `PROVISIONAL` — `200` is the built default; `202` is the only other value
-            `stats.input.endpoint.success-status` admits. Either way the meaning is
-            identical: *do not resend*.
-          headers:
-            X-Trace-Id:
-              $ref: '#/components/headers/TraceId'
+          $ref: '#/components/responses/Accepted'
+        '202':
+          $ref: '#/components/responses/Accepted'
         '400':
           $ref: '#/components/responses/EnvelopeRejected'
         '401':
@@ -209,16 +202,9 @@ paths:
         $ref: '#/components/requestBodies/StatsRecord'
       responses:
         '200':
-          description: |
-            **Accepted and publisher-confirmed.** The record is durable on the broker
-            and will be persisted; Heimdal may discard its copy. The body is empty.
-
-            `PROVISIONAL` — `200` is the built default; `202` is the only other value
-            `stats.input.endpoint.success-status` admits. Either way the meaning is
-            identical: *do not resend*.
-          headers:
-            X-Trace-Id:
-              $ref: '#/components/headers/TraceId'
+          $ref: '#/components/responses/Accepted'
+        '202':
+          $ref: '#/components/responses/Accepted'
         '400':
           $ref: '#/components/responses/EnvelopeRejected'
         '401':
@@ -316,7 +302,7 @@ components:
       description: |
         Per-request correlation identifier, present on **every** response. Also the
         AMQP `correlationId` of the published message and the `traceId` member of any
-        problem body (DL-134).
+        problem or acceptance body (DL-134, DL-163).
       schema:
         type: string
         minLength: 1
@@ -327,7 +313,44 @@ components:
         format: int32
         minimum: 1
 
+  schemas:
+    IngestAcknowledgement:
+      type: object
+      additionalProperties: false
+      required: [status, traceId]
+      properties:
+        status:
+          type: string
+          enum: [accepted]
+          description: RabbitMQ confirmed the publish; Writer processing is asynchronous.
+        traceId:
+          type: string
+          minLength: 1
+          description: The same per-request identifier as the X-Trace-Id response header.
+
   responses:
+
+    Accepted:
+      description: |
+        **Accepted and publisher-confirmed.** Heimdal may discard its copy and must
+        not resend. The JSON acknowledgement is returned only after RabbitMQ confirms
+        the publication (DL-163, 6 Oct 2026). It does not guarantee that the Writer has
+        committed to PostgreSQL: a payload rejected by Writer may subsequently go to
+        the DLQ, and records outside retention may be skipped.
+
+        `PROVISIONAL` — `200` is the default; `202` is the only other value allowed by
+        `stats.input.endpoint.success-status`. Both return the same JSON body, whose
+        `traceId` matches `X-Trace-Id` and the AMQP correlation ID.
+      headers:
+        X-Trace-Id:
+          $ref: '#/components/headers/TraceId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/IngestAcknowledgement'
+          example:
+            status: accepted
+            traceId: 9fdc149d-1f12-48a8-b5b3-f57d8f9b4adc
 
     EnvelopeRejected:
       description: |

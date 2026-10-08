@@ -1,0 +1,860 @@
+{
+  "info": {
+    "_postman_id": "d261dd99-4be8-458c-b5c1-a4d207a30598",
+    "name": "Stats App — Complete Local Acceptance",
+    "description": "End-to-end verification of health, Keycloak authentication, both ingest doors, lorastats/sysstats/omsstats persistence and reads, RabbitMQ topology/consumers, and API failure contracts.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "if (!pm.environment.get(\"runId\")) {",
+          "  const runId = Date.now().toString(36) + \"-\" + Math.random().toString(16).slice(2, 10);",
+          "  pm.environment.set(\"runId\", runId);",
+          "  pm.environment.set(\"uidLora\", \"postman-lora-\" + runId);",
+          "  pm.environment.set(\"uidSys\", \"postman-sys-\" + runId);",
+          "  pm.environment.set(\"uidOms\", \"postman-oms-\" + runId);",
+          "  pm.environment.set(\"uidExternal\", \"postman-external-\" + runId);",
+          "}",
+          "const now = Math.floor(Date.now() / 1000);",
+          "pm.environment.set(\"nowEpoch\", now);",
+          "pm.environment.set(\"fromEpoch\", now - 120);",
+          "pm.environment.set(\"toEpoch\", now + 120);",
+          "pm.environment.set(\"expiresOn\", new Date((now + 86400) * 1000).toISOString());"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "1 — Health and authentication",
+      "item": [
+        {
+          "name": "Input readiness",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{inputBaseUrl}}/actuator/health/readiness"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Input is UP\", () => pm.expect(pm.response.json().status).to.eql(\"UP\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Writer readiness",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{writerBaseUrl}}/actuator/health/readiness"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Writer is UP\", () => pm.expect(pm.response.json().status).to.eql(\"UP\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "API readiness",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRootUrl}}/actuator/health/readiness"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"API is UP\", () => pm.expect(pm.response.json().status).to.eql(\"UP\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Authenticate alpha reader",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "client_id",
+                  "value": "{{devClientId}}",
+                  "type": "text"
+                },
+                {
+                  "key": "grant_type",
+                  "value": "password",
+                  "type": "text"
+                },
+                {
+                  "key": "username",
+                  "value": "{{alphaReaderUsername}}",
+                  "type": "text"
+                },
+                {
+                  "key": "password",
+                  "value": "{{alphaReaderPassword}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": "{{tokenUrl}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"token issued\", () => pm.response.to.have.status(200));",
+                  "const tokenBody = pm.response.json();",
+                  "pm.test(\"access token present\", () => pm.expect(tokenBody.access_token).to.be.a(\"string\").and.not.empty);",
+                  "pm.environment.set(\"alphaToken\", tokenBody.access_token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Authenticate no-role user",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "client_id",
+                  "value": "{{devClientId}}",
+                  "type": "text"
+                },
+                {
+                  "key": "grant_type",
+                  "value": "password",
+                  "type": "text"
+                },
+                {
+                  "key": "username",
+                  "value": "{{noRoleUsername}}",
+                  "type": "text"
+                },
+                {
+                  "key": "password",
+                  "value": "{{noRolePassword}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": "{{tokenUrl}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"token issued\", () => pm.response.to.have.status(200));",
+                  "const tokenBody = pm.response.json();",
+                  "pm.test(\"access token present\", () => pm.expect(tokenBody.access_token).to.be.a(\"string\").and.not.empty);",
+                  "pm.environment.set(\"noRoleToken\", tokenBody.access_token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Authenticate no-tenant user",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "client_id",
+                  "value": "{{devClientId}}",
+                  "type": "text"
+                },
+                {
+                  "key": "grant_type",
+                  "value": "password",
+                  "type": "text"
+                },
+                {
+                  "key": "username",
+                  "value": "{{noTenantUsername}}",
+                  "type": "text"
+                },
+                {
+                  "key": "password",
+                  "value": "{{noTenantPassword}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": "{{tokenUrl}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"token issued\", () => pm.response.to.have.status(200));",
+                  "const tokenBody = pm.response.json();",
+                  "pm.test(\"access token present\", () => pm.expect(tokenBody.access_token).to.be.a(\"string\").and.not.empty);",
+                  "pm.environment.set(\"noTenantToken\", tokenBody.access_token);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2 — Ingest all completed types",
+      "item": [
+        {
+          "name": "POST internal lorastats",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"uid\": \"{{uidLora}}\",\n  \"tenant\": \"{{tenantAlpha}}\",\n  \"maintenant\": \"tenant-alpha-operations\",\n  \"clsbox\": \"{{clsboxLora}}\",\n  \"type\": \"lorastats\",\n  \"version\": 1,\n  \"ts\": {\"server\": {{nowEpoch}}, \"datastore\": {{nowEpoch}}, \"converter\": {{nowEpoch}}, \"device\": {{nowEpoch}}, \"expiresOn\": \"{{expiresOn}}\"},\n  \"data\": {\"rx_nr_pkts\": 219, \"fsk_received\": 0, \"rx_crc_missing\": 0, \"rx_crc_bad\": 48, \"tx_peek_index_zero\": 0, \"tx_success\": 0, \"rx_short_pkt\": 166, \"timespan\": 1800, \"chip_comm_error\": 0, \"tx_failed\": 0, \"tx_override\": 0, \"util_fopen_failed\": 0, \"tx_peek\": 0, \"tx_type_beacon\": 0, \"tx_busy\": 0, \"tx_dequeue_error\": 0},\n  \"status\": [\"conversion ok\"]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{inputBaseUrl}}/internal/stats"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"publisher-confirmed acceptance\", () => pm.expect(pm.response.code).to.be.oneOf([200, 202]));",
+                  "pm.test(\"trace id returned\", () => pm.expect(pm.response.headers.get(\"X-Trace-Id\")).to.be.a(\"string\").and.not.empty);",
+                  "pm.test(\"accepted JSON acknowledgement\", () => { pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/json\"); pm.expect(pm.response.json().status).to.eql(\"accepted\"); });",
+                  "pm.test(\"body trace id matches response header\", () => pm.expect(pm.response.json().traceId).to.eql(pm.response.headers.get(\"X-Trace-Id\")));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST internal sysstats",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"uid\": \"{{uidSys}}\",\n  \"tenant\": \"{{tenantAlpha}}\",\n  \"maintenant\": \"tenant-alpha-operations\",\n  \"clsbox\": \"{{clsboxSys}}\",\n  \"type\": \"sysstats\",\n  \"version\": 1,\n  \"ts\": {\"server\": {{nowEpoch}}, \"datastore\": {{nowEpoch}}, \"converter\": {{nowEpoch}}, \"device\": {{nowEpoch}}, \"expiresOn\": \"{{expiresOn}}\"},\n  \"data\": {\"memfree\": 70916, \"idletime\": 780249.35, \"load5\": 0.69, \"runable\": \"1/85\", \"load1\": 0.6, \"uptime\": 2322716.22, \"load15\": 0.74},\n  \"status\": [\"conversion ok\"]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{inputBaseUrl}}/internal/stats"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"publisher-confirmed acceptance\", () => pm.expect(pm.response.code).to.be.oneOf([200, 202]));",
+                  "pm.test(\"trace id returned\", () => pm.expect(pm.response.headers.get(\"X-Trace-Id\")).to.be.a(\"string\").and.not.empty);",
+                  "pm.test(\"accepted JSON acknowledgement\", () => { pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/json\"); pm.expect(pm.response.json().status).to.eql(\"accepted\"); });",
+                  "pm.test(\"body trace id matches response header\", () => pm.expect(pm.response.json().traceId).to.eql(pm.response.headers.get(\"X-Trace-Id\")));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST internal omsstats",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"uid\": \"{{uidOms}}\",\n  \"tenant\": \"{{tenantAlpha}}\",\n  \"maintenant\": \"tenant-alpha-operations\",\n  \"clsbox\": \"{{clsboxOms}}\",\n  \"type\": \"omsstats\",\n  \"version\": 1,\n  \"ts\": {\"server\": {{nowEpoch}}, \"datastore\": {{nowEpoch}}, \"converter\": {{nowEpoch}}, \"device\": {{nowEpoch}}, \"expiresOn\": \"{{expiresOn}}\"},\n  \"data\": {\"rx_nr_pkts\": 663, \"rx_valid_nr_pkts\": 105, \"rx_crc_bad\": 528, \"timespan\": 1800, \"device_count\": 16},\n  \"status\": [\"conversion ok\"]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{inputBaseUrl}}/internal/stats"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"publisher-confirmed acceptance\", () => pm.expect(pm.response.code).to.be.oneOf([200, 202]));",
+                  "pm.test(\"trace id returned\", () => pm.expect(pm.response.headers.get(\"X-Trace-Id\")).to.be.a(\"string\").and.not.empty);",
+                  "pm.test(\"accepted JSON acknowledgement\", () => { pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/json\"); pm.expect(pm.response.json().status).to.eql(\"accepted\"); });",
+                  "pm.test(\"body trace id matches response header\", () => pm.expect(pm.response.json().traceId).to.eql(pm.response.headers.get(\"X-Trace-Id\")));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST external stats door",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"uid\": \"{{uidExternal}}\",\n  \"tenant\": \"{{tenantAlpha}}\",\n  \"maintenant\": \"tenant-alpha-operations\",\n  \"clsbox\": \"{{clsboxLora}}\",\n  \"type\": \"lorastats\",\n  \"version\": 1,\n  \"ts\": {\"server\": {{nowEpoch}}, \"datastore\": {{nowEpoch}}, \"converter\": {{nowEpoch}}, \"device\": {{nowEpoch}}, \"expiresOn\": \"{{expiresOn}}\"},\n  \"data\": {\"rx_nr_pkts\": 220, \"fsk_received\": 0, \"rx_crc_missing\": 0, \"rx_crc_bad\": 1, \"tx_peek_index_zero\": 0, \"tx_success\": 1, \"rx_short_pkt\": 2, \"timespan\": 1800, \"chip_comm_error\": 0, \"tx_failed\": 0, \"tx_override\": 0, \"util_fopen_failed\": 0, \"tx_peek\": 0, \"tx_type_beacon\": 0, \"tx_busy\": 0, \"tx_dequeue_error\": 0},\n  \"status\": [\"conversion ok\"]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{inputBaseUrl}}/external/stats"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"publisher-confirmed acceptance\", () => pm.expect(pm.response.code).to.be.oneOf([200, 202]));",
+                  "pm.test(\"trace id returned\", () => pm.expect(pm.response.headers.get(\"X-Trace-Id\")).to.be.a(\"string\").and.not.empty);",
+                  "pm.test(\"accepted JSON acknowledgement\", () => { pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/json\"); pm.expect(pm.response.json().status).to.eql(\"accepted\"); });",
+                  "pm.test(\"body trace id matches response header\", () => pm.expect(pm.response.json().traceId).to.eql(pm.response.headers.get(\"X-Trace-Id\")));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3 — Read API end to end",
+      "item": [
+        {
+          "name": "GET lorastats by uid (poll until Writer commits)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{alphaToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": "{{apiBaseUrl}}/stats/lorastats/{{uidLora}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const attempt = Number(pm.environment.get(\"pollLora\") || 0);",
+                  "if (pm.response.code === 404 && attempt < 12) {",
+                  "  pm.environment.set(\"pollLora\", attempt + 1);",
+                  "  postman.setNextRequest(pm.info.requestName);",
+                  "} else {",
+                  "  pm.environment.unset(\"pollLora\");",
+                  "  pm.test(\"lorastats persisted and readable\", () => {",
+                  "    pm.response.to.have.status(200);",
+                  "    pm.expect(pm.response.json().uid).to.eql(pm.environment.get(\"uidLora\"));",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET sysstats by uid (poll until Writer commits)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{alphaToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": "{{apiBaseUrl}}/stats/sysstats/{{uidSys}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const attempt = Number(pm.environment.get(\"pollSys\") || 0);",
+                  "if (pm.response.code === 404 && attempt < 12) {",
+                  "  pm.environment.set(\"pollSys\", attempt + 1);",
+                  "  postman.setNextRequest(pm.info.requestName);",
+                  "} else {",
+                  "  pm.environment.unset(\"pollSys\");",
+                  "  pm.test(\"sysstats persisted and readable\", () => {",
+                  "    pm.response.to.have.status(200);",
+                  "    pm.expect(pm.response.json().uid).to.eql(pm.environment.get(\"uidSys\"));",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET omsstats by uid (poll until Writer commits)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{alphaToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": "{{apiBaseUrl}}/stats/omsstats/{{uidOms}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const attempt = Number(pm.environment.get(\"pollOms\") || 0);",
+                  "if (pm.response.code === 404 && attempt < 12) {",
+                  "  pm.environment.set(\"pollOms\", attempt + 1);",
+                  "  postman.setNextRequest(pm.info.requestName);",
+                  "} else {",
+                  "  pm.environment.unset(\"pollOms\");",
+                  "  pm.test(\"omsstats persisted and readable\", () => {",
+                  "    pm.response.to.have.status(200);",
+                  "    pm.expect(pm.response.json().uid).to.eql(pm.environment.get(\"uidOms\"));",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET tenant-wide list",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{alphaToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": "{{apiBaseUrl}}/stats/omsstats?from={{fromEpoch}}&to={{toEpoch}}&limit=100"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const page = pm.response.json();",
+                  "pm.test(\"omsstats appears in tenant list\", () => pm.expect(page.items.map(x => x.uid)).to.include(pm.environment.get(\"uidOms\")));",
+                  "pm.test(\"page contract\", () => { pm.expect(page.items).to.be.an(\"array\"); pm.expect(page.limit).to.eql(100); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET device history from",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{alphaToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": "{{apiBaseUrl}}/stats/lorastats/{{clsboxLora}}/{{fromEpoch}}?limit=100"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"lorastats appears in device history\", () => pm.expect(pm.response.json().items.map(x => x.uid)).to.include(pm.environment.get(\"uidLora\")));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET bounded device history",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{alphaToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": "{{apiBaseUrl}}/stats/sysstats/{{clsboxSys}}/{{fromEpoch}}/{{toEpoch}}?limit=100"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"sysstats appears in bounded history\", () => pm.expect(pm.response.json().items.map(x => x.uid)).to.include(pm.environment.get(\"uidSys\")));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "4 — API security and errors",
+      "item": [
+        {
+          "name": "Anonymous read is rejected",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiBaseUrl}}/stats/lorastats?from={{fromEpoch}}&to={{toEpoch}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 401\", () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Caller without read role is forbidden",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{noRoleToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": "{{apiBaseUrl}}/stats/lorastats?from={{fromEpoch}}&to={{toEpoch}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 403\", () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Caller without tenant is forbidden",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{noTenantToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": "{{apiBaseUrl}}/stats/lorastats?from={{fromEpoch}}&to={{toEpoch}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 403\", () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Missing uid is tenant-safe 404",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{alphaToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": "{{apiBaseUrl}}/stats/lorastats/does-not-exist-1790665450394"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 404\", () => pm.response.to.have.status(404));",
+                  "pm.test(\"record_not_found contract\", () => pm.expect(pm.response.json().type).to.match(/record_not_found$/));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Unknown stat type is 400",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{alphaToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": "{{apiBaseUrl}}/stats/not-a-type?from={{fromEpoch}}&to={{toEpoch}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"unknown_stat_type contract\", () => pm.expect(pm.response.json().type).to.match(/unknown_stat_type$/));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Non-GET is 405 before authentication",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{apiBaseUrl}}/stats/lorastats"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 405\", () => pm.response.to.have.status(405));",
+                  "pm.test(\"method_not_allowed contract\", () => pm.expect(pm.response.json().type).to.match(/method_not_allowed$/));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "5 — RabbitMQ and Writer evidence",
+      "item": [
+        {
+          "name": "RabbitMQ queues, durability, and consumers",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{rabbitUsername}}",
+                  "type": "string"
+                },
+                {
+                  "key": "password",
+                  "value": "{{rabbitPassword}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": "{{rabbitBaseUrl}}/api/queues/%2F"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const queues = pm.response.json();",
+                  "const byName = Object.fromEntries(queues.map(q => [q.name, q]));",
+                  "const types = [\"lorastats\", \"sysstats\", \"omsstats\"];",
+                  "const expected = types.flatMap(type => [",
+                  "  \"app_statsstore.\" + type,",
+                  "  \"app_statsstore.\" + type + \".retry.1\",",
+                  "  \"app_statsstore.\" + type + \".retry.2\",",
+                  "  \"app_statsstore.\" + type + \".retry.3\",",
+                  "  \"app_statsstore.\" + type + \".dlq\"",
+                  "]);",
+                  "pm.test(\"all 15 queues exist\", () => expected.forEach(name => pm.expect(byName, name).to.have.property(name)));",
+                  "pm.test(\"all queues are durable quorum queues\", () => expected.forEach(name => { pm.expect(byName[name].durable, name).to.eql(true); pm.expect(byName[name].arguments[\"x-queue-type\"], name).to.eql(\"quorum\"); }));",
+                  "pm.test(\"each main queue has a consumer\", () => types.forEach(type => pm.expect(byName[\"app_statsstore.\" + type].consumers, type).to.be.above(0)));",
+                  "pm.test(\"main queues drained\", () => types.forEach(type => pm.expect(byName[\"app_statsstore.\" + type].messages, type).to.eql(0)));",
+                  "pm.test(\"DLQs stayed empty\", () => types.forEach(type => pm.expect(byName[\"app_statsstore.\" + type + \".dlq\"].messages, type).to.eql(0)));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Writer persistence metrics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{writerBaseUrl}}/actuator/prometheus"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const metrics = pm.response.text();",
+                  "[\"lorastats\", \"sysstats\", \"omsstats\"].forEach(type => {",
+                  "  pm.test(type + \" persisted counter is positive\", () => {",
+                  "    const match = metrics.match(new RegExp('records_persisted_total\\\\{[^}]*type=\"' + type + '\"[^}]*\\\\}\\\\s+([0-9.]+)'));",
+                  "    pm.expect(match, type + \" series\").not.to.eql(null);",
+                  "    pm.expect(Number(match[1]), type + \" count\").to.be.above(0);",
+                  "  });",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

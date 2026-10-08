@@ -17,6 +17,7 @@ import com.zenner.datahub.stats.common.model.StatType;
 import com.zenner.datahub.stats.input.ingest.IngestMetrics;
 import com.zenner.datahub.stats.input.publish.PublishOutcome;
 import com.zenner.datahub.stats.input.publish.StatsPublisher;
+import com.jayway.jsonpath.JsonPath;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.search.MeterNotFoundException;
 import java.io.IOException;
@@ -31,6 +32,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultMatcher;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 
 /**
@@ -57,14 +59,15 @@ class StatsIngestControllerTest {
     @MockitoBean private StatsPublisher publisher;
 
     @Test
-    @DisplayName("a confirmed publish returns the configured success status")
+    @DisplayName("a confirmed publish returns 200 with an accepted acknowledgement and matching trace ID")
     void confirmedPublishSucceeds() throws Exception {
         when(publisher.publish(eq(StatType.LORASTATS), any())).thenReturn(PublishOutcome.CONFIRMED);
         double acceptedBefore = counter(IngestMetrics.ACCEPTED);
         double converterBefore = counter(IngestMetrics.CONVERTER_TS_PRESENT);
 
         mockMvc.perform(postRecord("valid/lorastats-production-canonical.json"))
-                .andExpect(status().isOk());
+                .andExpect(status().isOk())
+                .andExpect(acceptedAcknowledgement());
 
         assertThat(counter(IngestMetrics.ACCEPTED) - acceptedBefore).isEqualTo(1.0d);
         // ADR-007 §2 — accepted, never read, metered (T-059).
@@ -81,7 +84,8 @@ class StatsIngestControllerTest {
 
         mockMvc.perform(postRecord("valid/lorastats-production-canonical.json"))
                 .andExpect(status().isServiceUnavailable())
-                .andExpect(content().contentTypeCompatibleWith("application/problem+json"));
+                .andExpect(content().contentTypeCompatibleWith("application/problem+json"))
+                .andExpect(jsonPath("$.status").value(503));
 
         assertThat(counter(IngestMetrics.PUBLISH_FAILED) - before).isEqualTo(1.0d);
         // T-050: the cycle histogram counts ACCEPTED records only. Heimdal resends after a
@@ -204,7 +208,8 @@ class StatsIngestControllerTest {
                         post("/external/stats")
                                 .contentType(MediaType.APPLICATION_JSON)
                                 .content(fixture("valid/lorastats-production-canonical.json")))
-                .andExpect(status().isOk());
+                .andExpect(status().isOk())
+                .andExpect(acceptedAcknowledgement());
         mockMvc.perform(
                         post("/external/stats")
                                 .contentType(MediaType.APPLICATION_JSON)
@@ -246,6 +251,18 @@ class StatsIngestControllerTest {
     private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder postRecord(
             String fixture) {
         return post("/internal/stats").contentType(MediaType.APPLICATION_JSON).content(fixture(fixture));
+    }
+
+    static ResultMatcher acceptedAcknowledgement() {
+        return result -> {
+            content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON).match(result);
+            jsonPath("$.status").value("accepted").match(result);
+            jsonPath("$.length()").value(2).match(result);
+            String traceId = result.getResponse().getHeader("X-Trace-Id");
+            assertThat(traceId).isNotBlank().isNotEqualTo("unknown");
+            String bodyTraceId = JsonPath.read(result.getResponse().getContentAsString(), "$.traceId");
+            assertThat(bodyTraceId).isEqualTo(traceId);
+        };
     }
 
     /**
