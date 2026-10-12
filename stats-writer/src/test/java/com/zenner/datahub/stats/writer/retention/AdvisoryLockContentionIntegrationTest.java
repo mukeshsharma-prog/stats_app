@@ -73,6 +73,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
             // The Spring context only applies the migrations and lends its container; the
             // two replicas below are built by hand so each owns its own pool.
             "stats.writer.stat-type=netstats",
+            "spring.rabbitmq.listener.simple.auto-startup=false",
             "stats.retention.schedule=-",
             "stats.retention.pre-create-on-startup=false"
         })

@@ -63,6 +63,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
         webEnvironment = SpringBootTest.WebEnvironment.NONE,
         properties = {
             "stats.writer.stat-type=netstats",
+            "spring.rabbitmq.listener.simple.auto-startup=false",
             "stats.retention.schedule=-",
             "stats.retention.pre-create-on-startup=false"
         })

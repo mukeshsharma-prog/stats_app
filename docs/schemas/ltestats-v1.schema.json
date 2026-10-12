@@ -23,6 +23,10 @@
       "title": "measured",
       "type": "object",
       "required": ["rssi", "access_Technology", "operator", "plmn", "imsi", "lac", "cid"],
+      "not": {
+        "required": ["etxt"],
+        "properties": {"etxt": {}}
+      },
       "properties": {
         "rssi": { "$ref": "#/$defs/signedNumericString" },
         "rsrp": {
@@ -65,7 +69,7 @@
     "signedNumericString": {
       "type": "string",
       "pattern": "^-?(0|[1-9][0-9]{0,18})$",
-      "$comment": "Signal values are STRINGS on the wire - production sends \"rssi\": \"-67\", not -67. Constrained to an optionally-signed integer so a non-numeric value dead-letters at the Writer rather than failing a cast at query time. The Writer parses to INTEGER and MUST range-check before conversion."
+      "$comment": "Signal values are STRINGS on the wire - production sends \"rssi\": \"-67\", not -67. Constrained to an optionally-signed integer so a non-numeric value dead-letters at the Writer rather than failing a cast at query time. The Writer parses to BIGINT and MUST range-check before conversion."
     },
     "unsignedNumericString": {
       "type": "string",

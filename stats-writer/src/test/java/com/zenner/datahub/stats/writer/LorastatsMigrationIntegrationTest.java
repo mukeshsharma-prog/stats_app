@@ -25,6 +25,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
         webEnvironment = SpringBootTest.WebEnvironment.NONE,
         properties = {
             "stats.writer.stat-type=netstats",
+            "spring.rabbitmq.listener.simple.auto-startup=false",
             "stats.retention.schedule=-",
             // These tests create and drop their own partitions on fixed far-future
             // days. The startup pre-creation is exercised by

@@ -7,16 +7,12 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * The stat types this API can read, and the ones it cannot yet.
+ * Per-type row readers registered by the API.
  *
- * <p>Three of the five types have a table: {@code lorastats}, {@code sysstats},
- * {@code omsstats}. {@code ltestats} (T-034, blocked on D-12 P3) and {@code netstats}
- * (T-037) have none. The contract admits all five, so a read of an unbuilt type is not
- * {@code unknown_stat_type}: it is a valid question with nothing stored to answer it —
- * an empty page, and a 404 for a {@code uid} — which is literally true of the database.
- * {@code StatReadersCoverEveryTableTest} is what stops that answer outliving the reason
- * for it: the migration that creates a type's table fails the build until its reader is
- * registered here (DL-162).</p>
+ * <p>All five types have tables: {@code lorastats}, {@code sysstats},
+ * {@code omsstats}, {@code ltestats} and {@code netstats}. Each migrated table
+ * has its own reader; the table coverage test guards that pairing. Missing
+ * readers still return an empty result to callers of this registry.
  */
 public final class StatReaders {
 

@@ -60,8 +60,8 @@ class StatsEnvelopeFixtureTest {
      * rather than wrap it, or the Writer's range check would have nothing to refuse.</p>
      */
     @Test
-    void expandsTheValidDirectoryToFortySevenRecords() {
-        assertThat(validRecords()).hasSize(47);
+    void expandsTheValidDirectoryToFiftyTwoRecords() {
+        assertThat(validRecords()).hasSize(52);
     }
 
     static List<Arguments> validRecords() {

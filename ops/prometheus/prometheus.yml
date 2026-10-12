@@ -1,4 +1,4 @@
-# Prometheus for the Compose `observability` profile (T-051, T-056).
+# Prometheus for the Compose application stack (T-051, T-056).
 #
 # Scrapes the three modules' /actuator/prometheus and postgres_exporter, and evaluates
 # every rule file in this directory. Targets are the Compose service names; on any other
@@ -21,9 +21,8 @@ scrape_configs:
     metrics_path: /actuator/prometheus
     static_configs:
       - targets: ["stats-writer:8082"]
-  # Reads DOWN (401): T-038 kept /actuator/prometheus behind the bearer token
-  # (ApiSecurityConfiguration) and recorded scrape access as a residual (DL-162). Nothing
-  # reads a stats-api series yet; the first panel or rule that does must decide it.
+  # The local Compose API explicitly enables its metrics-only scrape exception.
+  # Other deployments must supply scrape authentication or enable a private endpoint.
   - job_name: stats-api
     metrics_path: /actuator/prometheus
     static_configs:

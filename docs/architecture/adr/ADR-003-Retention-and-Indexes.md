@@ -601,3 +601,13 @@ Load tests must measure write throughput at 267 rows/sec/type and at the
 unconfirmed burst rate (Q13a), query latency with partition pruning, partition
 drop lag, vacuum behaviour, table and index growth, and recovery after a database
 outage.
+
+
+### Implementation clarification — netstats interface counters (8 October 2026, DL-164)
+
+V9 stores the dynamic interface map in `interfaces JSONB`. Known counters on **every**
+interface are checked with `WireNumbers` against signed BIGINT range before conversion
+and stored as exact JSON integers. The reader converts those members back to decimal
+strings without a floating-point step. Top-level `timespan` has its own BIGINT column;
+unknown nested interface members remain unchanged and non-interface root members use
+`data_extra`. This implements the D2 hybrid mapping without fixed columns per interface.

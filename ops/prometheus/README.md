@@ -12,10 +12,39 @@ property that pretends to configure an external evaluator.
 | `writer-alerts.yml` | T-050 (DL-147), T-054 (DL-156) | `queue_oldest_message_age_seconds`, `consumer_availability`, `queue_depth` + `records_consumed`, `broker_metrics_collection_success`, `records_expired_on_arrival`, `records_upstream_status_not_ok`, `retention_last_sweep_timestamp_seconds` + `process_uptime_seconds` |
 | `postgres-alerts.yml` | T-051 (DL-155) | `pg_stat_archiver_failed_count`, `pg_stat_archiver_last_archive_age`, `pg_settings_archive_mode`, `pg_up` — the WAL archiver, i.e. whether RPO ≤ 5 min (ADR-003 D5, DL-111) is actually being met |
 
-`prometheus.yml` is the scrape configuration the Compose `observability` profile mounts
-(`docker compose --profile apps --profile observability up -d`): the three modules and
-`postgres_exporter`, evaluating all three rule files. On any other deployment replace the
-static targets and keep the rules.
+`prometheus.yml` is mounted automatically with the Compose `apps` profile:
+
+```bash
+./docker/start-stats-app.sh
+# Or, from the repository root:
+docker compose -p stats-app-bundle --env-file .env -f docker/docker-compose.yml --profile apps up -d --build
+./docker/check-monitoring.sh
+```
+
+Prometheus and the PostgreSQL exporter share the application project's network.
+Prometheus waits for all three applications and the exporter to be healthy; the
+startup script also waits for all four `up` samples and `pg_up` to equal 1.
+Use the same project name for the complete stack. Starting Prometheus under a
+different project puts it on a different default network and its service names
+will not resolve. Never delete data volumes to repair this network mismatch.
+
+| Service | Browser URL | Container scrape URL |
+|---|---|---|
+| Prometheus targets | http://localhost:9090/targets | — |
+| Input | http://localhost:8081/actuator/prometheus | http://stats-input:8081/actuator/prometheus |
+| Writer | http://localhost:8082/actuator/prometheus | http://stats-writer:8082/actuator/prometheus |
+| Read API | http://localhost:8083/actuator/prometheus | http://stats-api:8083/actuator/prometheus |
+| PostgreSQL | http://localhost:9187/metrics | http://postgres-exporter:9187/metrics |
+
+Scrapes run every 15 seconds; all three rule files are loaded automatically.
+The local Compose API explicitly enables `stats.security.prometheus-public-access`
+for its metrics endpoint only. Outside this local configuration the default is
+false and metrics still require a bearer token. `/v1/**` keeps its existing JWT,
+role and tenant checks, and `/actuator/info` remains authenticated.
+
+Grafana is optional: add `--profile observability` to the same project's startup
+command and open http://localhost:3000. On other deployments replace the static
+targets and configure scrape access for that environment; keep the rules.
 
 Every rule aggregates replica observations with `max by (type)` — each Writer replica
 polls the same broker queue (DL-137) — or sums per-replica counters, which are genuinely

@@ -13,7 +13,18 @@ public final class PostgresSupport {
     public static final String IMAGE = "postgres:17-alpine";
 
     private static final PostgreSQLContainer<?> CONTAINER =
-            new PostgreSQLContainer<>(DockerImageName.parse(IMAGE));
+            new JvmPostgresContainer();
+
+    private static final class JvmPostgresContainer extends PostgreSQLContainer<JvmPostgresContainer> {
+        private JvmPostgresContainer() {
+            super(DockerImageName.parse(PostgresSupport.IMAGE));
+        }
+
+        // Boot calls close on context destruction even with destroyMethod="".
+        // Other cached contexts still use this JVM singleton; Ryuk owns cleanup.
+        @Override
+        public void close() {}
+    }
 
     static {
         // Class initialization gives every consumer in this JVM the same real database.

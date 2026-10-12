@@ -1,4 +1,10 @@
-2# Stats App — Status and Implementation Plan
+# Stats App — Status and Implementation Plan
+
+**Implementation update — 8 October 2026 (DL-164):** T-034 and T-037 software slices
+are implemented for local development, including Writer, V8/V9 and secured reads.
+D-12 P3 still gates LTE merge/shared release; Q15g still requires upstream netstats
+confirmation. The dated fan-out ordering below is historical. Current acceptance
+and delivery evidence lives in `LTE_NETSTATS_IMPLEMENTATION_PLAN.md`.
 
 **Owner:** Naman (SSE) · **Date:** 18 August 2026, last updated 21 September 2026 · **Status:** working document
 

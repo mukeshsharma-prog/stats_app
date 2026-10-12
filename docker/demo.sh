@@ -10,7 +10,7 @@
 # step 10 stops RabbitMQ.
 #
 # Two local gotchas this script works around on purpose (DEVELOPMENT.md §3.2):
-#   * psql goes through `docker exec stats-postgres` — a host PostgreSQL on 5432 would
+#   * psql goes through `docker exec "$POSTGRES_CONTAINER"` — a host PostgreSQL on 5432 would
 #     otherwise shadow the container's port mapping.
 #   * .env is read key by key, not `source`d — an unquoted value with a "(" aborts a
 #     `source` in bash and zsh, and everything after it stays unexported.
@@ -18,19 +18,25 @@ set -u
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FX="$REPO/docs/schemas/fixtures"
 # Heimdal's door. /external/stats is the same handler for callers that are not Heimdal (DL-151).
-IN=http://localhost:8081/internal/stats
-WR=http://localhost:8082/actuator/prometheus
-API=http://localhost:8083
-KC=http://localhost:8080
+INPUT_BASE_URL=${INPUT_BASE_URL:-http://localhost:8081}
+WRITER_BASE_URL=${WRITER_BASE_URL:-http://localhost:8082}
+IN="$INPUT_BASE_URL/internal/stats"
+WR="$WRITER_BASE_URL/actuator/prometheus"
+API=${API_BASE_URL:-http://localhost:8083}
+KC=${KEYCLOAK_BASE_URL:-http://localhost:8080}
+DEMO_ENV_FILE=${DEMO_ENV_FILE:-$REPO/.env}
+POSTGRES_CONTAINER=${POSTGRES_CONTAINER:-stats-postgres}
+RABBITMQ_CONTAINER=${RABBITMQ_CONTAINER:-stats-rabbitmq}
+WRITER_CONTAINER=${WRITER_CONTAINER:-stats-writer}
 BODY="$(mktemp)"; trap 'rm -f "$BODY"' EXIT
 
-envv() { grep -E "^$1=" "$REPO/.env" | head -1 | cut -d= -f2- | sed -E "s/^'(.*)'$/\1/"; }
+envv() { grep -E "^$1=" "$DEMO_ENV_FILE" | head -1 | cut -d= -f2- | sed -E "s/^'(.*)'$/\1/"; }
 for v in STATS_NO_ROLE_PASSWORD STATS_NO_TENANT_PASSWORD STATS_ALPHA_READER_PASSWORD; do export "$v=$(envv "$v")"; done
 
 hr()     { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
-psq()    { docker exec stats-postgres psql -U stats -d statsdb -Atc "$1"; }
+psq()    { docker exec "$POSTGRES_CONTAINER" psql -U stats -d statsdb -Atc "$1"; }
 metric() { curl -s "$WR" | grep -E "^$1" || echo "(no series yet for $1)"; }
-dlq()    { docker exec stats-rabbitmq rabbitmqctl list_queues name messages 2>/dev/null | awk -v q="app_statsstore.$1.dlq" '$1==q{print $2}'; }
+dlq()    { docker exec "$RABBITMQ_CONTAINER" rabbitmqctl list_queues name messages 2>/dev/null | awk -v q="app_statsstore.$1.dlq" '$1==q{print $2}'; }
 # Fixtures carry $expect/$comment markers for the CI gate (validate-fixtures.py); the
 # wire record is the fixture without them.
 rec()    { jq -c 'del(.["$expect"], .["$expectCode"], .["$comment"])' "$1"; }
@@ -49,17 +55,24 @@ postnow() { rec "$1" | jq -c --argjson now "$NOW" '.ts.server=$now | .ts.device=
 postold() { rec "$1" | jq -c --argjson now "$NOW" --argjson d "$2" '.uid=(.uid+"-late-"+($d|tostring)) | .ts.server=$now | .ts.device=($now - $d*86400) | .ts.datastore=$now | .ts.converter=$now' | send; }
 
 hr "0. Three modules and three infrastructure services are up"
-for p in 8081:input 8082:writer 8083:api; do printf '  %-7s %s\n' "${p#*:}" "$(curl -s "http://localhost:${p%:*}/actuator/health" | jq -r .status)"; done
+for base in "$INPUT_BASE_URL" "$WRITER_BASE_URL" "$API"; do printf '  %s %s\n' "$base" "$(curl -s "$base/actuator/health" | jq -r .status)"; done
 docker ps --format '  {{.Names}}: {{.Status}}' | grep -E 'stats-(postgres|rabbitmq|keycloak)'
 echo "  partitioned tables: $(psq "select string_agg(relname, ', ' order by relname) from pg_class where relkind='p'")"
 echo "  lorastats partitions: $(psq "select min(relname)||' .. '||max(relname)||' ('||count(*)||')' from pg_class where relname ~ '^lorastats_[0-9_]+$'")"
 
-hr "1. Happy path — sysstats (T-035), omsstats (T-036, ts.converter preserved, never applied) and two lorastats dialects. 2xx ONLY after publisher confirm (rule 8)"
+hr "1. Happy path — all five stat types, including LTE degraded states and network interfaces. 2xx ONLY after publisher confirm (rule 8)"
 postnow "$FX/valid/sysstats-production-minimal.json"
 postnow "$FX/valid/omsstats-production.json"          # ts.converter on every record: stored in passthrough, no normalisation (ADR-004)
 postnow "$FX/valid/lorastats-production-canonical.json"
 postnow "$FX/valid/lorastats-dialect-prefixed.json"     # dialect C -> the SAME row shape (DL-127)
+postnow "$FX/valid/ltestats-live-2026-10-09.json"
+postnow "$FX/valid/ltestats-production-2g-no-rsrp.json"
+postnow "$FX/valid/ltestats-production-unknown-technology.json"
+postnow "$FX/valid/netstats-live-2026-10-09.json"
+postnow "$FX/valid/netstats-production-wwan-down.json"
+postnow "$FX/valid/netstats-extra-interface.json"
 sleep 3
+echo "  new rows: $(psq "select 'ltestats='||count(*) from ltestats") $(psq "select 'netstats='||count(*) from netstats")"
 echo "  rows:  $(psq "select 'sysstats='||count(*) from sysstats")  $(psq "select 'omsstats='||count(*) from omsstats")  $(psq "select 'lorastats='||count(*) from lorastats")"
 psq "select type, clsbox, tenant, to_char(ts_device,'YYYY-MM-DD HH24:MI:SS') ts_device, tableoid::regclass partition from (select 'sysstats' type, clsbox, tenant, ts_device, tableoid from sysstats union all select 'omsstats', clsbox, tenant, ts_device, tableoid from omsstats union all select 'lorastats', clsbox, tenant, ts_device, tableoid from lorastats) t order by 1, 4 desc limit 8" | sed 's/^/  /'
 psq "select 'omsstats passthrough: '||(passthrough->'ts')::text from omsstats order by ts_device desc limit 1" | sed 's/^/  /'
@@ -90,13 +103,13 @@ post "$FX/invalid/lorastats-dialect-unknown.json"      # a fourth dialect: the e
 sleep 6
 echo "  lorastats DLQ depth before: $before  after: $(dlq lorastats)   (tiers skipped: attempt=1, permanent=true)"
 metric 'records_payload_rejected_total'
-docker logs stats-writer --since 30s 2>&1 | grep '"event":"payload_rejected"' | tail -1 | jq -c '{event,reason,statType,uid,traceId}' | sed 's/^/  writer log: /'
+docker logs "$WRITER_CONTAINER" --since 30s 2>&1 | grep '"event":"payload_rejected"' | tail -1 | jq -c '{event,reason,statType,uid,traceId}' | sed 's/^/  writer log: /'
 
 hr "6. Late arrival -> 2xx, SKIPPED, metered, ACKed — never dead-lettered (rule 11, D5b, DL-133)"
 post "$FX/edge/sysstats-late-arrival.json"             # ts.device past the 90-day window
 sleep 3
 metric 'records_expired_on_arrival_total'
-docker logs stats-writer --since 30s 2>&1 | grep '"event":"expired_on_arrival"' | tail -1 | jq -c '{event,statType,uid,ageDays,retentionDays}' | sed 's/^/  writer log: /'
+docker logs "$WRITER_CONTAINER" --since 30s 2>&1 | grep '"event":"expired_on_arrival"' | tail -1 | jq -c '{event,statType,uid,ageDays,retentionDays}' | sed 's/^/  writer log: /'
 echo "  sysstats rows still: $(psq 'select count(*) from sysstats')   sysstats DLQ depth: $(dlq sysstats)"
 
 hr "7. Non-OK upstream status -> stored + metered + WARN, never dead-lettered (DL-128)"
@@ -108,17 +121,36 @@ hr "8. What ops watches (T-027 / T-050) — polled and cached; a failed poll is 
 curl -s "$WR" | grep -E '^(queue_depth|dlq_depth|queue_oldest_message_age_seconds|consumer_availability|broker_metrics_collection_success)' | sed 's/^/  /'
 
 hr "9. Security at both ends: stats_ro cannot write (rule 2, PostgreSQL 42501); the API is 401 without a token (ADR-006)"
-docker exec stats-postgres psql -U stats_ro -d statsdb -c "insert into sysstats (uid) values ('x')" 2>&1 | sed 's/^/  /'
+docker exec "$POSTGRES_CONTAINER" psql -U stats_ro -d statsdb -c "insert into sysstats (uid) values ('x')" 2>&1 | sed 's/^/  /'
 tok() { curl -s -X POST "$KC/realms/statsapp/protocol/openid-connect/token" -d client_id=stats-dev-cli -d grant_type=password -d "username=$1" -d "password=$2" | jq -r .access_token; }
 printf '  anonymous     -> %s\n' "$(curl -s -o /dev/null -w '%{http_code}' "$API/v1/stats/lorastats")"
-printf '  alpha-reader  -> %s   (role/tenant enforcement is T-038 and GET /v1/stats/{type} is Phase 4: an authenticated caller gets 404 today)\n' \
-  "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $(tok alpha-reader "$STATS_ALPHA_READER_PASSWORD")" "$API/v1/stats/lorastats")"
+token=$(tok "$(envv STATS_ALPHA_READER_USERNAME)" "$STATS_ALPHA_READER_PASSWORD")
+for type in lorastats sysstats omsstats ltestats netstats; do
+  printf '  alpha-reader %s -> %s\n' "$type" \
+    "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $token" "$API/v1/stats/$type?from=$((NOW-120))&to=$((NOW+1))")"
+done
 
 hr "10. Broker down -> 503, NOT 200 (a 200 is a promise). Then the broker comes back."
-docker stop stats-rabbitmq >/dev/null; sleep 2
+docker stop "$RABBITMQ_CONTAINER" >/dev/null; sleep 2
 postnow "$FX/valid/sysstats-production-minimal.json"
-docker start stats-rabbitmq >/dev/null
-printf '  waiting for RabbitMQ'; until docker exec stats-rabbitmq rabbitmq-diagnostics -q check_running >/dev/null 2>&1; do printf '.'; sleep 2; done; sleep 5; echo
+postnow "$FX/valid/ltestats-live-2026-10-09.json"
+postnow "$FX/valid/netstats-live-2026-10-09.json"
+docker start "$RABBITMQ_CONTAINER" >/dev/null
+printf '  waiting for RabbitMQ'
+recovery_deadline=$((SECONDS+90))
+until docker exec "$RABBITMQ_CONTAINER" rabbitmq-diagnostics -q check_running >/dev/null 2>&1; do
+  [[ $SECONDS -lt $recovery_deadline ]] || { echo ' broker recovery timed out'; exit 1; }
+  printf '.'; sleep 2
+done
+# Docker DNS can retain a negative lookup after a stopped broker. Wait for Input's
+# actual broker health rather than assuming a fixed sleep means publishing works.
+until [[ $(curl --max-time 10 -s "$INPUT_BASE_URL/actuator/health" | jq -r .status) == UP ]]; do
+  [[ $SECONDS -lt $recovery_deadline ]] || { echo ' Input recovery timed out'; exit 1; }
+  printf '.'; sleep 2
+done
+echo
 postnow "$FX/valid/sysstats-production-minimal.json"
+postnow "$FX/valid/ltestats-live-2026-10-09.json"
+postnow "$FX/valid/netstats-live-2026-10-09.json"
 
 echo; echo "Done.  RabbitMQ UI http://localhost:15672   Keycloak http://localhost:8080   Writer metrics $WR"

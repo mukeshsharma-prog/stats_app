@@ -1,5 +1,12 @@
 # CLAUDE.md
 
+**Version 1.29 — 8 October 2026 (DL-164).** LTE and netstats now have complete
+consumer/writer/migration/reader slices, V8/V9, per-type tests and all-five Postman
+coverage. This supersedes older “unbuilt” statements below. LTE follows the current
+string-identifier contract for local development; D-12 P3 still gates merge/shared
+release, and Q15g remains outstanding for the actual netstats feed. No masking policy
+has been inferred. See `LTE_NETSTATS_IMPLEMENTATION_PLAN.md` for verification evidence.
+
 Project context for AI-assisted development on the **Stats App**.
 This file lives in `claude/` together with every other working document.
 It is still auto-loaded every session: the repository-root `CLAUDE.md` is a

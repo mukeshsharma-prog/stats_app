@@ -46,7 +46,7 @@ public final class ApiDatabase {
     public static final String READ_ONLY = "stats_ro";
     public static final String READ_ONLY_PASSWORD = "reader-test-password";
 
-    private static final Set<String> JSONB = Set.of("passthrough", "data_extra");
+    private static final Set<String> JSONB = Set.of("passthrough", "data_extra", "interfaces");
     private static final DateTimeFormatter PARTITION_DAY = DateTimeFormatter.ofPattern("uuuu_MM_dd");
 
     private static final PostgreSQLContainer<?> POSTGRES =

@@ -1,0 +1,49 @@
+{
+  "uid": "CLSCON-netstats-counter-bigint-overflow",
+  "tenant": "mzc",
+  "maintenant": "mzc",
+  "clsbox": "04B648110442",
+  "type": "netstats",
+  "version": 1,
+  "ts": {
+    "server": 1787833537,
+    "datastore": 1787833537,
+    "converter": 1787833537,
+    "device": 1787833537,
+    "expiresOn": "2026-08-27T12:25:37.904Z"
+  },
+  "data": {
+    "eth0": {
+      "apipa": "169.254.246.133",
+      "gw": "192.168.178.1",
+      "tx": "9223372036854775808",
+      "rx": "7063729",
+      "ip": "192.168.178.11",
+      "dns": [
+        "192.168.178.1"
+      ],
+      "mask": "255.255.255.0"
+    },
+    "wwan": {
+      "gw": "10.64.63.248",
+      "driver": "qmi",
+      "tx": "17528",
+      "rx": "17528",
+      "ip": "10.64.63.247",
+      "dns": [
+        "62.109.121.17",
+        "62.109.121.18"
+      ],
+      "fail_count": "0",
+      "mask": "255.255.255.240",
+      "mtu": "1476"
+    },
+    "timespan": 3600
+  },
+  "status": [
+    "conversion ok"
+  ],
+  "$comment": "Production record, 29 Aug 2026, UNMODIFIED. Both interfaces up and fully addressed, carrying the production-only interface fields driver, mtu and fail_count. NOTE: production sends tenant == maintenant == \"mzc\", which is exactly the trap in claude/CLAUDE.md \u00a76. This fixture is kept byte-faithful because its job is to be a production regression guard; it is NOT an isolation test. The *-tenant-isolation-pair.json fixtures, where the two values deliberately differ, remain the only isolation guards.",
+  "$expect": "writer-range-reject",
+  "$expectCode": "bigint_overflow"
+}

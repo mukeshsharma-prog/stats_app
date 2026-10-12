@@ -1,12 +1,13 @@
 # Stats App — local development stack.
 #
 #   docker compose up -d                       infrastructure only (the default)
-#   docker compose --profile apps up -d        infrastructure + all three modules
+#   docker compose --profile apps up -d        infrastructure + all three modules + monitoring
 #
 # The default is infrastructure only, because the documented development loop
 # (claude/DEVELOPMENT.md §3.3) runs the modules with ./gradlew bootRun so you get
 # a debugger and hot restart. The `apps` profile is for end-to-end checks and for
-# anyone who wants the whole system with one command.
+# anyone who wants the whole system with one command. Prometheus and the
+# PostgreSQL exporter start with that profile and share its project network.
 #
 # RabbitMQ, PostgreSQL and Keycloak are INFRASTRUCTURE DEPENDENCIES, not Stats App
 # deployables (CLAUDE.md §1). Only the three services under the `apps` profile are
@@ -134,7 +135,7 @@ services:
 
   # === Module 1 — Input: HTTP POST -> AMQP ===================================
   stats-input:
-    profiles: ["apps"]
+    profiles: ["apps", "observability"]
     build:
       context: ..
       dockerfile: docker/Dockerfile
@@ -169,7 +170,7 @@ services:
   # === Module 2 — Writer: AMQP -> PostgreSQL =================================
   # The only component with database write access (rule 2, STA-32).
   stats-writer:
-    profiles: ["apps"]
+    profiles: ["apps", "observability"]
     build:
       context: ..
       dockerfile: docker/Dockerfile
@@ -205,7 +206,7 @@ services:
   # No broker connection, deliberately — Q3a. Give this module a RabbitMQ
   # dependency and you have contradicted the open question, not answered it.
   stats-api:
-    profiles: ["apps"]
+    profiles: ["apps", "observability"]
     build:
       context: ..
       dockerfile: docker/Dockerfile
@@ -229,6 +230,8 @@ services:
       #
       # In production, leave this unset — discovery from the real HTTPS issuer is
       # correct and one less thing to keep in sync.
+      # Local metrics scraping only; /v1/** still requires the read role and tenant.
+      STATS_SECURITY_PROMETHEUS_PUBLIC_ACCESS: "true"
       SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI: http://keycloak:8080/realms/statsapp/protocol/openid-connect/certs
     ports:
       - "8083:8083"
@@ -288,15 +291,12 @@ services:
       rabbitmq:
         condition: service_healthy
 
-  # === Observability — `observability` profile ===============================
-  # Not Stats App deployables and not needed to run the stack: a Prometheus that
-  # scrapes the three modules and the PostgreSQL exporter, evaluating the rule files
-  # in ops/prometheus, and a Grafana with ops/grafana provisioned (T-056). The exporter
-  # is what makes the archiver alert in postgres-alerts.yml evaluable at all (T-051).
-  #
-  #   docker compose --profile apps --profile observability up -d
+  # === Monitoring — starts with applications =================================
+  # The apps profile includes Prometheus and the PostgreSQL exporter. Dependencies
+  # ensure all four scrape targets exist on this project's default network.
+  # Grafana is optional: add --profile observability to enable its dashboards.
   postgres-exporter:
-    profiles: ["observability"]
+    profiles: ["apps", "observability"]
     image: quay.io/prometheuscommunity/postgres-exporter:v0.17.1
     container_name: stats-postgres-exporter
     restart: unless-stopped
@@ -326,11 +326,17 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:9187/metrics | grep -q '^pg_up 1$$'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
     ports:
       - "9187:9187"
 
   prometheus:
-    profiles: ["observability"]
+    profiles: ["apps", "observability"]
     image: prom/prometheus:v3.5.0
     container_name: stats-prometheus
     restart: unless-stopped
@@ -341,6 +347,21 @@ services:
       - ../ops/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ../ops/prometheus:/etc/prometheus/rules:ro
       - prometheus-data:/prometheus
+    depends_on:
+      stats-input:
+        condition: service_healthy
+      stats-writer:
+        condition: service_healthy
+      stats-api:
+        condition: service_healthy
+      postgres-exporter:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9090/-/ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
     ports:
       - "9090:9090"
 

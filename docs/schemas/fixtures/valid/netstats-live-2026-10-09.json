@@ -1,0 +1,44 @@
+{
+  "uid": "LIVE-SHAPE-NETSTATS-20261009",
+  "tenant": "tenant-alpha",
+  "maintenant": "tenant-alpha-operations",
+  "clsbox": "04B64810652B",
+  "type": "netstats",
+  "version": 1,
+  "ts": {
+    "server": 1791547200,
+    "datastore": 1791547200,
+    "converter": 1791547200,
+    "device": 1791547200
+  },
+  "data": {
+    "eth0": {
+      "gw": "192.0.2.1",
+      "tx": "1822509",
+      "rx": "7063729",
+      "ip": "192.0.2.10",
+      "dns": [
+        "192.0.2.53"
+      ],
+      "mask": "255.255.255.0"
+    },
+    "wwan": {
+      "gw": "198.51.100.1",
+      "driver": "qmi",
+      "tx": "17528",
+      "rx": "17528",
+      "ip": "198.51.100.2",
+      "dns": [
+        "203.0.113.53",
+        "203.0.113.54"
+      ],
+      "mask": "255.255.255.240",
+      "mtu": "1476"
+    },
+    "timespan": 3600
+  },
+  "status": [
+    "conversion ok"
+  ],
+  "$comment": "Sanitized representative of the 1,000-record live netstats export supplied 9 October 2026. Exact observed data keys and JSON types; identifiers, addresses and values are synthetic. All records have eth0 with gw/tx/rx/ip/dns/mask and wwan with those fields plus driver/mtu. Counters and mtu are strings; timespan is an integer. No apipa, fail_count or extra interface in this export; older valid fixtures retain coverage for these optional fields."
+}

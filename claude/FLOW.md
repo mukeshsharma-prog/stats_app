@@ -1,5 +1,11 @@
 # Stats App — Execution Flow
 
+**8 October 2026 update (DL-164):** all five types now complete the same confirmed
+Input → dedicated listener → validated, committed row → tenant-scoped API path.
+LTE uses nullable measured columns or an `etxt`-only row; netstats uses checked
+integer counters in an interface JSONB map. Older three-type status descriptions
+below record earlier milestones. D-12 P3 and Q15g remain release/feed gates.
+
 How a record actually travels, step by step, from the Heimdal Core to an
 API response — and what happens at each point where it can fail.
 

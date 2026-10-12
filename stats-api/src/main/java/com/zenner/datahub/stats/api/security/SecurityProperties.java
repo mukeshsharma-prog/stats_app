@@ -15,9 +15,10 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  *
  * @param readRole the Keycloak realm role required on every read ({@code stats.readOnly})
  * @param tenantClaim the token claim holding the caller's single tenant ({@code tenant})
+ * @param prometheusPublicAccess whether the local scraper can access only the metrics endpoint
  */
 @ConfigurationProperties(prefix = "stats.security")
-public record SecurityProperties(String readRole, String tenantClaim) {
+public record SecurityProperties(String readRole, String tenantClaim, boolean prometheusPublicAccess) {
 
     public SecurityProperties {
         requireText(readRole, "stats.security.read-role");

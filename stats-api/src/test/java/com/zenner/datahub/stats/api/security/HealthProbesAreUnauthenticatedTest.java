@@ -14,7 +14,8 @@ import org.springframework.test.web.servlet.MockMvc;
 
 /**
  * D13, D-10: the container health-checks {@code /actuator/health/readiness}, so the two
- * probe groups must answer without a token — and <em>only</em> they may.
+ * probe groups must answer without a token. In the default configuration only
+ * health is public; PrometheusScrapeAccessIntegrationTest covers the explicit local exception.
  *
  * <p>The second half is the one that matters for ADR-006. A carve-out written as
  * {@code /actuator/**} would expose {@code /actuator/prometheus} and every future

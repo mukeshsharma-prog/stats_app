@@ -41,3 +41,25 @@ docker compose --profile apps up -d          # the stack, from the repository's 
 ops/drills/t054-advisory-lock-contention.sh   # ~80 s; two extra Writer containers, removed afterwards
 ops/drills/t049-replay.sh                     # ~4 min; ~120k rows written; Prometheus on :9090 for the no-alert assertion
 ```
+
+
+## LTE/netstats verification — 8 October 2026
+
+`lte-netstats-smoke.py` exercises both new types on the disposable
+`stats-lte-netstats-verification` project only. It expects `/tmp/stats-lte-netstats-verification/.env`,
+ports 18062/18072/18080–18083 and the `ltecheck-*` container names. It verifies
+permanent DLQs with unchanged payloads, expiry counters, database-outage retry and
+recovery, replay, a graceful Writer restart, and the redrive CLI with temporary
+single-type operator identities. It deliberately stops **only** that project's
+database/Writer and removes the operator identities afterwards. Never point it at
+a shared stack. The staged environment file is credential-bearing and must stay private.
+
+```bash
+python3 ops/drills/lte-netstats-smoke.py
+# Repeat only the bounded operator-redrive checks:
+python3 ops/drills/lte-netstats-smoke.py --redrive-only
+```
+
+Run the v5 Postman collection first. Final results and short load measurements are
+recorded in `claude/LTE_NETSTATS_IMPLEMENTATION_PLAN.md`; these are local software
+checks, not D-12 approval or Q15g upstream-feed confirmation.

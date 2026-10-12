@@ -284,3 +284,14 @@ shared on the strength of "same authentication as Heimdal's".**
 `tenant != maintenant` fixture rule of §6 gains a write-side sibling for T-068's test:
 a record whose `tenant` differs from the token's tenant claim (and from its own
 `maintenant`) is rejected on the external door and accepted on the internal one.
+
+
+### 9 October 2026 — local Prometheus scrape access (DL-166)
+
+The local Docker stack explicitly sets `stats.security.prometheus-public-access=true`
+to permit anonymous access to `/actuator/prometheus` only. Input/Writer already
+provide their metrics for this local scraper. The API property defaults to false
+outside that configuration, retaining bearer-token protection. Stats reads continue
+to require a valid JWT, read role and tenant; `/actuator/info` remains authenticated.
+The metrics exception uses the named Actuator endpoint matcher and does not whitelist
+`/actuator/**`. Default and local-mode security tests guard both configurations.

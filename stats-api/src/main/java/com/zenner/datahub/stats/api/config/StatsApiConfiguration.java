@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zenner.datahub.stats.api.cursor.CursorCodec;
 import com.zenner.datahub.stats.api.query.LorastatsReader;
 import com.zenner.datahub.stats.api.query.OmsstatsReader;
+import com.zenner.datahub.stats.api.query.LtestatsReader;
+import com.zenner.datahub.stats.api.query.NetstatsReader;
 import com.zenner.datahub.stats.api.query.RecordAssembler;
 import com.zenner.datahub.stats.api.query.StatReader;
 import com.zenner.datahub.stats.api.query.StatReaders;
@@ -45,6 +47,16 @@ public class StatsApiConfiguration {
     @Bean
     public StatReader omsstatsReader() {
         return new OmsstatsReader();
+    }
+
+    @Bean
+    public StatReader ltestatsReader() {
+        return new LtestatsReader();
+    }
+
+    @Bean
+    public StatReader netstatsReader() {
+        return new NetstatsReader();
     }
 
     @Bean

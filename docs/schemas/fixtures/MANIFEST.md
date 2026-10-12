@@ -1,17 +1,26 @@
 # Fixture catalogue
 
 Built 18 August 2026 in answer to Q11a. **Rebuilt on the production wire format 29 August 2026
-(ADR-007).** 87 fixture files — 85 individual fixtures plus the two combined bundles
+(ADR-007).** 93 fixture files — 91 individual fixtures plus the two combined bundles
 (`valid/approved-types.json` and `invalid/validation-failures.json`), which are kept so nothing that
 already references them breaks.
 
-Run `python3 ../validate-fixtures.py` from `docs/schemas/` to assert the whole set. It checks 107
+Run `python3 ../validate-fixtures.py` from `docs/schemas/` to assert the whole set. It checks 117
 assertions and exits non-zero on any mismatch, so CI can gate on it.
 
-Those 107 are **92 schema cases plus 15 `$expect` markers** — 5 `input-reject`, 2 `writer-dlq`,
-3 `writer-range-reject` and 5 `writer-skip`. The Java parity test (`SchemaFixtureParityTest`)
-mirrors the 92 schema cases only, so the two numbers differing is correct and deliberate — do not
+Those 117 are **98 schema cases plus 19 `$expect` markers** — 5 `input-reject`, 3 `writer-dlq`,
+6 `writer-range-reject` and 5 `writer-skip`. The Java parity test (`SchemaFixtureParityTest`)
+mirrors the 98 schema cases only, so the two numbers differing is correct and deliberate — do not
 "fix" one to match the other.
+
+**+2 on 9 October 2026 — supplied LTE/netstats exports.**
+`valid/ltestats-live-2026-10-09.json` preserves the full measured LTE key set without
+`timespan`; `valid/netstats-live-2026-10-09.json` preserves the healthy eth0/wwan key
+sets, including WWAN driver/mtu, string counters and integer timespan. Identifiers,
+addresses and values are synthetic. The existing LTE 2G and etxt-only fixtures cover
+the other observed LTE shapes. Older optional/degraded/extension/boundary fixtures
+remain valid. Files **91 → 93**, schema cases **96 → 98**, assertions **115 → 117**;
+marker count stays 19. Writer and API integration cases use both new fixtures.
 
 **+1 on 21 September 2026 — the third type (T-036, DL-153).** `valid/omsstats-counter-overflow.json`
 is the third `writer-range-reject`, and the first whose overflow arrives as a JSON **integer** rather
@@ -188,3 +197,9 @@ envelope and must **not** be 400'd.
 
 Eight inputs that are not valid JSON documents, and two that are not `.json` at all. See
 [`malformed/README.md`](malformed/README.md) for the expected status code of each.
+
+## 8 October 2026 — LTE/netstats implementation
+
+Four fixtures add the complete measured-plus-etxt rejection, signed LTE BIGINT overflow,
+schema-valid netstats overflow, and overflow on an additional interface. Each carries its
+Writer outcome marker: 96 schema cases + 19 markers = 115 assertions.

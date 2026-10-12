@@ -61,10 +61,10 @@ class ApiPropertiesTest {
     @DisplayName("the read role and the tenant claim are required")
     void securityValuesAreRequired() {
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> new SecurityProperties(null, "tenant"))
+                .isThrownBy(() -> new SecurityProperties(null, "tenant", false))
                 .withMessageContaining("stats.security.read-role");
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> new SecurityProperties("stats.readOnly", " "))
+                .isThrownBy(() -> new SecurityProperties("stats.readOnly", " ", false))
                 .withMessageContaining("stats.security.tenant-claim");
     }
 }

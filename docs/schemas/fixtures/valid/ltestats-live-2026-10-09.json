@@ -1,0 +1,29 @@
+{
+  "uid": "LIVE-SHAPE-LTESTATS-20261009",
+  "tenant": "tenant-alpha",
+  "maintenant": "tenant-alpha-operations",
+  "clsbox": "04B64810652B",
+  "type": "ltestats",
+  "version": 1,
+  "ts": {
+    "server": 1791547200,
+    "datastore": 1791547200,
+    "converter": 1791547200,
+    "device": 1791547200
+  },
+  "data": {
+    "rssi": "-67",
+    "rsrq": "-13",
+    "access_Technology": "4G",
+    "plmn": "00101",
+    "rsrp": "-103",
+    "imsi": "001010123456789",
+    "operator": "Test carrier",
+    "lac": "00aB",
+    "cid": "61D93D"
+  },
+  "status": [
+    "conversion ok"
+  ],
+  "$comment": "Sanitized representative of the 1,000-record live ltestats export supplied 9 October 2026. Exact observed data keys and JSON types; identifiers, addresses and values are synthetic. 998 full measurements omit timespan; the existing 2G and etxt-only fixtures cover the other two records."
+}

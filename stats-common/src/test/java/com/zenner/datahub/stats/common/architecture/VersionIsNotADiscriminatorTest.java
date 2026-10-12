@@ -43,34 +43,36 @@ class VersionIsNotADiscriminatorTest {
      * Repository-relative paths allowed to name {@code version} in code, each with the
      * reason it is not a dialect branch.
      */
-    private static final Map<String, String> JUSTIFIED_READS = Map.of(
-            "stats-common/src/main/java/com/zenner/datahub/stats/common/model/StatsEnvelope.java",
+    private static final Map<String, String> JUSTIFIED_READS = Map.ofEntries(
+            Map.entry("stats-common/src/main/java/com/zenner/datahub/stats/common/model/StatsEnvelope.java",
             "Declares the record component. The envelope must carry the field to preserve "
-                    + "and return it verbatim; declaring it is not reading it.",
-            "stats-common/src/main/java/com/zenner/datahub/stats/common/validation/"
+                    + "and return it verbatim; declaring it is not reading it."),
+            Map.entry("stats-common/src/main/java/com/zenner/datahub/stats/common/validation/"
                     + "StatsSchemaValidator.java",
             "A DIFFERENT concept that shares the name: the $schema file's own version, "
                     + "read from the schema document and carried on ValidationResult. It "
-                    + "never touches the envelope's version.",
-            "stats-writer/src/main/java/com/zenner/datahub/stats/writer/persistence/"
+                    + "never touches the envelope's version."),
+            Map.entry("stats-writer/src/main/java/com/zenner/datahub/stats/writer/persistence/"
                     + "LorastatsBatchWriter.java",
             "Stores it verbatim as the record_version column — the passthrough mapping "
                     + "required by ADR-007. Its only conditional is a SMALLINT range check "
-                    + "before conversion, which is a width guard, not a dialect branch.",
-            "stats-writer/src/main/java/com/zenner/datahub/stats/writer/persistence/"
+                    + "before conversion, which is a width guard, not a dialect branch."),
+            Map.entry("stats-writer/src/main/java/com/zenner/datahub/stats/writer/persistence/"
                     + "SysstatsBatchWriter.java",
             "The sysstats sibling (T-035, DL-148): the same record_version passthrough "
                     + "and the same SMALLINT width guard. sysstats has one dialect, so "
-                    + "there is nothing here a version could even select between.",
-            "stats-writer/src/main/java/com/zenner/datahub/stats/writer/persistence/"
+                    + "there is nothing here a version could even select between."),
+            Map.entry("stats-writer/src/main/java/com/zenner/datahub/stats/writer/persistence/"
                     + "OmsstatsBatchWriter.java",
             "The omsstats sibling (T-036, DL-153): the same record_version passthrough "
-                    + "and the same SMALLINT width guard, and again one dialect.",
-            "stats-api/src/main/java/com/zenner/datahub/stats/api/query/RecordAssembler.java",
+                    + "and the same SMALLINT width guard, and again one dialect."),
+            Map.entry("stats-api/src/main/java/com/zenner/datahub/stats/api/query/RecordAssembler.java",
             "The read side of the same passthrough (T-041, DL-162): record_version goes "
                     + "back out verbatim as the envelope's version member. Its only "
                     + "conditional is SQL NULL — whether there is a value to return — and "
-                    + "the dialect was normalised away before the row was ever stored.");
+                    + "the dialect was normalised away before the row was ever stored."),
+            Map.entry("stats-writer/src/main/java/com/zenner/datahub/stats/writer/persistence/LtestatsBatchWriter.java", "Stores record_version verbatim with a SMALLINT width check; no shape selection by version."),
+            Map.entry("stats-writer/src/main/java/com/zenner/datahub/stats/writer/persistence/NetstatsBatchWriter.java", "Stores record_version verbatim with a SMALLINT width check; no shape selection by version."));
 
     @Test
     void noMainSourceOutsideThePassthroughMappingReadsTheEnvelopeVersion() {

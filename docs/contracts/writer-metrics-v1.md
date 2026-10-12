@@ -1,5 +1,10 @@
 # Writer metrics contract — T-027
 
+**Implementation update — 8 October 2026:** all five types now have dedicated Writer
+consumers and persistence mappings. LTE/netstats reuse the shared topology, retry,
+DLQ, retention and per-type metrics. LTE D-12 policy and netstats Q15g live-feed
+confirmation remain release gates; this does not resolve external contract approval.
+
 Requirement: STA-27A. Delivery and persistence semantics follow ADR-005 and STA-25A.
 Decisions: DL-136, DL-137, DL-147 (oldest-message age), DL-148 (every series below is
 registered per served type — since T-035 that is `lorastats` and `sysstats`, each writer

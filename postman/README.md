@@ -22,10 +22,10 @@ The suite covers:
 - Keycloak tokens for valid, missing-role, and missing-tenant callers;
 - both `/internal/stats` and `/external/stats`, including the `accepted` JSON
   acknowledgement and its trace ID matching the `X-Trace-Id` header;
-- `lorastats`, `sysstats`, and `omsstats` end to end;
+- all five types (`lorastats`, `sysstats`, `omsstats`, `ltestats`, `netstats`) end to end;
 - list, UID, device-from, and bounded device-range reads;
 - 400, 401, 403, 404, and unauthenticated 405 behavior;
-- all 15 queues for the three completed types, quorum durability, consumers,
+- all 25 queues for the five completed types, quorum durability, consumers,
   drain state, and empty DLQs;
 - positive Writer persistence counters for every completed type.
 
@@ -38,5 +38,15 @@ A successful ingest returns HTTP 200 (or configured 202), for example:
 
 This confirms RabbitMQ acceptance. Writer persistence is asynchronous; use the
 polling GET requests to inspect the stored record. This collection requires the
-6 October 2026 acknowledgement change or later (v4 bundle); the older v3 image
+6 October 2026 acknowledgement change or later (v4 and later bundles); the older v3 image
 returns an empty body. Re-import this collection into Postman to load the new tests.
+
+LTE/netstats support requires the v5 bundle. LTE checks include measured, 2G and
+unknown-technology records. The primary LTE/network requests now match the data
+keys and JSON types in the 9 October 2026 live exports, with synthetic identifiers
+and addresses. LTE has no timespan in that sample; network has healthy eth0 and
+wwan, including WWAN driver and string mtu. Degraded WWAN, extra interfaces,
+unknown members and exact 19-digit counters remain covered by regression fixtures
+and integration tests. The immutable v5 archive predates this example update.
+LTE identifiers follow the current
+string contract for local evaluation; D-12 still gates merge/shared release.

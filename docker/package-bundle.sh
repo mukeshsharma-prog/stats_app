@@ -31,9 +31,14 @@ docker pull postgres:17-alpine
 docker pull rabbitmq:4-management-alpine
 docker pull quay.io/keycloak/keycloak:26.0
 docker pull postman/newman:alpine
+docker pull prom/prometheus:v3.5.0
+docker pull quay.io/prometheuscommunity/postgres-exporter:v0.17.1
+docker pull grafana/grafana:11.6.0
 
 cp "$ROOT/docker/docker-compose.yml" "$PAYLOAD/docker/"
-cp "$ROOT/docker/start-stats-app.sh" "$ROOT/docker/stop-stats-app.sh" "$ROOT/docker/run-postman.sh" "$PAYLOAD/docker/"
+cp "$ROOT/docker/start-stats-app.sh" "$ROOT/docker/stop-stats-app.sh" "$ROOT/docker/run-postman.sh" "$ROOT/docker/check-monitoring.sh" "$PAYLOAD/docker/"
+mkdir -p "$PAYLOAD/ops"
+cp -R "$ROOT/ops/prometheus" "$ROOT/ops/postgres-exporter" "$ROOT/ops/grafana" "$PAYLOAD/ops/"
 cp "$ROOT/docker/postgres-init/10-read-only-user.sql" "$PAYLOAD/docker/postgres-init/"
 cp "$ROOT/docs/setup/keycloak-realm-statsapp.json" "$PAYLOAD/docs/setup/"
 cp "$ROOT/postman/stats-app.postman_collection.json" "$ROOT/postman/local.postman_environment.json" "$ROOT/postman/README.md" "$PAYLOAD/postman/"
@@ -47,6 +52,9 @@ docker save -o "$PAYLOAD/stats-app-images.tar" \
   postgres:17-alpine \
   rabbitmq:4-management-alpine \
   quay.io/keycloak/keycloak:26.0 \
+  prom/prometheus:v3.5.0 \
+  quay.io/prometheuscommunity/postgres-exporter:v0.17.1 \
+  grafana/grafana:11.6.0 \
   postman/newman:alpine
 
 printf 'Creating %s...\n' "$ARCHIVE"

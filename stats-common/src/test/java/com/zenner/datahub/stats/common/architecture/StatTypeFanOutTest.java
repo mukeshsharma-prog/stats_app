@@ -40,31 +40,35 @@ class StatTypeFanOutTest {
      * Repository-relative paths allowed to name an individual stat type, each with the
      * reason. Adding an entry is the point at which someone has to justify the branch.
      */
-    private static final Map<String, String> JUSTIFIED_SPECIAL_CASES = Map.of(
-            "stats-common/src/main/java/com/zenner/datahub/stats/common/model/StatType.java",
+    private static final Map<String, String> JUSTIFIED_SPECIAL_CASES = Map.ofEntries(
+            Map.entry("stats-common/src/main/java/com/zenner/datahub/stats/common/model/StatType.java",
             "Defines the five constants and their wire literals. This is the one place "
-                    + "the identities are allowed to exist.",
-            "stats-writer/src/main/java/com/zenner/datahub/stats/writer/consumer/"
+                    + "the identities are allowed to exist."),
+            Map.entry("stats-writer/src/main/java/com/zenner/datahub/stats/writer/consumer/"
                     + "LorastatsConsumerDescriptor.java",
             "T-019 requires one additive consumer artifact per type. The descriptor is "
                     + "the single identity point for that artifact; adding another type "
-                    + "adds a sibling descriptor and never edits this one.",
-            "stats-writer/src/main/java/com/zenner/datahub/stats/writer/consumer/"
+                    + "adds a sibling descriptor and never edits this one."),
+            Map.entry("stats-writer/src/main/java/com/zenner/datahub/stats/writer/consumer/"
                     + "SysstatsConsumerDescriptor.java",
             "The sysstats sibling of the above (T-035, DL-148): the one place the "
-                    + "sysstats identity is spelled in the Writer.",
-            "stats-writer/src/main/java/com/zenner/datahub/stats/writer/consumer/"
+                    + "sysstats identity is spelled in the Writer."),
+            Map.entry("stats-writer/src/main/java/com/zenner/datahub/stats/writer/consumer/"
                     + "OmsstatsConsumerDescriptor.java",
             "The omsstats sibling (T-036, DL-153): the one place the omsstats identity "
-                    + "is spelled in the Writer.",
-            "stats-api/src/main/java/com/zenner/datahub/stats/api/query/LorastatsReader.java",
+                    + "is spelled in the Writer."),
+            Map.entry("stats-api/src/main/java/com/zenner/datahub/stats/api/query/LorastatsReader.java",
             "The API's one per-type artifact (T-040, DL-162), as the consumer descriptor is "
                     + "the Writer's: the single place the lorastats identity is spelled in "
-                    + "stats-api. A new type adds a sibling reader and never edits this one.",
-            "stats-api/src/main/java/com/zenner/datahub/stats/api/query/SysstatsReader.java",
-            "The sysstats sibling of the above (DL-162).",
-            "stats-api/src/main/java/com/zenner/datahub/stats/api/query/OmsstatsReader.java",
-            "The omsstats sibling of the above (DL-162).");
+                    + "stats-api. A new type adds a sibling reader and never edits this one."),
+            Map.entry("stats-api/src/main/java/com/zenner/datahub/stats/api/query/SysstatsReader.java",
+            "The sysstats sibling of the above (DL-162)."),
+            Map.entry("stats-api/src/main/java/com/zenner/datahub/stats/api/query/OmsstatsReader.java",
+            "The omsstats sibling of the above (DL-162)."),
+            Map.entry("stats-writer/src/main/java/com/zenner/datahub/stats/writer/consumer/LtestatsConsumerDescriptor.java", "Per-type consumer identity; additive sibling of the reference descriptor."),
+            Map.entry("stats-writer/src/main/java/com/zenner/datahub/stats/writer/consumer/NetstatsConsumerDescriptor.java", "Per-type consumer identity; additive sibling of the reference descriptor."),
+            Map.entry("stats-api/src/main/java/com/zenner/datahub/stats/api/query/LtestatsReader.java", "Per-type read identity; one reader per migrated table."),
+            Map.entry("stats-api/src/main/java/com/zenner/datahub/stats/api/query/NetstatsReader.java", "Per-type read identity; one reader per migrated table."));
 
 
     @Test

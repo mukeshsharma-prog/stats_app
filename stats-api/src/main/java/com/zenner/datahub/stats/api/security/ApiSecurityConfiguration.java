@@ -33,10 +33,11 @@ import org.springframework.security.web.access.AccessDeniedHandler;
  * missing is a 403. Every value is a property with no default in code; an unset one
  * stops the context rather than starting with a guessed posture (Q8b-2).</p>
  *
- * <p><strong>What is carved out is the health endpoint and nothing else</strong> (D13,
- * D-10): the container health-checks readiness, which discloses only UP/DOWN.
- * {@code /actuator/prometheus} stays behind the token — scrape access is recorded as a
- * residual in DL-162, not decided as a side effect.</p>
+ * <p>Health probes disclose only UP/DOWN without authentication (D13, D-10).
+ * Prometheus also requires a token by default. The local Compose stack explicitly
+ * enables {@code stats.security.prometheus-public-access} for its scraper; this
+ * permits only the Prometheus endpoint, leaving stats reads and other actuator
+ * endpoints subject to their existing authentication and authorization.</p>
  *
  * <p><strong>Filter order.</strong> {@link TraceId} runs first so every response —
  * a 401 included — carries {@code X-Trace-Id}; {@link ReadOnlyMethods} runs next, before
@@ -55,14 +56,18 @@ public class ApiSecurityConfiguration {
         AuthenticationEntryPoint unauthorized = unauthorized(problems);
         AccessDeniedHandler forbidden = forbidden(problems);
         http.authorizeHttpRequests(
-                        authorize ->
-                                authorize
+                        authorize -> {
+                            if (properties.prometheusPublicAccess()) {
+                                authorize.requestMatchers(EndpointRequest.to("prometheus")).permitAll();
+                            }
+                            authorize
                                         .requestMatchers(EndpointRequest.to(HealthEndpoint.class))
                                         .permitAll()
                                         .requestMatchers(HttpMethod.GET, "/v1/**")
                                         .access(new ReadAccess(properties))
                                         .anyRequest()
-                                        .authenticated())
+                                        .authenticated();
+                        })
                 // Bearer tokens only: no form login and no HTTP basic, which Boot's
                 // fallback would otherwise offer on a machine-to-machine API.
                 .oauth2ResourceServer(

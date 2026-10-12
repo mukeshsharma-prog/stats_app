@@ -970,6 +970,10 @@ components:
         `rsrp` and `rsrq` are **optional**: they are LTE reference-signal
         measurements and a modem on 2G reports neither (DL-146).
       required: [rssi, access_Technology, operator, plmn, imsi, lac, cid]
+      not:
+        required: [etxt]
+        properties:
+          etxt: {}
       properties:
         rssi: { type: string, pattern: '^-?(0|[1-9][0-9]{0,18})$', description: 'Received signal strength, dBm, as a string, e.g. "-67".' }
         rsrp: { type: string, pattern: '^-?(0|[1-9][0-9]{0,18})$', description: 'Reference signal received power, dBm, as a string. Optional — absent when the modem is on 2G.' }

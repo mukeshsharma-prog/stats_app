@@ -1,0 +1,114 @@
+package com.zenner.datahub.stats.writer.consumer;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import com.zenner.datahub.stats.common.amqp.AmqpTopology;
+import com.zenner.datahub.stats.common.model.StatType;
+import com.zenner.datahub.stats.testsupport.AmqpDeclarationAssert;
+import com.zenner.datahub.stats.testsupport.PostgresSupport;
+import com.zenner.datahub.stats.testsupport.RabbitSupport;
+import com.zenner.datahub.stats.writer.StatsWriterApplication;
+import com.zenner.datahub.stats.writer.retry.WriterAmqpProperties;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.amqp.core.Binding;
+import org.springframework.amqp.core.Queue;
+import org.springframework.amqp.core.TopicExchange;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.ApplicationContext;
+import org.springframework.context.annotation.Import;
+import org.springframework.test.context.TestPropertySource;
+
+/**
+ * T-032 declaration parity: every ltestats declaration matches the shared definition,
+ * and an ltestats deployment still declares the two shared exchanges — from
+ * {@link WriterAmqpConfiguration}, not from the lorastats file.
+ */
+@SpringBootTest(
+        classes = StatsWriterApplication.class,
+        webEnvironment = SpringBootTest.WebEnvironment.NONE)
+@TestPropertySource(
+        properties = {
+            "stats.writer.stat-type=ltestats",
+            "stats.retention.schedule=-",
+            "spring.rabbitmq.listener.simple.auto-startup=false",
+            "stats.retention.pre-create-on-startup=false"
+        })
+@Import({PostgresSupport.class, RabbitSupport.class})
+class LtestatsTopologyDeclarationTest {
+
+    private static final StatType TYPE = StatType.LTESTATS;
+
+    @Autowired private ApplicationContext context;
+    @Autowired private WriterAmqpProperties amqpProperties;
+
+    @Test
+    @DisplayName("an ltestats deployment declares both shared exchanges")
+    void sharedExchangesArePresentInAnLtestatsDeployment() {
+        AmqpDeclarationAssert.assertMatches(
+                context.getBean("statsInputExchange", TopicExchange.class),
+                AmqpTopology.inputExchange());
+        AmqpDeclarationAssert.assertMatches(
+                context.getBean("statsDeadLetterExchange", TopicExchange.class),
+                AmqpTopology.deadLetterExchange());
+        assertThat(context.getBeansOfType(TopicExchange.class))
+                .as("one declaration of each exchange, never two")
+                .hasSize(2);
+    }
+
+    @Test
+    @DisplayName("the main queue matches the shared definition, quorum arguments included")
+    void mainQueueMatchesTheSharedDefinition() {
+        AmqpDeclarationAssert.assertMatches(
+                context.getBean("ltestatsMainQueue", Queue.class),
+                AmqpTopology.mainQueueDefinition(TYPE));
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {1, 2, 3})
+    @DisplayName("each retry tier carries its configured delay as the queue's TTL")
+    void retryTiersMatchTheSharedDefinition(int tier) {
+        AmqpDeclarationAssert.assertMatches(
+                context.getBean("ltestatsRetryTier" + tier + "Queue", Queue.class),
+                AmqpTopology.retryQueueDefinition(TYPE, tier, amqpProperties.delayForTier(tier)));
+    }
+
+    @Test
+    @DisplayName("the DLQ matches the shared definition — no TTL, no onward route")
+    void deadLetterQueueMatchesTheSharedDefinition() {
+        AmqpDeclarationAssert.assertMatches(
+                context.getBean("ltestatsDeadLetterQueue", Queue.class),
+                AmqpTopology.deadLetterQueueDefinition(TYPE));
+    }
+
+    @Test
+    @DisplayName("the retry bounce-back and the dead-letter route use DIFFERENT keys")
+    void theTwoDeadLetterExchangeRoutesAreDistinct() {
+        Binding retryReturn = context.getBean("ltestatsRetryReturnBinding", Binding.class);
+        Binding deadLetter = context.getBean("ltestatsDeadLetterBinding", Binding.class);
+
+        assertThat(retryReturn.getRoutingKey()).isEqualTo(AmqpTopology.routingKey(TYPE));
+        assertThat(retryReturn.getDestination()).isEqualTo(AmqpTopology.mainQueue(TYPE));
+        assertThat(deadLetter.getRoutingKey()).isEqualTo(AmqpTopology.deadLetterRoutingKey(TYPE));
+        assertThat(deadLetter.getDestination()).isEqualTo(AmqpTopology.deadLetterQueue(TYPE));
+        assertThat(retryReturn.getRoutingKey()).isNotEqualTo(deadLetter.getRoutingKey());
+        assertThat(retryReturn.getExchange())
+                .isEqualTo(deadLetter.getExchange())
+                .isEqualTo(AmqpTopology.DEAD_LETTER_EXCHANGE);
+    }
+
+    @Test
+    @DisplayName("the lorastats and sysstats queues are still declared — the slices share nothing but the exchanges")
+    void theOtherTypesQueuesAreUntouched() {
+        // Declarations are unconditional so the topology exists whichever type is
+        // deployed first (DL-123); only the CONSUMER is conditional.
+        assertThat(context.containsBean("lorastatsMainQueue")).isTrue();
+        assertThat(context.containsBean("lorastatsConsumer")).isFalse();
+        assertThat(context.containsBean("sysstatsMainQueue")).isTrue();
+        assertThat(context.containsBean("sysstatsConsumer")).isFalse();
+        assertThat(context.containsBean("ltestatsConsumer")).isTrue();
+    }
+}

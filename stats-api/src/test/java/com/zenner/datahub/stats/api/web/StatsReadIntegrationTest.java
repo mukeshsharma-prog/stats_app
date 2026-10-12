@@ -233,8 +233,8 @@ class StatsReadIntegrationTest extends ApiIntegrationTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"ltestats", "netstats"})
-    @DisplayName("a type with no table yet is a valid question with nothing stored: empty page, 404 by uid")
-    void unbuiltTypes(String type) throws Exception {
+    @DisplayName("an empty table returns an empty page and 404 by uid")
+    void emptyTables(String type) throws Exception {
         JsonNode page =
                 json(mvc.perform(get(TOKEN, "/v1/stats/{ty}?from={f}&to={t}", type, T0, T0 + 60)).andExpect(status().isOk()).andReturn());
         assertThat(page.get("items")).isEmpty();

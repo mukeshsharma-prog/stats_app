@@ -52,8 +52,14 @@ jobs:
       # DL-144 (dlq-alerts), DL-147 (writer-alerts: oldest-message age, late arrival,
       # upstream status) and DL-155 (postgres-alerts: WAL archiver, the RPO half of
       # ADR-003 D5). Every file checked, every file behaviour-tested.
-      - name: Validate Prometheus alert rules
+      - name: Validate Prometheus configuration and alert rules
         run: |
+          docker run --rm \
+            --entrypoint promtool \
+            --volume "$PWD/ops/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro" \
+            --volume "$PWD/ops/prometheus:/etc/prometheus/rules:ro" \
+            prom/prometheus:v3.5.0 \
+            check config /etc/prometheus/prometheus.yml
           docker run --rm \
             --entrypoint promtool \
             --volume "$PWD/ops/prometheus:/work:ro" \

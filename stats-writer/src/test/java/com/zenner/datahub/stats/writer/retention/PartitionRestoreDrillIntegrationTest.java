@@ -59,6 +59,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
         properties = {
             // A type with no consumer, so no listener attaches to the shared broker.
             "stats.writer.stat-type=netstats",
+            "spring.rabbitmq.listener.simple.auto-startup=false",
             // The runbook's first precondition: the cron is paused, so the sweep cannot
             // drop the evidence between the restore and the check.
             "stats.retention.schedule=-",

@@ -35,6 +35,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
         classes = StatsWriterApplication.class,
         properties = {
             "stats.writer.stat-type=netstats",
+            "spring.rabbitmq.listener.simple.auto-startup=false",
             "stats.retention.schedule=-",
             // These tests create and drop their own partitions on fixed far-future
             // days. The startup pre-creation is exercised by
@@ -223,15 +224,19 @@ class PartitionPrecreatorIntegrationTest {
     }
 
     @Test
-    void ddlFailureIsLoudAndDoesNotLeakTheSessionAdvisoryLock() throws Exception {
-        assertThatThrownBy(
-                        () -> precreator.ensurePartitions(StatType.LTESTATS, MISSING_START, 0))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("pre-create partitions for ltestats");
-
-        try (Connection verifier = dataSource.getConnection()) {
-            assertThat(changeLock(verifier, "pg_try_advisory_lock", StatType.LTESTATS)).isTrue();
-            assertThat(changeLock(verifier, "pg_advisory_unlock", StatType.LTESTATS)).isTrue();
+    void conflictingRelationIsLoudAndDoesNotLeakTheSessionAdvisoryLock() throws Exception {
+        String conflict = "ltestats_" + MISSING_START.format(PARTITION_DATE);
+        jdbcTemplate.execute("CREATE TABLE " + conflict + " (id integer)");
+        try {
+            assertThatThrownBy(() -> precreator.ensurePartitions(StatType.LTESTATS, MISSING_START, 0))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("is not a partition of ltestats");
+            try (Connection verifier = dataSource.getConnection()) {
+                assertThat(changeLock(verifier, "pg_try_advisory_lock", StatType.LTESTATS)).isTrue();
+                assertThat(changeLock(verifier, "pg_advisory_unlock", StatType.LTESTATS)).isTrue();
+            }
+        } finally {
+            jdbcTemplate.execute("DROP TABLE " + conflict);
         }
     }
 

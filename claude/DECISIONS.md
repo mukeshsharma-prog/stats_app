@@ -5658,3 +5658,90 @@ bundle is required to reproduce the acknowledgement from the packaged services.
 The v3 setup guide explicitly distinguishes the two versions. Consumers that ignore
 the success body retain the same status and retry behavior. Consumers that require
 an empty body must adjust to the new JSON response.
+
+
+### DL-164 — LTE and netstats slices implemented against the current contract
+
+**8 Oct 2026** · `ENGINEERING` · ADR-003 D2, ADR-007 B1, D-12 P3, Q15g · T-034, T-037
+
+User-directed implementation adds dedicated consumers, qualified writers, V8/V9
+partitioned tables and registered API readers. No LoRa/sys/OMS runtime dispatch is
+changed. Shared manual ACK, confirmed retry/DLQ, retention and tenant/cursor behavior
+apply to the new slices. Input still validates envelopes and acknowledges confirmed
+broker acceptance; the Writer owns payload validation.
+
+LTE stores IMSI and hexadecimal LAC/CID as strings under the current local contract,
+including leading zeroes. Optional measurements are NULL/omitted; unknown technology
+has only `etxt`. Complete measured-plus-`etxt` records are now excluded in both JSON
+Schema and OpenAPI, while other measured extensions remain accepted. Signed signals
+and unsigned timespan are checked against BIGINT limits before conversion.
+
+Netstats stores checked known counters as exact integer values in dynamic interface
+JSONB, converts them back to wire strings on read, preserves unknown nested members,
+and stores non-interface extensions in `data_extra`. This clarifies ADR-003's hybrid
+mapping; it does not fix an interface set to columns. Additional-interface overflows
+are permanent `unmappable` failures, even when the schema admits their 19-digit strings.
+
+**Unresolved:** D-12 P3 still prohibits LTE merge until its masking/representation
+questions are answered. No keyed hash or masking was adopted; local fixtures establish
+software behavior only. Q15g remains actual-feed evidence owed for netstats. D-09,
+T-068 and independent isolation/security review remain separate release conditions.
+The implementation plan contains the final verification and packaged-delivery record.
+
+
+### DL-165 — LTE/netstats readers checked against the 9 October live exports
+
+**9 Oct 2026** · `API` · ADR-007, DL-164
+
+The user supplied datastore exports containing 1,000 records of each type and
+identified LtestatsReader/NetstatsReader for verification. All 2,000 records pass
+the current payload schemas. LTE has 998 full measurements, one 2G measurement
+without rsrp/rsrq, and one etxt-only record; none has timespan. Netstats has
+eth0 (gw/tx/rx/ip/dns/mask), wwan (those members plus driver/mtu), and integer
+timespan in every record. Counters, mtu, LTE signals and LTE identifiers are strings.
+
+Reader SQL selections are storage names: access_technology is translated to the
+wire key access_Technology, and interfaces JSONB is expanded into eth0/wwan and
+other accepted interfaces. These SQL names must not be replaced with wire paths.
+Optional timespan/etxt and older network members are retained for accepted records;
+they are not manufactured when absent. Reader comments now distinguish storage
+columns from the observed response fields. Two sanitized fixtures and primary
+Postman/demo examples capture the newly supplied healthy shapes. The fixture
+catalogue grows from 115 to 117 assertions (98 schema cases plus 19 markers).
+
+The attached replyText/data/replyCode object is a datastore export wrapper, not
+an ingest envelope. Its records are the array elements. These samples establish
+payload shapes; they do not establish an upstream forwarding URL, credentials or
+ownership, and therefore do not by themselves close Q15g. D-12 is unchanged.
+
+
+### DL-166 — Monitoring starts and verifies its targets with the local app stack
+
+**9 Oct 2026** · `OPERATIONS` · D13, D-10, DL-162
+
+User requested Prometheus initialization with the containers and working metrics
+URLs for every application. The running Prometheus belonged to project stats-app
+while the apps belonged to stats-app-bundle; Docker DNS could not resolve targets
+across their default networks. PostgreSQL exporter was absent, and the API metrics
+endpoint would require authentication after the DNS issue was fixed.
+
+The apps profile now includes Prometheus/exporter. Both apps and monitoring also
+participate in the observability profile, making its dependencies resolvable when
+that profile is selected alone. Grafana remains optional. Prometheus depends on
+healthy apps/exporter, exporter health requires pg_up=1, and the bundle startup
+waits for all four up samples plus pg_up=1. Monitoring configs/images and the
+checker are included in the offline packaging script. No volumes are deleted.
+
+The API's new stats.security.prometheus-public-access defaults to false. The local
+Compose configuration explicitly enables it for the Prometheus endpoint only.
+This is the user-requested local scrape disposition for DL-162; it does not permit
+anonymous stats reads or other actuator endpoints. Default protected-mode tests
+remain, and local-mode tests verify actual metrics content plus 401/403 boundaries.
+For shared deployments scrape authentication/network access must be configured
+for that environment rather than treating the local setting as a production default.
+
+Live verification: all four targets UP with empty scrape errors, all four host
+metrics URLs return 200; anonymous stats reads and actuator/info return 401.
+251 API tests and 273 shared tests pass with zero failures or skips. Prometheus
+history was copied to its application-project volume; the original volume was
+retained. Existing database/broker containers and their data were preserved.

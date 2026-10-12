@@ -13,7 +13,13 @@ public final class RabbitSupport {
     public static final String IMAGE = "rabbitmq:4-management-alpine";
 
     private static final RabbitMQContainer CONTAINER =
-            new RabbitMQContainer(DockerImageName.parse(IMAGE));
+            new RabbitMQContainer(DockerImageName.parse(IMAGE)) {
+                // Boot's Testcontainers lifecycle processor calls close even when
+                // destroyMethod is empty. A cached context must not stop services
+                // still used by other contexts in the same test JVM. Ryuk owns cleanup.
+                @Override
+                public void close() {}
+            };
 
     static {
         // Class initialization gives every consumer in this JVM the same broker.

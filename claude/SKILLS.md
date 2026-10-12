@@ -84,7 +84,7 @@ an existing stat type's code, **stop** — that violates STA-14/STA-22.
 
 2. **Register validation** *(Module 1, STA-03)*
    - Add the schema to the validation registry keyed by type name
-   - Confirm an invalid payload returns **HTTP 400** and is logged
+   - Confirm an invalid envelope returns **HTTP 400** without publication; a valid envelope with invalid payload is accepted after broker confirmation and dead-lettered by the Writer. Never log LTE/net payloads
    - Confirm an unrecognised type is rejected, not silently forwarded
    - Nothing about clock-skew rejection changes per type: Input applies
      `stats.input.validation.max-clock-skew` to the envelope, so a new type inherits
@@ -168,7 +168,7 @@ the identifiers on every log line (`WriterLogContext`, DL-150 — an `addKeyValu
 
 ### Definition of done
 - [ ] No existing stat type's code was modified
-- [ ] Invalid payloads for the new type return 400, and nothing is published
+- [ ] Invalid envelopes return 400 without publication; invalid payloads in valid envelopes are confirmed and accepted, then dead-lettered by the Writer
 - [ ] A 2xx is returned only after publisher confirm; broker down returns 503
 - [ ] A forced write failure lands in **this type's** DLQ
 - [ ] A duplicate `uid` redelivery is a harmless no-op

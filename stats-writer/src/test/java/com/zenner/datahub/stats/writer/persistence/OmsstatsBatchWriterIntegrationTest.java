@@ -45,6 +45,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
         properties = {
             // A type with no consumer, so no listener attaches to the shared broker.
             "stats.writer.stat-type=netstats",
+            "spring.rabbitmq.listener.simple.auto-startup=false",
             "stats.retention.schedule=-",
             "stats.retention.pre-create-on-startup=false"
         })

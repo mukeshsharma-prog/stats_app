@@ -4,9 +4,12 @@
 
 **Scope:** complete `ltestats` (T-034) and `netstats` (T-037), from HTTP acceptance through RabbitMQ, Writer validation, PostgreSQL, secured reads, operational verification and packaged delivery.
 
-**Status:** plan only; implementation and runtime verification have not been performed.
+**Status (8 October 2026):** both software slices are implemented. The baseline
+inventory and proposed steps below are retained for traceability; current verification
+and delivery evidence is recorded in §11. Local LTE tests use the current string
+identifier contract. D-12 P3 and Q15g remain unresolved merge/release/feed conditions.
 
-## 1. What already exists and what is missing
+## 1. Baseline at plan preparation
 
 The three working types are the reference: `sysstats` supplies the additive consumer/configuration pattern, and `omsstats` demonstrates its replication. Extend those patterns with the two new payload mappings.
 
@@ -213,11 +216,242 @@ Canary checks: each queue has the intended consumer, a valid message commits and
 
 ## 10. Definition of done
 
-- [ ] Each new type completes confirmed HTTP ingest → dedicated queue → valid committed row → all secured GET operations.
-- [ ] Every approved LTE shape and net interface shape works, including degraded modem states; wire types and approved sensitive representations survive reads.
-- [ ] Envelope, schema, mapping, overflow, database, retry, DLQ and expiry outcomes have distinct passing evidence.
-- [ ] Duplicate replay, ACK ordering, restart/shutdown, retention, tenant isolation and cursor behavior pass for both types.
-- [ ] Single-type and local all-type deployments work; all three existing types remain green.
-- [ ] Per-type monitoring and all-five demonstration/Postman tests pass; measured capacity and any limits are recorded.
-- [ ] Contracts, decision/status records and a new tested delivery bundle match the final implementation.
-- [ ] D-12 and Q15g dispositions are recorded; production-feed verification and any remaining release conditions are stated accurately.
+- [x] Each new type completes confirmed HTTP ingest → dedicated queue → valid committed row → all secured GET operations.
+- [x] Every current-contract LTE and net interface shape works, including degraded modem states; wire types and string identifiers survive reads. Final sensitive representation still requires D-12 approval.
+- [x] Envelope, schema, mapping, overflow, database, retry, DLQ and expiry outcomes have distinct passing evidence.
+- [x] Duplicate replay, ACK ordering, restart/shutdown, retention, tenant isolation and cursor behavior pass for both types.
+- [x] Single-type and local all-type deployments work; all three existing types remain green.
+- [x] Per-type monitoring and all-five demonstration/Postman tests pass; measured capacity and any limits are recorded.
+- [x] Contracts, decision/status records and a new tested delivery bundle match the final implementation.
+- [x] D-12 and Q15g dispositions are recorded; production-feed verification and any remaining release conditions are stated accurately.
+
+
+## 11. Implementation and verification record — 8 October 2026
+
+Implemented on `feature/lte-netstats-end-to-end`, based on the prior bundle and
+acknowledgement snapshot. V8 and V9 are additive; existing LoRa/sys/OMS runtime
+implementations remain unchanged. Both types have dedicated descriptors, validated
+consumer tuning, qualified processors/writers and readers for all four read routes.
+
+LTE: nullable BIGINT signals/timespan, exact text identifiers, structural measured
+versus `etxt` shape, preserved extensions and passthrough. Netstats: typed envelope
+and timespan, dynamic interface JSONB with checked exact counters, restored wire
+strings, and preserved nested/root extensions. The complete LTE mixed negative
+fixture and three schema-valid numeric overflow fixtures cover the contract gaps.
+
+Test infrastructure now keeps JVM-shared containers alive when Boot closes a cached
+context. Writer tests close the previous context before another class can send
+broker probes, preventing cached listeners from stealing deliveries. Four available
+pool connections allow the retention latency harness's reader, writer, sweeper and
+sampler to work concurrently; one idle connection limits cached-pool overhead.
+The old missing-LTE-table failure probe now uses an actual relation conflict and
+still proves advisory-lock release.
+
+Verified so far:
+
+- JSON Schema: **115 assertions, zero failures**, 91 fixture files; Java/Python parity.
+- OpenAPI: all five drift projections, six drift mutation tests, pinned Redocly lint
+  with no warnings, and the combined HTML contract rendering.
+- Monitoring: three dashboards / 81 expressions / 86 metric references; all three
+  Prometheus rule files and their unit suites pass.
+- Packaged services: **40 Postman requests / 99 assertions, zero failures**. Both
+  new types use internal and external ingest, exact replay, all read routes, optional
+  LTE omissions, synthetic leading-zero IMSI/hex identifiers, degraded network state,
+  extra interfaces/extensions and an exact 19-digit counter.
+- Isolated runtime drill: each new type has its own permanent DLQ with unchanged
+  payload/attempt headers, valid expiry increments its counter without storage/DLQ,
+  and database outage gives confirmed acceptance then retry-tier-1 delivery. Recovery
+  returns each record to its own queue and commits a lossless readable record.
+  Writer restart retains both rows; durable quorum queues and DLQs without TTL verified.
+- Operator redrive: temporary identities restricted to one type moved one valid
+  seeded record each through the actual bounded CLI; both records committed and
+  read back losslessly. Operator identities were removed afterwards.
+
+Final build: **1,140 tests, zero failures and zero skips** (269 common, 78 Input,
+534 Writer, 243 API, 16 test support). This includes real-broker checks that each new
+type stores a record exactly at the retention cutoff and skips one second earlier.
+The final all-five demo passes: authenticated reads are 200, both new types receive
+503 while the broker is down, and Input health polling restores 200 acceptance after
+broker recovery. The archive's fresh-volume startup and offline Postman run also
+pass with 40 requests / 99 assertions. Temporary validation uses the uniquely named
+`stats-lte-netstats-verification` Compose project and `ltecheck-*` containers with
+alternate loopback ports; the existing developer stack is not restarted or replaced.
+
+**Still open:** D-12 P3 requires the raw/masked subscriber/location representation
+before LTE merge/shared release; keyed hashing was not adopted. Q15g requires actual
+upstream netstats forwarding evidence. Independent isolation/security review, external
+contract confirmation and T-068 remain separate release conditions. The external task
+tracker is not marked Done by this local implementation; these gates must be retained.
+
+
+### Short mixed-load measurement on the final archive
+
+Five producers each targeted 267/s for 10 seconds after a 2-second warmup.
+**13,350 measured responses were 200; zero 429/503/client errors or shed requests.**
+All **16,020** records including warmup committed (3,204/type). Achieved response
+rate was 266.7–266.8/s/type; the queues had drained 0.064 s after the generators
+finished. These are short local measurements, not a long-running capacity certificate.
+
+| Type | Achieved /s | HTTP p99 ms | Processing p95 / p99 ms | Peak observed cached depth | Peak observed queue age s |
+|---|---:|---:|---:|---:|---:|
+| `lorastats` | 266.7 | 15.79 | 3.667 / 7.621 | 3 | 0.968 |
+| `sysstats` | 266.7 | 15.5 | 3.276 / 6.67 | 1 | 0.968 |
+| `omsstats` | 266.8 | 19.23 | 3.264 / 6.754 | 2 | 0.971 |
+| `ltestats` | 266.7 | 16.23 | 3.709 / 7.546 | 1 | 1.091 |
+| `netstats` | 266.8 | 16.7 | 3.485 / 6.84 | 4 | 1.095 |
+
+Processing quantiles are interpolated from before/after histogram buckets. The
+verification environment temporarily enables `management.metrics.distribution`
+histograms for `records_processing_duration`; the shipped default retains the
+existing count/sum/max series. Broker depths are cached samples, not a guarantee
+that a shorter transient peak was captured. Run against the final archive, after
+builds and outage recovery; the earlier run overlapped packaging and was slower.
+
+
+Authenticated UID reads (five warmup reads, then 50 sequential requests/type): LTE
+p95 **23.070 ms**, p99 **39.497 ms**; netstats p95 **20.372 ms**, p99 **29.659 ms**.
+These client timings include HTTP/security/serialization, not just database execution.
+
+The additional three-second probe requested **13,335/s** across five generators with
+the shipped 4,000/s single-Input limit. It **did not establish that capacity**:
+20,104 requests were shed by the generators' in-flight caps and 610 sent requests had
+transport failures/timeouts. The received application responses were 19,291 × 200,
+with no observed 429/503 responses; response-completion rates were only 104–190/s per
+generator because waits extended the runs. A client timeout leaves acceptance
+uncertain. The generator shed traffic and reported transport timeouts; this run cannot
+establish where the service capacity ceiling lies, or prove that the configured
+rate limiter was exercised.
+Use an appropriately sized external/distributed generator for that capacity claim;
+the successful nominal mixed run is the demonstrated rate from this delivery.
+
+### Final offline delivery
+
+Artifact: `dist/stats-app-docker-bundle-v5-lte-netstats.tar.gz` (approximately 686 MiB),
+with its adjacent SHA-256 file. SHA-256:
+
+```text
+60709545e4f61d42c90b8bf0714a4ae5a3a0fa9947bf2abd85dad5a25c3d5068
+```
+
+The archive contains seven exported images and no `.env`. Verification checked its
+checksum, loaded its image archive, started fresh-volume services using `--no-build
+--pull never`, and ran the bundled collection offline (40 requests, 99 assertions).
+The complete operational drill, including both scoped redrives, passed against
+those archived images. The temporary histogram option was supplied by the private
+validation environment, not baked into the archive.
+
+
+After the burst probe, the archived Postman collection passed again (40 requests /
+99 assertions, zero failures), confirming normal operation after overload. The
+verification project's containers, network and temporary data volumes were removed;
+private staging environment files were deleted. The existing developer stack was
+not restarted or replaced. Source changes remain reviewable on the local
+`feature/lte-netstats-end-to-end` branch.
+
+
+## 12. Live payload verification — 9 October 2026
+
+The user supplied two datastore export wrappers, each containing 1,000 records,
+and asked to check LtestatsReader and NetstatsReader. All 2,000 records pass the
+current Python and Java payload schemas. A temporary private reader check converted
+the supplied data into the Writer's stored representation, invoked each actual
+reader, and compared the resulting JSON: all 2,000 data payloads retain exactly
+the same keys, values and JSON types. This is a direct reader check with simulated
+JDBC rows; the permanent integration cases separately use real PostgreSQL migrations.
+No functional reader field mapping discrepancy was reproduced.
+
+Observed fields:
+
+- LTE: 998 measurements with rssi/rsrp/rsrq/access_Technology/operator/plmn/imsi/lac/cid;
+  one 2G measurement without rsrp/rsrq; one etxt-only record. All values are strings.
+  No timespan in this export. Earlier optional timespan support is retained.
+- Netstats: every data object has eth0, wwan and integer timespan. eth0 has
+  gw/tx/rx/ip/dns/mask; wwan also has driver/mtu. Counters and mtu are strings,
+  DNS is an array of strings. The SQL interfaces column is unpacked into these
+  objects and is not exposed as a response member.
+
+Reader documentation now names these wire fields and distinguishes them from SQL
+selection columns. Sanitized live-shape fixtures are added to Writer persistence
+and all-four-route API regression cases; default Postman/demo payloads use the
+observed healthy shapes. Older optional/degraded/extension/boundary fixtures remain.
+The live attachments and their identifiers are not committed to the repository.
+
+Validation: 117 Python schema assertions; all-five OpenAPI schema drift checks and
+six mutation tests; 273 common tests, 29 focused Writer tests and 17 API integration
+cases; the two temporary private export cases also passed. Postman's 41 scripts
+parse, its two primary data objects match the new fixtures exactly, and demo shell
+syntax passes. The temporary export-check source was removed after verification.
+The existing v5 archive predates this source/example update; no new archive was
+created or runtime stack replaced for this correction. D-12 and upstream forwarding
+confirmation remain as stated in section 11.
+
+
+## 13. Monitoring initialization — 9 October 2026
+
+User-requested follow-up (DL-166): the apps profile now includes Prometheus and
+PostgreSQL exporter on the application project's default network. Prometheus
+waits for healthy apps/exporter; the startup script waits for all four up samples
+and pg_up=1. All four live targets are UP with no scrape errors, and their host
+metrics URLs return 200. API stats reads and actuator/info remain protected.
+Local Compose explicitly enables the API's metrics-only exception; its default
+outside this configuration remains false. Prometheus history was preserved when
+moving it from the mismatched stats-app network to stats-app-bundle.
+
+Verification: 251 API tests and 273 shared tests pass, including default protected
+metrics and the explicit local metrics exception with 401/403 boundaries. The
+Prometheus configuration, all three rule suites and Grafana dashboard checks pass.
+A missing-Prometheus probe confirms the checker exits nonzero rather than reporting
+ready. Isolated initialization with fresh volumes/generated credentials and offline
+images reaches all-four-target readiness. Writer counters for all five types exist
+at zero before ingest. Packaged Postman acceptance passes 40 requests/99 assertions;
+the optional Grafana image starts offline and reports its database healthy.
+
+Delivery: `dist/stats-app-docker-bundle-v6-prometheus-autostart.tar.gz` and its
+SHA-256 sidecar include all application, infrastructure, monitoring and Newman
+images plus Prometheus rules, exporter queries, Grafana provisioning/dashboards
+and the target checker. Startup always loads the supplied image archive to avoid
+reusing stale mutable dev tags. Final startup/configuration/README copies match
+source exactly, and no .env credentials are included. Existing stack credentials
+must be retained when upgrading its persistent volumes, as the bundle README states.
+
+## 14. Complete verification — 9 October 2026
+
+The user-requested sample, API, queue and partition audit passed: all 2,000 supplied
+LTE/netstats records persisted and read back exactly in an isolated fresh v6 project;
+2,000 external replays were suppressed without duplicate rows. All four read routes
+worked for all five types, packaged Postman passed 40 requests/99 assertions, and
+the full build passed 1,154 tests with no failures or skips. Both live and fresh
+projects had all 25 correctly configured queues with active main consumers and no
+backlog. All 98 required daily partitions per type existed with correct bounds,
+indexes, grants and sample device-date routing.
+
+The live LoRa/sys/OMS tables retain 10 older partitions each; no retention sweep
+has been observed since the current Writer started after its scheduled daily run.
+Creation is verified; live scheduled cleanup remains a follow-up observation.
+See [the verification report](LTE_NETSTATS_VERIFICATION_REPORT_2026-10-09.md) for
+scope, sample variants, aggregate evidence and the next scheduled sweep time.
+
+## 15. Existing-volume startup repair — 9 October 2026
+
+Starting the extracted v6 bundle without the previous environment file generated
+new passwords while reusing the initialized PostgreSQL volume. Writer failed
+database authentication as stats, and exporter failed as stats_ro. Both prior
+database credentials were confirmed with real TCP authentication before restoring
+the six PostgreSQL settings into v6's .env. Newly initialized, working broker and
+Keycloak credentials were preserved. The active environment is now the extracted
+v6 bundle's .env; its pre-repair version was backed up privately with mode 0600.
+Database counts were unchanged by recovery.
+
+Startup now refuses to generate credentials when project database/broker volumes
+already exist without an .env. When an existing database is healthy, an ephemeral
+client checks both supplied database roles over TCP before loading images or
+changing application containers. It uses the deployed database image offline and
+does not expose credentials. Four isolated startup regression tests cover fresh
+installation, missing upgrade credentials, wrong database credentials and matching
+upgrade credentials. A real TCP preflight passed for both recovered roles.
+
+Source, extracted v6 startup/README and the v6 archive/checksum were updated. No
+application image rebuild was needed. All five authenticated type-list endpoints,
+all 25 queues and their main consumers, and all four Prometheus targets passed
+recovery checks. Follow the updated bundle README when moving existing volumes to
+a new bundle directory.

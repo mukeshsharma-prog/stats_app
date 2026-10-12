@@ -1,5 +1,10 @@
 # Stats App AMQP Contract and Topology — V1 Draft
 
+**Implementation update — 8 October 2026:** all five types now have dedicated Writer
+consumers and persistence mappings. LTE/netstats reuse the shared topology, retry,
+DLQ, retention and per-type metrics. LTE D-12 policy and netstats Q15g live-feed
+confirmation remain release gates; this does not resolve external contract approval.
+
 **Status:** `PENDING PLATFORM APPROVAL`  
 **Applies to:** Stats Input publisher, RabbitMQ infrastructure, Stats Writer consumers.  
 **Requirements:** STA-04, STA-10 through STA-14, STA-20, STA-25 through STA-27.

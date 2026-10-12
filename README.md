@@ -4,15 +4,15 @@ A **Datahub Core** add-on at Zenner. It receives statistics pushed from the
 **Heimdal Core**, buffers them through RabbitMQ, persists them per statistics type
 in **PostgreSQL**, and exposes them through a read-only, tenant-scoped REST API.
 
-**Status (21 September 2026):** Phase 1 complete; Phase 2 — the `lorastats` vertical
-slice — built, observable, operable and watched; Phase 3 — the type fan-out — entered,
-with `sysstats` and `omsstats` the second and third types end to end. Requirements and architecture are settled and
-ADRs 001–007 are approved or accepted. The Gradle multi-project builds: five modules
-(`stats-common`, `stats-testsupport` and the three applications), three deployable images,
-a Docker Compose stack with PostgreSQL 17, RabbitMQ and Keycloak, and 87 JSON schema
-fixture files gated by `docs/schemas/validate-fixtures.py` at 107 assertions — checked
-against 1,200 live records on 18 September 2026 (DL-146). Full build: 790 tests,
-0 failures, against Testcontainers.
+**Status (8 October 2026):** all five V1 stat types now have dedicated Writer
+consumers, PostgreSQL persistence and tenant-scoped API readers. LTE supports measured,
+2G and unknown-technology records; netstats preserves dynamic interfaces and checks
+all known counters before conversion. The fixture gate covers 91 files and 115 assertions.
+The v5 offline bundle and Postman collection include all five types. Verification evidence
+is in [the LTE/netstats delivery record](claude/LTE_NETSTATS_IMPLEMENTATION_PLAN.md).
+LTE merge/shared release remains gated by **D-12 P3**; netstats production-feed confirmation
+remains **Q15g**. Local tests follow the current string-identifier contract. Earlier
+verification figures below describe their dated milestones.
 
 Since **8 September 2026 `lorastats` is complete end to end**, in all three of the
 payload dialects production actually sends: the Writer's per-type payload gate refuses
@@ -199,7 +199,7 @@ java -jar stats-input/build/libs/stats-input-0.1.0-SNAPSHOT.jar
 Or run all three as containers, infrastructure included:
 
 ```bash
-cd docker && docker compose --profile apps up -d --build
+docker compose -p stats-app-bundle --env-file .env -f docker/docker-compose.yml --profile apps up -d --build
 ```
 
 To produce a single offline archive for another Docker host, including the
@@ -216,10 +216,12 @@ The recipient extracts the generated archive from `dist/` and runs:
 ./docker/run-postman.sh
 ```
 
-The runtime remains six independently managed containers; the archive is the
+The runtime includes eight independently managed containers; the archive is the
 single shareable delivery unit. `stats-common` is compiled into each application
-that uses it and is not a service. See `docker/BUNDLE.md` for ports, lifecycle,
-credential generation, and the local-only security boundary.
+that uses it and is not a service. Prometheus and PostgreSQL exporter start
+automatically with the apps; the startup script waits for all four scrape targets
+to be UP. Open http://localhost:9090/targets. See `docker/BUNDLE.md` for ports,
+lifecycle, credential generation, and the local-only security boundary.
 
 ### 4. Verify
 

@@ -47,8 +47,8 @@ class SchemaFixtureParityTest {
     }
 
     @Test
-    void expandsToTheSameNinetyTwoOutcomesAsThePythonOracle() {
-        assertThat(fixtureCases()).hasSize(92);
+    void expandsToTheSameNinetyEightOutcomesAsThePythonOracle() {
+        assertThat(fixtureCases()).hasSize(98);
         assertThat(fixtureCases())
                 .extracting(arguments -> (String) arguments.get()[0])
                 .noneMatch(description -> description.contains("malformed/"));

@@ -70,6 +70,7 @@ val writerMigrations = rootProject.file("stats-writer/src/main/resources/db/migr
 sourceSets {
     test {
         resources.srcDir(rootProject.file("docker/postgres-init"))
+        resources.srcDir(rootProject.file("docs/schemas/fixtures"))
     }
 }
 

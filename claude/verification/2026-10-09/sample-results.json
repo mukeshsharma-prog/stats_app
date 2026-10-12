@@ -1,0 +1,251 @@
+{
+  "mode": "replay",
+  "checked_at_utc": "2026-10-09T08:52:55.114307+00:00",
+  "queues_before": {
+    "lorastats": {
+      "queues": 5,
+      "main_consumers": 1,
+      "main_messages": 0,
+      "retry_messages": 0,
+      "dlq_messages": 0
+    },
+    "sysstats": {
+      "queues": 5,
+      "main_consumers": 1,
+      "main_messages": 0,
+      "retry_messages": 0,
+      "dlq_messages": 0
+    },
+    "omsstats": {
+      "queues": 5,
+      "main_consumers": 1,
+      "main_messages": 0,
+      "retry_messages": 0,
+      "dlq_messages": 0
+    },
+    "ltestats": {
+      "queues": 5,
+      "main_consumers": 1,
+      "main_messages": 0,
+      "retry_messages": 0,
+      "dlq_messages": 0
+    },
+    "netstats": {
+      "queues": 5,
+      "main_consumers": 1,
+      "main_messages": 0,
+      "retry_messages": 0,
+      "dlq_messages": 0
+    }
+  },
+  "partitions": {
+    "cutoff_utc": "2026-07-11",
+    "horizon_utc": "2026-10-16",
+    "expected_per_type": 98,
+    "parents": {
+      "lorastats": {
+        "partition_count": 98,
+        "missing": 0,
+        "outside_expected_window": 0
+      },
+      "sysstats": {
+        "partition_count": 98,
+        "missing": 0,
+        "outside_expected_window": 0
+      },
+      "omsstats": {
+        "partition_count": 98,
+        "missing": 0,
+        "outside_expected_window": 0
+      },
+      "ltestats": {
+        "partition_count": 98,
+        "missing": 0,
+        "outside_expected_window": 0
+      },
+      "netstats": {
+        "partition_count": 98,
+        "missing": 0,
+        "outside_expected_window": 0
+      }
+    },
+    "checked_indexes": 1470,
+    "daily_bounds_and_indexes_and_read_only_grants": true
+  },
+  "samples": {
+    "types": {
+      "ltestats": {
+        "original_schema_valid": 1000,
+        "numeric_range_valid": 1000,
+        "payload_shapes": [
+          {
+            "fields": [
+              "access_Technology",
+              "cid",
+              "imsi",
+              "lac",
+              "operator",
+              "plmn",
+              "rsrp",
+              "rsrq",
+              "rssi"
+            ],
+            "records": 998
+          },
+          {
+            "fields": [
+              "etxt"
+            ],
+            "records": 1
+          },
+          {
+            "fields": [
+              "access_Technology",
+              "cid",
+              "imsi",
+              "lac",
+              "operator",
+              "plmn",
+              "rssi"
+            ],
+            "records": 1
+          }
+        ]
+      },
+      "netstats": {
+        "original_schema_valid": 1000,
+        "numeric_range_valid": 1000,
+        "payload_shapes": [
+          {
+            "fields": [
+              "eth0",
+              "timespan",
+              "wwan"
+            ],
+            "records": 1000
+          }
+        ]
+      }
+    },
+    "internal_accepted": 2000,
+    "external_replay_accepted": 2000,
+    "exact_data_and_timestamp_readbacks": 2000,
+    "stored_rows": {
+      "ltestats": 1000,
+      "netstats": 1000
+    },
+    "duplicate_rows_added": 0,
+    "duplicate_counter_increase": {
+      "ltestats": 1000,
+      "netstats": 1000
+    },
+    "retry_or_dlq_messages": 0,
+    "partition_distribution": {
+      "ltestats": {
+        "ltestats_2026_09_02": 30,
+        "ltestats_2026_09_03": 970
+      },
+      "netstats": {
+        "netstats_2026_09_02": 1,
+        "netstats_2026_09_03": 48,
+        "netstats_2026_09_04": 45,
+        "netstats_2026_09_05": 48,
+        "netstats_2026_09_06": 48,
+        "netstats_2026_09_07": 48,
+        "netstats_2026_09_08": 34,
+        "netstats_2026_09_09": 24,
+        "netstats_2026_09_10": 24,
+        "netstats_2026_09_11": 23,
+        "netstats_2026_09_12": 24,
+        "netstats_2026_09_13": 24,
+        "netstats_2026_09_14": 24,
+        "netstats_2026_09_15": 24,
+        "netstats_2026_09_16": 24,
+        "netstats_2026_09_17": 24,
+        "netstats_2026_09_18": 24,
+        "netstats_2026_09_19": 24,
+        "netstats_2026_09_20": 24,
+        "netstats_2026_09_21": 24,
+        "netstats_2026_09_22": 24,
+        "netstats_2026_09_23": 20,
+        "netstats_2026_09_24": 24,
+        "netstats_2026_09_25": 24,
+        "netstats_2026_09_26": 24,
+        "netstats_2026_09_27": 24,
+        "netstats_2026_09_28": 24,
+        "netstats_2026_09_29": 24,
+        "netstats_2026_09_30": 32,
+        "netstats_2026_10_01": 48,
+        "netstats_2026_10_02": 48,
+        "netstats_2026_10_03": 48,
+        "netstats_2026_10_04": 47,
+        "netstats_2026_10_05": 6
+      }
+    },
+    "isolation_changes": "Test UID, tenant and maintenant only; original data and ts values preserved; datastore _id removed."
+  },
+  "api": {
+    "lorastats": {
+      "read_routes_checked": 4,
+      "stored_row_available": true,
+      "security_and_error_checks": true
+    },
+    "sysstats": {
+      "read_routes_checked": 4,
+      "stored_row_available": true,
+      "security_and_error_checks": true
+    },
+    "omsstats": {
+      "read_routes_checked": 4,
+      "stored_row_available": true,
+      "security_and_error_checks": true
+    },
+    "ltestats": {
+      "read_routes_checked": 4,
+      "stored_row_available": true,
+      "security_and_error_checks": true
+    },
+    "netstats": {
+      "read_routes_checked": 4,
+      "stored_row_available": true,
+      "security_and_error_checks": true
+    }
+  },
+  "queues_after": {
+    "lorastats": {
+      "queues": 5,
+      "main_consumers": 1,
+      "main_messages": 0,
+      "retry_messages": 0,
+      "dlq_messages": 0
+    },
+    "sysstats": {
+      "queues": 5,
+      "main_consumers": 1,
+      "main_messages": 0,
+      "retry_messages": 0,
+      "dlq_messages": 0
+    },
+    "omsstats": {
+      "queues": 5,
+      "main_consumers": 1,
+      "main_messages": 0,
+      "retry_messages": 0,
+      "dlq_messages": 0
+    },
+    "ltestats": {
+      "queues": 5,
+      "main_consumers": 1,
+      "main_messages": 0,
+      "retry_messages": 0,
+      "dlq_messages": 0
+    },
+    "netstats": {
+      "queues": 5,
+      "main_consumers": 1,
+      "main_messages": 0,
+      "retry_messages": 0,
+      "dlq_messages": 0
+    }
+  }
+}
