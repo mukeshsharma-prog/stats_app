@@ -16,6 +16,10 @@ import java.util.List;
  * key. A 2G record omits {@code rsrp}/{@code rsrq}; an unregistered modem instead
  * has only {@code etxt}. None of this export's records has {@code timespan}, but
  * earlier accepted records can have it, so it is returned only when stored.
+ *
+ * <p>{@code imsi} is the one member that does not go back out as stored: it is masked by
+ * {@link ImsiMask} on every route (D-12 P3, DL-167). {@code lac}/{@code cid} are returned
+ * as reported, by the same decision.</p>
  */
 public final class LtestatsReader implements StatReader {
 
@@ -42,8 +46,10 @@ public final class LtestatsReader implements StatReader {
         }
         String technology = row.getString("access_technology");
         if (technology != null) data.put("access_Technology", technology);
-        for (String field : List.of("operator", "plmn", "imsi", "lac", "cid")) {
+        for (String field : List.of("operator", "plmn", "lac", "cid")) {
             StatReader.putText(row, field, data);
         }
+        String imsi = ImsiMask.mask(row.getString("imsi"), row.getString("plmn"));
+        if (imsi != null) data.put("imsi", imsi);
     }
 }

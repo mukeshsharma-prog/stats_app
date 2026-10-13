@@ -6,6 +6,7 @@ shared stack: this drill stops its database and Writer. Credentials are read fro
 the staging .env and are never printed. Run after the packaged Postman collection.
 """
 import base64
+import copy
 import json
 import os
 import secrets
@@ -86,6 +87,26 @@ def fixture(name):
     return record
 
 
+def expected_read(data):
+    """What the API returns for data: imsi masked (D-12 P3, DL-167), all else as sent.
+
+    Mirrors stats-api ImsiMask: keep the plmn prefix (or the first five digits), show
+    the last four only when at least eight subscriber digits follow, mask the rest."""
+    expected = copy.deepcopy(data)
+    imsi = expected.get("imsi")
+    if imsi is None:
+        return expected
+    plmn = expected.get("plmn") or ""
+    prefix = len(plmn) if plmn and imsi.startswith(plmn) else 5
+    subscriber = len(imsi) - prefix
+    if subscriber < 4:
+        expected["imsi"] = "*" * len(imsi)
+    else:
+        tail = 4 if subscriber >= 8 else 0
+        expected["imsi"] = imsi[:prefix] + "*" * (subscriber - tail) + imsi[len(imsi) - tail:]
+    return expected
+
+
 def post(record):
     status, data = request(18081, "/internal/stats", "POST", record)
     assert status in (200, 202) and data["status"] == "accepted" and data["traceId"]
@@ -135,7 +156,7 @@ def scoped_redrive():
             assert result.returncode == 0, "Scoped redrive command failed; credentials withheld"
             assert '"event":"redrive_completed"' in result.stdout and '"moved":1' in result.stdout
             wait(lambda: read(record)[0] == 200)
-            assert read(record)[1]["data"] == record["data"]
+            assert read(record)[1]["data"] == expected_read(record["data"])
             print(kind + ": dedicated scoped redrive confirmed, committed and read losslessly", flush=True)
         finally:
             assert request(18072, "/api/users/" + user, "DELETE", rabbit=True)[0] in (204, 404)
@@ -199,7 +220,7 @@ def main():
         docker("start", "postgres")
     for record in pending:
         wait(lambda r=record: read(r)[0] == 200, seconds=90)
-        assert read(record)[1]["data"] == record["data"]
+        assert read(record)[1]["data"] == expected_read(record["data"])
         post(record)
     print("Both types: retry returned to own queue, committed, read losslessly, replay accepted", flush=True)
     docker("restart", "writer")

@@ -49,6 +49,12 @@ jobs:
           python docs/contracts/test_schema_drift.py
           python docs/contracts/check_schema_drift.py
 
+      # DL-166 / DL-167: credential safety on upgrade, monitoring waited for before the
+      # applications, degraded monitoring reported as exit 3, and Prometheus never gated
+      # on the health of what it monitors. No real Docker resources are touched.
+      - name: Startup script regression tests
+        run: python docker/tests/test-start-stats-app.py -v
+
       # DL-144 (dlq-alerts), DL-147 (writer-alerts: oldest-message age, late arrival,
       # upstream status) and DL-155 (postgres-alerts: WAL archiver, the RPO half of
       # ADR-003 D5). Every file checked, every file behaviour-tested.

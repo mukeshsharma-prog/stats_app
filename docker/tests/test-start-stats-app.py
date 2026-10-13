@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise startup credential safety without touching real Docker resources."""
+"""Exercise startup credential safety and monitoring readiness without real Docker."""
 import json
 import os
 from pathlib import Path
@@ -29,6 +29,8 @@ elif a[0] == 'inspect':
         print('stats-app-bundle')
     elif template == '{{.Image}}':
         print('sha256:existing-postgres')
+    elif a[3] == os.environ.get('FAKE_UNHEALTHY'):
+        print('unhealthy')
     else:
         print('healthy')
 elif a[0] == 'run':
@@ -36,14 +38,16 @@ elif a[0] == 'run':
 elif a[0] == 'compose':
     (root / 'started').touch()
 elif a[0] == 'exec':
-    print('{} => 4 @ 1')
+    if os.environ.get('FAKE_MONITORING_DOWN') != '1':
+        print('{} => 4 @ 1')
 elif a[0] not in ['load', 'logs']:
     sys.exit(2)
 '''
 
 
 class StartupCredentialsTest(unittest.TestCase):
-    def exercise(self, volumes=False, postgres=False, auth_failure=False, env_exists=False):
+    def exercise(self, volumes=False, postgres=False, auth_failure=False, env_exists=False,
+                 unhealthy='', monitoring_down=False):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         root = Path(temporary.name)
@@ -60,7 +64,9 @@ class StartupCredentialsTest(unittest.TestCase):
             (root / '.env').write_text('POSTGRES_USER=test\nPOSTGRES_PASSWORD=test-only\n')
         env = dict(os.environ, PATH=str(fake.parent) + ':' + os.environ['PATH'],
                    FAKE_ROOT=str(root), FAKE_VOLUMES=str(int(volumes)),
-                   FAKE_POSTGRES=str(int(postgres)), FAKE_AUTH_FAILURE=str(int(auth_failure)))
+                   FAKE_POSTGRES=str(int(postgres)), FAKE_AUTH_FAILURE=str(int(auth_failure)),
+                   FAKE_UNHEALTHY=unhealthy, FAKE_MONITORING_DOWN=str(int(monitoring_down)),
+                   MONITORING_TIMEOUT_SECONDS='1')
         result = subprocess.run(['sh', str(root / 'docker/start-stats-app.sh')],
                                 env=env, text=True, capture_output=True, timeout=15)
         calls = [json.loads(line) for line in (root / 'calls.jsonl').read_text().splitlines()]
@@ -96,6 +102,36 @@ class StartupCredentialsTest(unittest.TestCase):
         self.assertEqual((root / '.env').stat().st_mode & 0o777, 0o600)
         self.assertIn('POSTGRES_RO_PASSWORD=', (root / '.env').read_text())
         self.assertTrue(any(c[0] == 'compose' for c in calls))
+
+    def test_degraded_monitoring_reports_ready_and_exits_three(self):
+        # DL-167: every application is healthy, so the stack is usable and says so;
+        # the monitoring problem is printed, not hidden, and gets its own exit status.
+        _, result, _ = self.exercise(monitoring_down=True)
+        self.assertEqual(result.returncode, 3, result.stderr)
+        self.assertIn('Stats App is ready', result.stdout)
+        self.assertIn('monitoring is DEGRADED', result.stderr)
+
+    def test_monitoring_is_up_before_the_applications_are_waited_for(self):
+        # DL-167: an app that fails must find Prometheus already running to show it.
+        _, result, calls = self.exercise(unhealthy='stats-api')
+        self.assertEqual(result.returncode, 1)
+        self.assertIn('9090/targets shows stats-api as down', result.stderr)
+        waited = [c[3] for c in calls if c[0] == 'inspect' and 'State.Health' in c[2]]
+        self.assertLess(waited.index('stats-prometheus'), waited.index('stats-input'))
+
+
+class MonitoringIsIndependentTest(unittest.TestCase):
+    """Prometheus must never wait for the health of what it monitors (DL-167)."""
+
+    def test_prometheus_depends_on_targets_being_started_never_healthy(self):
+        import yaml
+        compose = Path(__file__).resolve().parents[1] / 'docker-compose.yml'
+        services = yaml.safe_load(compose.read_text())['services']
+        depends = services['prometheus']['depends_on']
+        self.assertTrue({'stats-input', 'stats-writer', 'stats-api'} <= set(depends))
+        for target, rule in depends.items():
+            with self.subTest(target=target):
+                self.assertEqual(rule['condition'], 'service_started')
 
 
 if __name__ == '__main__':

@@ -1,18 +1,42 @@
 # CLAUDE.md
 
-**Version 1.29 — 8 October 2026 (DL-164).** LTE and netstats now have complete
-consumer/writer/migration/reader slices, V8/V9, per-type tests and all-five Postman
-coverage. This supersedes older “unbuilt” statements below. LTE follows the current
-string-identifier contract for local development; D-12 P3 still gates merge/shared
-release, and Q15g remains outstanding for the actual netstats feed. No masking policy
-has been inferred. See `LTE_NETSTATS_IMPLEMENTATION_PLAN.md` for verification evidence.
-
 Project context for AI-assisted development on the **Stats App**.
 This file lives in `claude/` together with every other working document.
 It is still auto-loaded every session: the repository-root `CLAUDE.md` is a
 pointer file whose only content is an `@claude/CLAUDE.md` import. Edit this file,
 not the pointer.
 
+> **Version 1.30 — 12 October 2026.** No decision in 1.29 changes except D-12 P3, which is
+> now **answered**. Governing entry: **DL-167**.
+>
+> * **IMSI: stored raw, masked on every API route** (`ImsiMask`, approver's decision).
+>   Carrier prefix (`plmn`, else five digits) and — with ≥ 8 subscriber digits — the last
+>   four stay visible; the rest is `*`, length kept. The table, DLQ and backups keep the
+>   raw value. **`lac`/`cid` are returned as reported.** `openapi.yaml` and the CI drift
+>   gate hold `imsi` to exactly this one read/ingest difference.
+> * **No LTE/netstats payload reaches a log at any level — enforced.**
+>   `LteNetstatsPayloadsAreNeverLoggedIntegrationTest` in Input, Writer and API runs every
+>   outcome with Spring at `TRACE`. It found two framework leaks, now pinned on the exact
+>   logger: `StatementCreatorUtils` (Writer, every SQL parameter) and MVC's body writers
+>   (API). **Do not remove those `logging.level.…=INFO` lines.**
+> * **Prometheus depends on its targets being started, never healthy**; the bundle start
+>   script exits **3** for "applications ready, monitoring degraded".
+> * **All five listeners obey `spring.rabbitmq.listener.simple.auto-startup` alike**
+>   (`StatTypeDeployment.AUTO_STARTUP_*`). The Writer test workaround is gone; the shared
+>   test PostgreSQL runs `max_connections=400` instead.
+> * **The API's open scrape has its guard back** (`MetricsCarryNoCallerDataIntegrationTest`).
+> * **Still open:** Q15g in §7 says "zero netstats records", which DL-165's 1,000-record
+>   export contradicts — re-ask or close it. D-09, T-068 and the independent security
+>   review stand. Quiz for this change: **waived, not passed** (DL-167).
+>
+> **Version 1.29 — 8 October 2026 (DL-164).** LTE and netstats now have complete
+> consumer/writer/migration/reader slices, V8/V9, per-type tests and all-five Postman
+> coverage. This supersedes older “unbuilt” statements below. LTE follows the current
+> string-identifier contract for local development; ~~D-12 P3 still gates merge/shared
+> release~~ — **answered 12 Oct 2026 (DL-167, version 1.30)** — and Q15g remains
+> outstanding for the actual netstats feed. See `LTE_NETSTATS_IMPLEMENTATION_PLAN.md` for
+> verification evidence.
+>
 > **Version 1.28 — 26 September 2026.** No decision in 1.27 changes. What changes is that
 > **`stats-api` is built — Phase 4, ahead of ZC's confirmation of the contract, by
 > decision**. Governing entry: **DL-162** (T-038…T-046, T-067, T-028's read half).
@@ -1229,6 +1253,7 @@ plan is not written against a repository that no longer exists. Full reasoning:
 | DL-155 | **Per-partition restore drilled and timed; WAL archiving on and watched.** Runbook `docs/runbooks/partition-restore.md` (load-then-attach; a plain `pg_restore` attaches first, loads in view, exits 1). Drill: 200k rows, **1.23 s**, attach 1 ms, writer never blocked. Compose: `archive_mode=on`, `archive_timeout=300`, archive directory owned before start (root-owned volume = silent archiver failure). `postgres-alerts.yml`: failing / stale / disabled / exporter down | T-051 |
 | DL-154 | **One wire-number coercion, and the build refuses a second.** `WireNumbers` — `requiredInteger`/`optionalInteger`, `requiredDigitString`/`optionalDigitString(Sign)`, `parseDigitString` — range-checks against `BigInteger` before conversion; every refusal is permanent and names only the field. Found on extraction: a lorastats integer overflow was *retried* (35½ min) before dead-lettering, and the dialect-B coercion accepted a negative string. `WireNumbersIsTheOnlyCoercionTest` scans the persistence package | T-062, T-034, T-037 |
 | DL-153 | **`omsstats` is built, additively, from the sysstats slice — and nothing shared moved.** `V7__omsstats_table.sql` with the CHECK, `data_extra`, `(ts_device, uid)` and the two ADR-003 indexes; every payload column a `NOT NULL bigint`; `ts.converter` preserved in `passthrough`, no normalisation column (ADR-004). An integer wider than `BIGINT` is `unmappable` before conversion; `"300"` is refused, not guessed. Fixture `valid/omsstats-counter-overflow.json`. The coercion helper is deliberately left to T-062 | T-036, T-062 |
+| DL-167 | **D-12 P3 answered: IMSI raw at rest, masked by the API; `lac`/`cid` as reported.** `ImsiMask` in `LtestatsReader`; `openapi.yaml` and the drift gate carry the masked form. **No LTE/netstats payload in any log at any level**, proved in all three modules at `TRACE`; framework leaks pinned (`StatementCreatorUtils`, MVC body writers). Prometheus waits on targets *started*; bundle exit 3 = monitoring degraded. All five listeners share one `autoStartup`. Scrape guard restored | T-034, T-050, T-056 |
 
 > **What to do next lives in `Stats_App_Tracker.xlsx` → the `Next Up` sheet**, ranked
 > across both owners with the gate on each row. T-063, T-057 and T-064 were done on
@@ -1344,7 +1369,7 @@ wrong.** Reconciled 18 August 2026.
 | ADR-004 | OMS timestamp normalisation | **ACCEPTED — amended 29 Aug 2026 by ADR-007 §2** | No normalisation; publication is byte-identical to the received record, which is what makes ADR-003's per-partition duplicate suppression work. **Clause 3 is withdrawn:** a record carrying `ts.converter` is **valid** — production sends it on 100% of records. Accepted, preserved, never read, metered. Cite the ARD's different ADR-004 as `ARD-ADR-04`. |
 | ADR-005 | Delivery semantics and idempotency | **ACCEPTED with implementation defaults** | Writer batching amended by G3. Retry/DLQ handoff must be publish-confirmed *before* ACKing the original — ACK-then-publish opens a silent loss window. Duplicate outcome is `ON CONFLICT (ts_device, uid) DO NOTHING`, metered. Replay spikes the duplicate counter by design; do not alert on it. Q13c (2× replay cap) is **agreed by Heimdal since 4 Sep 2026 (DL-109) and still not enforceable by us** — 503 backpressure, bounded prefetch and T-018's rate limit stay exactly as they are. |
 | ADR-007 | The production wire format is the contract | **ACCEPTED** (29 Aug 2026) — **§4 amended 4 Sep 2026, built 8 Sep 2026** | `clsbox`/`ts.server` end to end with no rename layer; `ts.converter` accepted and metered (amends ADR-004); two validation gates with different consequences — **and since T-057 both gates exist in code**, so "invalid" genuinely no longer implies "400" (DL-126). **§4 is reversed by the *Amendment — 4 September 2026*: all three known `lorastats` dialects are accepted and normalised to one row (DL-105 supersedes DL-089), under a closed enumeration with structural detection and range-checked coercion — implemented by T-063 (DL-127).** All four of its open questions (Q15a–Q15d) were answered on 4 Sep 2026 — DL-105…DL-108 — leaving one residual: whether the other dialects are being retired. Also amends ADR-003 (column names); its DLQ-volume warning to ADR-002 §12 is resolved. |
-| ADR-006 | Tenant isolation and API security | **ACCEPTED** — amended 17 Sep and 21 Sep 2026 | The isolation decisions are settled and buildable; only ZC's confirmation of the Keycloak values (Q8b-2) is outstanding, and it is a config change. Proposed realm is live in dev — read role is `stats.readOnly`, **not** the bare `readOnly` placeholder. Input auth is deferred by decision (Q8a): `stats.input.auth.mode` has no default in code and `prod` must refuse `none`. **Amended 17 Sep 2026 (D16, DL-142):** a gateway moved between tenants keeps its pre-move rows under the old `tenant` — ratified as correct; `tenant` is the value at measurement time and nothing re-labels history. **Amended 21 Sep 2026 (DL-151, DL-152):** the device-scoped read paths are tenant-scoped from the token and a foreign or unknown `clsbox` is an empty `200`, never 404; and the **external ingest door binds nothing to the record's tenant** until Q8a-2 — the one residual, tracked as T-068. |
+| ADR-006 | Tenant isolation and API security | **ACCEPTED** — amended 17 Sep, 21 Sep and 12 Oct 2026 | **Amended 12 Oct 2026 (DL-167, D-12 P3):** `imsi` is masked on every read route and stored raw; `lac`/`cid` are returned as reported. The isolation decisions are settled and buildable; only ZC's confirmation of the Keycloak values (Q8b-2) is outstanding, and it is a config change. Proposed realm is live in dev — read role is `stats.readOnly`, **not** the bare `readOnly` placeholder. Input auth is deferred by decision (Q8a): `stats.input.auth.mode` has no default in code and `prod` must refuse `none`. **Amended 17 Sep 2026 (D16, DL-142):** a gateway moved between tenants keeps its pre-move rows under the old `tenant` — ratified as correct; `tenant` is the value at measurement time and nothing re-labels history. **Amended 21 Sep 2026 (DL-151, DL-152):** the device-scoped read paths are tenant-scoped from the token and a foreign or unknown `clsbox` is an empty `200`, never 404; and the **external ingest door binds nothing to the record's tenant** until Q8a-2 — the one residual, tracked as T-068. |
 
 ---
 

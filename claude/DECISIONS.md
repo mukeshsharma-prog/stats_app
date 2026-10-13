@@ -5745,3 +5745,95 @@ metrics URLs return 200; anonymous stats reads and actuator/info return 401.
 251 API tests and 273 shared tests pass with zero failures or skips. Prometheus
 history was copied to its application-project volume; the original volume was
 retained. Existing database/broker containers and their data were preserved.
+
+
+### DL-167 — D-12 P3 answered (IMSI masked at the API, `lac`/`cid` as reported); monitoring, listener start-up and payload logging made production-ready
+
+**12 Oct 2026** · `SECURITY` · `OPERATIONS` · D-12 P3, ADR-006, STA-35, NFR-03, DL-164, DL-166 · T-034, T-050, T-056
+
+**Trigger.** The review of DL-164 (merged to `main` as `09a942c`) found LTE merged
+against its own gate (D-12 P3), and four engineering defects: Prometheus gated on the
+health of what it monitors; only two of five consumers honouring Spring's listener
+switch; the API scrape opened without the no-caller-data guard; and guard **P1** — "never
+log an `ltestats`/`netstats` payload at any level", adopted 4 Sep 2026 (DL-114) — with no
+test anywhere, now that both types exist. (The review first called P1 new; it is not —
+DL-164 only copied it into the D-12 checklist row.)
+
+**Decision — D-12 P3 (approver: Naman Vashishtha, 12 Oct 2026).**
+* **IMSI: stored raw, masked on read.** The table, the DLQ and backups keep the value
+  Heimdal sent; every API route returns it masked by `ImsiMask` — the carrier prefix
+  (the record's `plmn` when the IMSI starts with it, else the first five digits) and,
+  when at least eight subscriber digits follow, the last four; every other digit `*`,
+  length preserved; a value too short to hide anything after the prefix is masked
+  completely. `LtestatsReader` is the only reader of the column.
+* **`lac`/`cid`: returned as reported**, no masking.
+* **The read contract says so.** `openapi.yaml` `LtestatsMeasured.imsi` is the masked
+  form; `check_schema_drift.py` holds `imsi` to exactly that one difference and fails CI
+  if the ingest rule (`^[0-9]{1,20}$`) changes without the projection being revisited.
+
+**Decision — engineering.**
+1. **Prometheus depends on its targets being *started*, never *healthy*.** The bundle
+   start script waits for monitoring before the applications, points at
+   `:9090/targets` when an application fails, and reports degraded monitoring after a
+   healthy start as **exit 3** with the ready banner, instead of failing the start.
+2. **All five listeners share one `autoStartup` expression**
+   (`StatTypeDeployment.AUTO_STARTUP_PREFIX/SUFFIX`), which honours
+   `spring.rabbitmq.listener.simple.auto-startup` for every type alike.
+   `ConsumerAutoStartupIsUniformTest` scans the package. The suite-wide test workaround
+   (context cache 1, Hikari pool 4) is **removed**: uniform start-up removed the listener
+   interference it hid, and the remaining connection exhaustion is fixed where it lives —
+   the shared test PostgreSQL runs `max_connections=400`, so every test context keeps the
+   production pool size and the timing drills still measure production's shape.
+3. **`MetricsCarryNoCallerDataIntegrationTest` is restored**, adapted to
+   `stats.security.prometheus-public-access=true` and extended to the two new types.
+4. **P1 (DL-114) is enforced, not asserted.**
+   `LteNetstatsPayloadsAreNeverLoggedIntegrationTest` exists in Input, Writer and API:
+   distinctive values in every sensitive member, every outcome (accepted, envelope and
+   clock-skew 400s on both doors; stored, duplicate, unmappable, payload-rejected,
+   expired; every read route), our loggers and Spring's at `TRACE`. It found two real
+   leaks, now pinned at `INFO` on the exact logger so raising the parent package cannot
+   release them: `org.springframework.jdbc.core.StatementCreatorUtils` (Writer — every
+   bound SQL parameter, raw IMSI included) and Spring MVC's
+   `RequestResponseBodyMethodProcessor` / `HttpEntityMethodProcessor` (API — every
+   response body). Input was clean at `TRACE`. The pins apply to all five types; the
+   other three lose framework payload logging they never relied on.
+5. **The startup-script tests run in CI.** DL-166's four (now seven) cases were local-only.
+
+**Why.** Masking at read keeps every option open — tightening to Writer-side masking
+later is a migration plus a DLQ policy decision, loosening is a one-line change — while
+no tenant token ever sees a subscriber number. Monitoring that waits for health is absent
+exactly when it is needed. A switch two of five listeners obey stops two types silently.
+A rule nothing tests is a rule the next framework upgrade or incident-time log level
+breaks — this one was already broken in two modules at `TRACE`.
+
+**Rejected.** *Masking at the Writer* — irreversible, destroys carrier correlation, and
+the approver chose read-side. *Masking `lac`/`cid`* — decided against. *Making the API
+mask configurable* — a switch that can turn a privacy control off. *Keeping the test
+workaround* — it changed the pool size of the drills the runbooks quote and hid the
+listener defect. *A logback `TurboFilter` that drops those loggers outright* — stronger,
+but a second logging configuration surface for one rule; the exact-logger pin plus three
+tests that fail the build is the boring version. *Editing V8's column comment* — an
+applied Flyway migration's checksum would change on every existing database.
+
+**Verification.** Full build `--rerun-tasks`: **1,173 tests, 0 failures, 0 skipped** (api 266, common 273, input 79, testsupport 16, writer 539; was 1,154). `redocly lint` 2.51.2 clean on both contracts.
+Mutation-checked: the reader returning the raw IMSI fails the read tests; a
+`service_healthy` Prometheus dependency fails `MonitoringIsIndependentTest`; removing
+either logger pin fails its module's payload-logging test (both were found failing before
+the pin). Drift gate 8/8, fixtures 117/0, startup tests 7/7.
+
+**Quiz (DL-005).** Two questions were asked (what `auto-startup=false` does to records
+and what reports it; why DEBUG-gated payload logging is insufficient for LTE/netstats).
+The approver answered "do all": **waived, not passed.** The answers: records accumulate
+in their durable per-type queues — nothing is lost — and `StatsAppQueueNoConsumer` /
+oldest-message-age alerts report it; DEBUG is what an operator enables in an incident,
+on a store with its own retention and access list, and frameworks (JDBC parameters, MVC
+bodies) print payloads at levels our own code never uses.
+
+**Residuals.**
+* An operator who names one of the pinned loggers explicitly can still release it — a
+  deliberate act, not an incident-time accident.
+* Raw IMSIs remain in the table, the DLQ and backups by decision; access to those is D-12
+  Q4/Q5 (log/DLQ access, audit), still with security and compliance.
+* V8's column comment still reads "policy remains D-12"; the decision lives here.
+* Q15g's "zero netstats records" in `claude/CLAUDE.md` §7 is contradicted by DL-165's
+  1,000-record export and is not reconciled by this entry.

@@ -295,3 +295,20 @@ outside that configuration, retaining bearer-token protection. Stats reads conti
 to require a valid JWT, read role and tenant; `/actuator/info` remains authenticated.
 The metrics exception uses the named Actuator endpoint matcher and does not whitelist
 `/actuator/**`. Default and local-mode security tests guard both configurations.
+
+
+### Amendment — 12 October 2026: subscriber identifiers on the read path (DL-167, D-12 P3)
+
+**Decided by the approver (Naman Vashishtha).** `ltestats.imsi` is stored as Heimdal sent
+it and returned **masked on every read route**: the carrier prefix (the record's `plmn`
+when the IMSI starts with it, otherwise the first five digits) and, when at least eight
+subscriber digits follow, the last four stay visible; every other digit is `*`, length
+preserved. `lac` and `cid` are returned as reported.
+
+Consequences for this ADR: tenant isolation decides *which rows* a token sees; masking
+decides *what a row discloses*, and both now apply to every `ltestats` read. Masking is
+not configurable — a switch that turns a privacy control off is the same one-line risk
+DL-126 removed from the payload gate. The raw value remains in the table, the DLQ and
+backups, whose access and audit are still D-12 Q4/Q5. The read contract
+(`openapi.yaml`, `LtestatsMeasured.imsi`) carries the masked form, and the CI drift gate
+holds it to exactly that difference from the ingest schema.

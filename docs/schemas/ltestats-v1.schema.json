@@ -44,7 +44,7 @@
         "imsi": {
           "type": "string",
           "pattern": "^[0-9]{1,20}$",
-          "$comment": "Sensitive identifier. Charset is constrained but length is deliberately not: rejecting a valid IMSI on a guessed length would dead-letter real traffic. Masking policy is still pending approval."
+          "$comment": "Sensitive identifier. Charset is constrained but length is deliberately not: rejecting a valid IMSI on a guessed length would dead-letter real traffic. Stored raw; the read API returns it masked (D-12 P3, decided 12 Oct 2026, DL-167). This rule must stay digits-only: the masking and the OpenAPI drift gate are written against it."
         },
         "lac": { "$ref": "#/$defs/hexString" },
         "cid": { "$ref": "#/$defs/hexString" },

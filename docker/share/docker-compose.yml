@@ -1,0 +1,282 @@
+# Stats App — the share bundle's stack (DL-164).
+#
+# This file is copied into the bundle by docker/share/build-bundle.sh and runs from
+# there, beside the bundle's .env, images.tar and config/. It never builds: every
+# image is either one of ours, loaded from images.tar, or public infrastructure.
+#
+#   docker load -i images.tar
+#   ./start.sh                                          # the stack, moving any taken port
+#   ./start.sh demo                                     # ... then the end-to-end demo
+#   docker compose up -d --wait                         # the stack, ports exactly as in .env
+#   docker compose run --rm demo                        # the end-to-end demo
+#   docker compose --profile observability up -d        # + Prometheus / Grafana
+#   docker compose down -v                              # remove it all
+#
+# It mirrors docker/docker-compose.yml deliberately — same service names (the
+# Prometheus config scrapes them), same per-module credential blanking, same WAL
+# archive — with four differences, all for a machine that is not a developer's:
+#   * the three modules start by default (no `apps` profile) and are never built;
+#   * every port binds to 127.0.0.1 only, and its host side is set in .env;
+#     start.sh probes each one first and moves a taken port to the next free one,
+#     with a warning, writing the new value back to .env. PostgreSQL defaults to 5433,
+#     because 5432 is usually a local PostgreSQL already;
+#   * container names are stats-demo-*, so the bundle can run beside a dev stack;
+#   * a `demo` service runs docker/demo.sh inside the network.
+#
+# Values come from the bundle's .env — both for the containers (env_file) and for the
+# ${PORT_*} interpolation below, which compose reads from .env beside this file.
+
+name: stats-app-demo
+
+services:
+
+  postgres:
+    image: postgres:17-alpine
+    container_name: stats-demo-postgres
+    restart: unless-stopped
+    env_file: .env
+    # The chown is why the entrypoint is wrapped: a fresh named volume is root-owned
+    # and archiving then fails silently (DL-155). See docker/docker-compose.yml.
+    entrypoint:
+      - sh
+      - -c
+      - >-
+        chown postgres:postgres /var/lib/postgresql/wal-archive
+        && exec docker-entrypoint.sh "$@"
+      - --
+    command:
+      - postgres
+      - -c
+      - archive_mode=on
+      - -c
+      - archive_timeout=300
+      - -c
+      - archive_command=test ! -f /var/lib/postgresql/wal-archive/%f && cp %p /var/lib/postgresql/wal-archive/%f
+    ports:
+      - "127.0.0.1:${PORT_POSTGRES:-5433}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - postgres-wal-archive:/var/lib/postgresql/wal-archive
+      - ./config/postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    container_name: stats-demo-rabbitmq
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "127.0.0.1:${PORT_RABBITMQ_UI:-15672}:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 30s
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    container_name: stats-demo-keycloak
+    restart: unless-stopped
+    command: ["start-dev", "--import-realm"]
+    env_file: .env
+    environment:
+      KC_HEALTH_ENABLED: "true"
+      # Every token's `iss`, wherever it was minted from. stats-api compares it as a
+      # string to KEYCLOAK_ISSUER, which it is given from the same PORT_KEYCLOAK below,
+      # so moving the port moves both and the admin console's redirects with them.
+      KC_HOSTNAME: http://localhost:${PORT_KEYCLOAK:-8080}
+      KC_HOSTNAME_STRICT: "false"
+      KC_HTTP_ENABLED: "true"
+    ports:
+      - "127.0.0.1:${PORT_KEYCLOAK:-8080}:8080"
+    volumes:
+      - ./config/keycloak-realm-statsapp.json:/opt/keycloak/data/import/realm.json:ro
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && echo -e 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q '\"status\": \"UP\"' <&3"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 30s
+
+  stats-input:
+    image: stats-app/stats-input:share
+    pull_policy: never
+    container_name: stats-demo-input
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # No database identity in Input (ADR-006).
+      POSTGRES_URL: ""
+      POSTGRES_DB: ""
+      POSTGRES_USER: ""
+      POSTGRES_PASSWORD: ""
+      POSTGRES_RO_USER: ""
+      POSTGRES_RO_PASSWORD: ""
+    ports:
+      - "127.0.0.1:${PORT_INPUT:-8081}:8081"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8081/actuator/health/readiness"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+
+  stats-writer:
+    image: stats-app/stats-writer:share
+    pull_policy: never
+    container_name: stats-demo-writer
+    restart: unless-stopped
+    stop_grace_period: 10s
+    env_file: .env
+    environment:
+      POSTGRES_RO_USER: ""
+      POSTGRES_RO_PASSWORD: ""
+      STATS_INPUT_BASIC_PASSWORD: ""
+      STATS_INPUT_BASIC_PREVIOUS_PASSWORD: ""
+    ports:
+      - "127.0.0.1:${PORT_WRITER:-8082}:8082"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8082/actuator/health/readiness"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+
+  stats-api:
+    image: stats-app/stats-api:share
+    pull_policy: never
+    container_name: stats-demo-api
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      POSTGRES_USER: ""
+      POSTGRES_PASSWORD: ""
+      STATS_INPUT_BASIC_PASSWORD: ""
+      STATS_INPUT_BASIC_PREVIOUS_PASSWORD: ""
+      # Keys over the compose network; `iss` validated as Keycloak's KC_HOSTNAME above.
+      KEYCLOAK_ISSUER: http://localhost:${PORT_KEYCLOAK:-8080}/realms/statsapp
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI: http://keycloak:8080/realms/statsapp/protocol/openid-connect/certs
+    ports:
+      - "127.0.0.1:${PORT_API:-8083}:8083"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8083/actuator/health/readiness"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+
+  # === The end-to-end demo — `docker compose run --rm demo` ==================
+  # docker/demo.sh, run from inside the network. The Docker socket is mounted because
+  # the demo is real: it reads rows with `docker exec psql`, reads the Writer's logs,
+  # and in step 10 STOPS RabbitMQ to show a 503, then starts it again.
+  demo:
+    profiles: ["demo"]
+    image: stats-app/stats-demo:share
+    pull_policy: never
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./.env:/demo/.env:ro
+    environment:
+      DEMO_INPUT_URL: http://stats-input:8081
+      DEMO_WRITER_URL: http://stats-writer:8082
+      DEMO_API_URL: http://stats-api:8083
+      DEMO_KEYCLOAK_URL: http://keycloak:8080
+      DEMO_POSTGRES_CONTAINER: stats-demo-postgres
+      DEMO_RABBITMQ_CONTAINER: stats-demo-rabbitmq
+      DEMO_WRITER_CONTAINER: stats-demo-writer
+      DEMO_KEYCLOAK_CONTAINER: stats-demo-keycloak
+      # Only for the closing line it prints: where the person running it can look.
+      DEMO_HOST_RABBITMQ_UI_URL: http://localhost:${PORT_RABBITMQ_UI:-15672}
+      DEMO_HOST_KEYCLOAK_URL: http://localhost:${PORT_KEYCLOAK:-8080}
+      DEMO_HOST_WRITER_URL: http://localhost:${PORT_WRITER:-8082}
+    depends_on:
+      stats-input:
+        condition: service_healthy
+      stats-writer:
+        condition: service_healthy
+      stats-api:
+        condition: service_healthy
+
+  # === Observability — `--profile observability` ============================
+  postgres-exporter:
+    profiles: ["observability"]
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.17.1
+    container_name: stats-demo-postgres-exporter
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATA_SOURCE_URI: postgres:5432/statsdb?sslmode=disable
+    entrypoint:
+      - sh
+      - -c
+      - >-
+        export DATA_SOURCE_USER="$$POSTGRES_RO_USER" DATA_SOURCE_PASS="$$POSTGRES_RO_PASSWORD"
+        && exec /bin/postgres_exporter "$@"
+      - --
+    command:
+      - --extend.query-path=/etc/postgres_exporter/queries.yml
+      - --no-collector.wal
+    volumes:
+      - ./config/postgres-exporter/queries.yml:/etc/postgres_exporter/queries.yml:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  prometheus:
+    profiles: ["observability"]
+    image: prom/prometheus:v3.5.0
+    container_name: stats-demo-prometheus
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=7d
+    volumes:
+      - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./config/prometheus:/etc/prometheus/rules:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "127.0.0.1:${PORT_PROMETHEUS:-9090}:9090"
+
+  grafana:
+    profiles: ["observability"]
+    image: grafana/grafana:11.6.0
+    container_name: stats-demo-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./config/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+    ports:
+      - "127.0.0.1:${PORT_GRAFANA:-3000}:3000"
+
+volumes:
+  postgres-data:
+  postgres-wal-archive:
+  rabbitmq-data:
+  prometheus-data:

@@ -717,6 +717,15 @@ foreclose anything security later decides:
   `imsi`, `lac`/`cid` and `ip`/`gw`/`dns`, and an `ltestats` payload in a log *is* an IMSI
   in Docker logs, under a log-retention policy that does not exist yet. It costs nothing
   today because neither type is built; adopting it before T-034 is the entire point.
+  **Enforced since 12 Oct 2026 (DL-167)** — the types exist now, and P1 had no test.
+  `LteNetstatsPayloadsAreNeverLoggedIntegrationTest` in `stats-input`, `stats-writer` and
+  `stats-api` drives every outcome with Spring at `TRACE` and searches the console for
+  planted values. It found two framework leaks, pinned on the exact logger in each
+  module's `application.properties` — `org.springframework.jdbc.core.StatementCreatorUtils`
+  (Writer: every bound SQL parameter) and Spring MVC's
+  `RequestResponseBodyMethodProcessor` / `HttpEntityMethodProcessor` (API: every response
+  body). Raising a parent package (`logging.level.org.springframework.jdbc=TRACE`) does not
+  release them; naming the pinned logger itself does, and must not be done in production.
 * **P2 — on a write failure, log the exception type and message only, never the driver's
   `DETAIL:` line.** This is the paragraph above, now a decision rather than advice.
 

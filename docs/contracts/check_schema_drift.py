@@ -2,10 +2,13 @@
 """Fail when OpenAPI's per-type data schemas drift from validation schemas.
 
 The JSON Schema catalogue describes the accepted ingest wire format. OpenAPI
-describes the data returned by the read API. Three types map directly. Lorastats
+describes the data returned by the read API. Two types map directly. Lorastats
 maps three accepted wire dialects onto one canonical response shape. Netstats
 uses an explicit extension to retain the authoritative interface-name pattern
 while representing patternProperties with broadly supported OpenAPI keywords.
+Ltestats maps directly except for one member: the API returns ``imsi`` masked
+(D-12 P3, DL-167), so its read schema is the masked form, and only if the ingest
+schema still accepts exactly the digits the masking was written against.
 """
 
 import argparse
@@ -43,6 +46,17 @@ IGNORED_SCHEMA_KEYS = {
 }
 
 NETSTATS_PATTERN_EXTENSION = "x-interface-name-pattern"
+
+# D-12 P3 (DL-167): what the ingest schema accepts for imsi, and what the API returns.
+# The masking in stats-api's ImsiMask was written against the first; if the ingest
+# rule changes, the projection must be revisited rather than silently carried along.
+LTESTATS_INGEST_IMSI = {"type": "string", "pattern": "^[0-9]{1,20}$"}
+LTESTATS_MASKED_IMSI = {
+    "type": "string",
+    "pattern": "^[0-9]{0,6}\\*+[0-9]{0,4}$",
+    "minLength": 1,
+    "maxLength": 20,
+}
 
 
 def load_documents(openapi_path=DEFAULT_OPENAPI, schema_dir=DEFAULT_SCHEMA_DIR):
@@ -168,6 +182,27 @@ def canonical_lorastats_projection(schema):
     return expected
 
 
+def canonical_ltestats_projection(schema):
+    data = normalize_schema(source_data_schema(schema), schema)
+    measured = [
+        branch for branch in data.get("oneOf", []) if "imsi" in branch.get("required", [])
+    ]
+    if len(measured) != 1:
+        raise ValueError(
+            "ltestats must keep exactly one shape that requires imsi, "
+            f"found {len(measured)}"
+        )
+    imsi = measured[0]["properties"]["imsi"]
+    expected_ingest = normalize_schema(LTESTATS_INGEST_IMSI, schema)
+    if imsi != expected_ingest:
+        raise ValueError(
+            "ltestats imsi ingest rule changed; revisit the masked read projection "
+            f"(DL-167): expected {expected_ingest!r}, found {imsi!r}"
+        )
+    measured[0]["properties"]["imsi"] = copy.deepcopy(LTESTATS_MASKED_IMSI)
+    return data
+
+
 def canonical_netstats_projection(schema, openapi_component):
     data = copy.deepcopy(source_data_schema(schema))
     patterns = data.pop("patternProperties", {})
@@ -224,6 +259,8 @@ def check_documents(openapi, schemas):
         try:
             if stat_type == "lorastats":
                 projected = canonical_lorastats_projection(source)
+            elif stat_type == "ltestats":
+                projected = canonical_ltestats_projection(source)
             elif stat_type == "netstats":
                 projected = canonical_netstats_projection(source, component)
             else:

@@ -1,0 +1,23 @@
+# Stats App — the demo runner for the share bundle (DL-164).
+#
+# docker/demo.sh plus the fixture set it posts, and the four tools it needs, so the
+# person the bundle is shared with needs Docker and nothing else — no bash, curl, jq
+# or JDK on their machine. It runs INSIDE the bundle's compose network and reaches the
+# modules by service name; `docker exec` / `docker stop` (steps 0, 2, 5, 9 and 10) go
+# through the host's Docker socket, which the bundle's compose file mounts.
+#
+#   docker buildx build -f docker/share/Dockerfile.demo -t stats-app/stats-demo:share .
+#
+# Built from the repository root: the fixtures are docs/schemas/fixtures, the one copy.
+FROM alpine:3.22
+
+RUN apk add --no-cache bash curl jq docker-cli
+
+WORKDIR /demo
+COPY docs/schemas/fixtures ./docs/schemas/fixtures
+COPY docker/demo.sh        ./docker/demo.sh
+
+# demo.sh reads $DEMO_REPO/.env for the credentials it needs; compose mounts the
+# bundle's .env there read-only. Nothing secret is baked into this image.
+ENV DEMO_REPO=/demo
+ENTRYPOINT ["bash", "/demo/docker/demo.sh"]

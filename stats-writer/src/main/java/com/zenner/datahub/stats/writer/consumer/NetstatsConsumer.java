@@ -48,9 +48,9 @@ public final class NetstatsConsumer {
             containerFactory = CONTAINER_FACTORY,
             ackMode = "MANUAL",
             autoStartup =
-                    "#{@statsMessageProcessorAvailability.available('"
+                    StatTypeDeployment.AUTO_STARTUP_PREFIX
                             + NetstatsConsumerDescriptor.WIRE_NAME
-                            + "') && ${spring.rabbitmq.listener.simple.auto-startup:true}}")
+                            + StatTypeDeployment.AUTO_STARTUP_SUFFIX)
     public void consume(Message message, Channel channel) throws Exception {
         // Count before decoding so malformed records remain observable.
         consumed.increment();

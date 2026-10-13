@@ -92,11 +92,14 @@ asynchronously.
 
 Then send the corresponding GET-by-UID requests. A brief initial 404 can occur
 before Writer commits; retry. Expect 200 and compare the response `data` to the
-submitted `data`, including spelling, omitted members and JSON value types.
+submitted `data`, including spelling, omitted members and JSON value types —
+**except `imsi`, which is always returned masked** (D-12 P3, DL-167): the carrier
+prefix and at most the last four digits, every other digit `*`, same length — e.g.
+`001010123456789` is returned as `00101******6789`. The raw value must never appear.
 
 | Supplied sample shape | Expected wire representation |
 | --- | --- |
-| 998 LTE 4G measurements | rssi/rsrp/rsrq, access_Technology, plmn, imsi, operator, lac, cid; all strings |
+| 998 LTE 4G measurements | rssi/rsrp/rsrq, access_Technology, plmn, imsi (masked), operator, lac, cid; all strings |
 | One LTE 2G measurement | Same measured shape without rsrp/rsrq |
 | One LTE error | data contains only etxt, as a string |
 | 1,000 netstats records | eth0, wwan and integer timespan |

@@ -193,11 +193,13 @@ Five questions. Each is answerable from the tables above.
 1. **Classification.** Given §3 and §4, what classification applies to (a) a record with
    operational payload only, (b) an `ltestats` record, (c) a `netstats` record? One label
    each is enough.
-2. **IMSI.** Masked or raw — and if masked, **where**: at the Writer on the way in
+2. **ANSWERED 12 Oct 2026 (DL-167): stored raw, masked at the API on the way out** —
+   carrier prefix and at most the last four digits visible. Original question: **IMSI.** Masked or raw — and if masked, **where**: at the Writer on the way in
    (irreversible, and destroys carrier correlation for ops), or at the API on the way out
    (preserves the raw value in the table, the DLQ and any backup)? These are materially
    different systems.
-3. **Location.** Do `lac`/`cid` require the same treatment as `imsi`? See the box in §4 —
+3. **ANSWERED 12 Oct 2026 (DL-167): no — `lac`/`cid` are returned as reported.**
+   Original question: **Location.** Do `lac`/`cid` require the same treatment as `imsi`? See the box in §4 —
    this is the question D-12's current wording does not ask.
 4. **Log retention and access.** A number, and who may read the log store. Note the
    trade in §5.3: shorter retention loses the only record of a rejected message.
@@ -233,7 +235,7 @@ signature.
 |---|---|---|---|
 | P1 | **Never log an `ltestats` or `netstats` payload at any level, including `DEBUG`.** Stricter than `DEVELOPMENT.md` §7 for these two types only | Yes — a config change | **No.** Adopt now; it closes the only pre-T-034 escape path at zero cost |
 | P2 | **Log the exception *type*, never a message or stack, on a write failure.** Closes §5.1. **ADOPTED 4 Sep, ENFORCED 5 Sep (T-066, DL-124):** `SafeFailure.describe()` keeps the type chain plus `SQLState`; `WriterLogsCarryNoThrowableTest` fails the build on a throwable in a `stats-writer` log call. **Narrowed in implementation:** "type and message" is not implementable — for a `PSQLException` the `DETAIL:` line *is* part of the message, and an application message is no safer, so no message is logged at all | Yes | **No** |
-| P3 | **T-034 does not merge until Q2 and Q3 in §6 are answered.** Not a technical constraint — it is the point after which the answer costs a migration, a DLQ purge ADR-002 §12 forbids, and an API contract change | n/a | **No** — it is a sequencing choice, and it is the whole reason this document exists now |
+| P3 | **SATISFIED 12 Oct 2026 (DL-167)** — Q2 and Q3 answered; T-034 had merged on 12 Oct (`09a942c`) and the answer was applied the same day. Original rule: **T-034 does not merge until Q2 and Q3 in §6 are answered.** Not a technical constraint — it is the point after which the answer costs a migration, a DLQ purge ADR-002 §12 forbids, and an API contract change | n/a | **No** — it is a sequencing choice, and it is the whole reason this document exists now |
 | P4 | If IMSI is masked: **mask at the Writer**, storing a stable keyed hash so records for one subscriber still correlate | **NO — irreversible** | **YES** |
 | P5 | Treat `lac`/`cid` as location data and apply whatever IMSI gets | **NO — irreversible** | **YES** |
 

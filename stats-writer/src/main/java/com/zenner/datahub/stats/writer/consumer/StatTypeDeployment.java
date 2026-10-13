@@ -17,6 +17,24 @@ public final class StatTypeDeployment {
     public static final String STAT_TYPE_PROPERTY = "stats.writer.stat-type";
     public static final String ALL_TYPES = "all";
 
+    /**
+     * The start of every consumer's {@code @RabbitListener(autoStartup = …)} expression;
+     * each consumer appends only its wire name and {@link #AUTO_STARTUP_SUFFIX} (DL-167).
+     */
+    public static final String AUTO_STARTUP_PREFIX = "#{@statsMessageProcessorAvailability.available('";
+
+    /**
+     * Closes the expression and applies Spring's own listener switch to EVERY type alike
+     * (DL-167). An explicit {@code autoStartup} on {@code @RabbitListener} overrides the
+     * container factory, so {@code spring.rabbitmq.listener.simple.auto-startup} reaches a
+     * listener only if its expression names it. Before DL-167 two consumers named it and
+     * three did not: {@code false} silently stopped two of five types. Held once here so
+     * the five consumers cannot drift apart again; {@code ConsumerAutoStartupIsUniformTest}
+     * checks every listener against it.
+     */
+    public static final String AUTO_STARTUP_SUFFIX =
+            "') && ${spring.rabbitmq.listener.simple.auto-startup:true}}";
+
     private StatTypeDeployment() {
         throw new AssertionError("Holder must not be instantiated");
     }

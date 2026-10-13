@@ -46,7 +46,7 @@ class SchemaDriftTest(unittest.TestCase):
         # a validation change lands inside a branch, and the gate reports it at the
         # oneOf rather than at a property path. The point is that it is reported.
         changed = copy.deepcopy(self.schemas)
-        changed["ltestats"]["$defs"]["shapeMeasured"]["properties"]["imsi"]["pattern"] = "^[0-9]{15}$"
+        changed["ltestats"]["$defs"]["shapeMeasured"]["properties"]["plmn"]["pattern"] = "^[0-9]{5}$"
 
         errors = drift.check_documents(self.openapi, changed)
 
@@ -56,6 +56,28 @@ class SchemaDriftTest(unittest.TestCase):
         changed["ltestats"]["$defs"]["shapeUnknownTechnology"]["additionalProperties"] = True
 
         errors = drift.check_documents(self.openapi, changed)
+
+        self.assertTrue(any("LtestatsData.oneOf" in error for error in errors))
+
+    def test_ltestats_imsi_ingest_change_forces_the_masked_projection_to_be_revisited(self):
+        # D-12 P3 (DL-167): the read schema returns imsi masked. A change to what
+        # ingest accepts must stop CI, not be carried silently into the projection.
+        changed = copy.deepcopy(self.schemas)
+        changed["ltestats"]["$defs"]["shapeMeasured"]["properties"]["imsi"]["pattern"] = "^[0-9]{15}$"
+
+        errors = drift.check_documents(self.openapi, changed)
+
+        self.assertTrue(any("revisit the masked read projection" in error for error in errors))
+
+    def test_ltestats_imsi_must_be_masked_in_the_read_contract(self):
+        # Returning to the ingest (raw digits) schema in OpenAPI is drift, not a fix.
+        changed = copy.deepcopy(self.openapi)
+        changed["components"]["schemas"]["LtestatsMeasured"]["properties"]["imsi"] = {
+            "type": "string",
+            "pattern": "^[0-9]{1,20}$",
+        }
+
+        errors = drift.check_documents(changed, self.schemas)
 
         self.assertTrue(any("LtestatsData.oneOf" in error for error in errors))
 

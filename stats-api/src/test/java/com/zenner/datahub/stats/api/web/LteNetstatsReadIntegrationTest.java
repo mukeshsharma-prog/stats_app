@@ -37,7 +37,7 @@ class LteNetstatsReadIntegrationTest extends ApiIntegrationTest {
         String token = TestJwks.reader(tenant);
         JsonNode record = json(mvc.perform(get(token, "/v1/stats/{type}/{uid}", type, uid))
                 .andExpect(status().isOk()).andReturn());
-        assertThat(record.path("data")).isEqualTo(data);
+        assertReadBack(record.path("data"), data);
         assertThat(record.path("tenant").asText()).isEqualTo(tenant);
         assertThat(record.path("maintenant").asText()).isEqualTo("different-parent");
         assertThat(record.at("/ts/converter").asLong()).isEqualTo(EPOCH + 9);
@@ -48,7 +48,7 @@ class LteNetstatsReadIntegrationTest extends ApiIntegrationTest {
                 "/v1/stats/" + type + "/" + BOX + "/" + EPOCH + "/" + (EPOCH + 60))) {
             JsonNode page = json(mvc.perform(get(token, path)).andExpect(status().isOk()).andReturn());
             assertThat(page.path("items")).hasSize(1);
-            assertThat(page.at("/items/0/data")).isEqualTo(data);
+            assertReadBack(page.at("/items/0/data"), data);
         }
     }
 
@@ -70,7 +70,7 @@ class LteNetstatsReadIntegrationTest extends ApiIntegrationTest {
         insert(type, uid, tenant, "parent", BOX, EPOCH, data);
         JsonNode record = json(mvc.perform(get(TestJwks.reader(tenant), "/v1/stats/{type}/{uid}", type, uid))
                 .andExpect(status().isOk()).andReturn());
-        assertThat(record.path("data")).isEqualTo(data);
+        assertReadBack(record.path("data"), data);
     }
 
     @ParameterizedTest
@@ -137,6 +137,31 @@ class LteNetstatsReadIntegrationTest extends ApiIntegrationTest {
             assertThat(statement.executeQuery("SELECT count(*) FROM " + type).next()).isTrue();
             org.assertj.core.api.Assertions.assertThatThrownBy(() -> statement.executeUpdate("DELETE FROM " + type))
                     .isInstanceOf(java.sql.SQLException.class);
+        }
+    }
+
+    /**
+     * Everything goes back exactly as stored except {@code imsi}, which leaves the API
+     * masked on every route (D-12 P3, DL-167): same length, the carrier prefix and at most
+     * the last four digits visible, and the raw value nowhere in the response.
+     */
+    private static void assertReadBack(JsonNode actual, ObjectNode stored) {
+        ObjectNode expectedRest = stored.deepCopy();
+        ObjectNode actualRest = ((ObjectNode) actual).deepCopy();
+        expectedRest.remove("imsi");
+        actualRest.remove("imsi");
+        assertThat(actualRest).isEqualTo(expectedRest);
+        if (!stored.has("imsi")) {
+            assertThat(actual.has("imsi")).isFalse();
+            return;
+        }
+        String raw = stored.path("imsi").asText();
+        String masked = actual.path("imsi").asText();
+        assertThat(masked).isNotEqualTo(raw).hasSameSizeAs(raw).matches("^[0-9]{0,6}\\*+[0-9]{0,4}$");
+        assertThat(actual.toString()).doesNotContain(raw);
+        String plmn = stored.path("plmn").asText();
+        if (raw.startsWith(plmn) && raw.length() - plmn.length() >= 8) {
+            assertThat(masked).startsWith(plmn).endsWith(raw.substring(raw.length() - 4));
         }
     }
 

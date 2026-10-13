@@ -91,7 +91,7 @@ class OmsstatsConsumerConfigurationTest {
                 .isNotEqualTo(LorastatsConsumer.CONTAINER_FACTORY);
         assertThat(listener.ackMode()).isEqualTo("MANUAL");
         assertThat(listener.autoStartup())
-                .isEqualTo("#{@statsMessageProcessorAvailability.available('omsstats')}");
+                .isEqualTo("#{@statsMessageProcessorAvailability.available('omsstats') && ${spring.rabbitmq.listener.simple.auto-startup:true}}");
     }
 
     @Test

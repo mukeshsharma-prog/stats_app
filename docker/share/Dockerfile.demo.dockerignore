@@ -1,0 +1,7 @@
+# Build context for Dockerfile.demo ONLY — BuildKit reads <Dockerfile>.dockerignore in
+# place of the repository's .dockerignore. That one excludes docs/ for the module
+# images; this image needs exactly the fixtures and the script, so it is an
+# allow-list: nothing else, and never a .env, can reach this image's layers.
+*
+!docs/schemas/fixtures
+!docker/demo.sh

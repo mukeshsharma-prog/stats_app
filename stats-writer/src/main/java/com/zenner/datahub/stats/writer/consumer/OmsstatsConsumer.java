@@ -59,9 +59,9 @@ public final class OmsstatsConsumer {
             containerFactory = CONTAINER_FACTORY,
             ackMode = "MANUAL",
             autoStartup =
-                    "#{@statsMessageProcessorAvailability.available('"
+                    StatTypeDeployment.AUTO_STARTUP_PREFIX
                             + OmsstatsConsumerDescriptor.WIRE_NAME
-                            + "')}")
+                            + StatTypeDeployment.AUTO_STARTUP_SUFFIX)
     public void consume(Message message, Channel channel) throws Exception {
         // Count before decoding so malformed records remain observable.
         consumed.increment();

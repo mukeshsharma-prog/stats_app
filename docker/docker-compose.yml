@@ -347,15 +347,21 @@ services:
       - ../ops/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ../ops/prometheus:/etc/prometheus/rules:ro
       - prometheus-data:/prometheus
+    # STARTED, never HEALTHY (DL-167). Monitoring must not depend on the health of what
+    # it monitors: gated on healthy, an Input that fails its readiness probe would keep
+    # Prometheus from starting, and the one moment you need `up == 0` on the targets
+    # page is the moment there would be no Prometheus to show it. These entries exist
+    # only so that `--profile observability` alone still brings up every target; a
+    # target that is down is scraped as down. MonitoringIsIndependentTest guards this.
     depends_on:
       stats-input:
-        condition: service_healthy
+        condition: service_started
       stats-writer:
-        condition: service_healthy
+        condition: service_started
       stats-api:
-        condition: service_healthy
+        condition: service_started
       postgres-exporter:
-        condition: service_healthy
+        condition: service_started
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9090/-/ready"]
       interval: 5s

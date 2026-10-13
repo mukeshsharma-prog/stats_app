@@ -12,6 +12,18 @@ random_hex() {
   od -An -N "$1" -tx1 /dev/urandom | tr -d ' \n'
 }
 
+# Point at the targets page when an APPLICATION fails, but only if Prometheus itself is
+# up to show it; a failure of the monitoring containers gets no such hint.
+monitoring_hint() {
+  case "$1" in
+    stats-input|stats-writer|stats-api)
+      if [ "$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' stats-prometheus 2>/dev/null || true)" = "healthy" ]; then
+        echo "Prometheus is running: http://localhost:9090/targets shows $1 as down." >&2
+      fi
+      ;;
+  esac
+}
+
 write_env() {
   umask 077
   admin_password=$(random_hex 18)
@@ -130,8 +142,11 @@ fi
 printf 'Starting PostgreSQL, RabbitMQ, Keycloak, Input, Writer, API, and monitoring...\n'
 docker compose -p "$PROJECT" --env-file "$ENV_FILE" -f "$COMPOSE" --profile apps up -d --no-build
 
+# Monitoring is waited for BEFORE the applications (DL-167): Prometheus no longer waits
+# for the apps to be healthy, so when an app fails below, its target already reads
+# up == 0 at http://localhost:9090/targets instead of there being no Prometheus at all.
 deadline=$(( $(date +%s) + 300 ))
-for container in stats-postgres stats-rabbitmq stats-keycloak stats-input stats-writer stats-api stats-postgres-exporter stats-prometheus; do
+for container in stats-postgres stats-rabbitmq stats-keycloak stats-postgres-exporter stats-prometheus stats-input stats-writer stats-api; do
   printf 'Waiting for %-16s' "$container"
   while :; do
     status=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container" 2>/dev/null || true)
@@ -142,11 +157,13 @@ for container in stats-postgres stats-rabbitmq stats-keycloak stats-input stats-
     if [ "$status" = "unhealthy" ] || [ "$status" = "exited" ] || [ "$status" = "dead" ]; then
       printf ' %s\n' "$status" >&2
       docker logs --tail 80 "$container" >&2 || true
+      monitoring_hint "$container"
       exit 1
     fi
     if [ "$(date +%s)" -ge "$deadline" ]; then
       printf ' timed out (last status: %s)\n' "${status:-missing}" >&2
       docker logs --tail 80 "$container" >&2 || true
+      monitoring_hint "$container"
       exit 1
     fi
     printf '.'
@@ -154,7 +171,12 @@ for container in stats-postgres stats-rabbitmq stats-keycloak stats-input stats-
   done
 done
 
-"$ROOT/docker/check-monitoring.sh"
+# Every application is healthy by now. A monitoring failure from here on does not
+# make the stack unusable, so it does not hide the banner either: the stack is reported
+# ready, the failing targets are printed, and the script exits 3 — "applications
+# ready, monitoring degraded" — so automation can still tell the difference (DL-167).
+monitoring_status=0
+"$ROOT/docker/check-monitoring.sh" || monitoring_status=$?
 
 cat <<'EOF'
 
@@ -189,3 +211,14 @@ Run the complete Postman suite with:
 This bundle uses unauthenticated Input mode for local evaluation. Do not expose it
 on a shared or production network until inbound authentication is configured.
 EOF
+
+if [ "$monitoring_status" -ne 0 ]; then
+  cat >&2 <<'EOF'
+
+WARNING: the applications are ready, but monitoring is DEGRADED - not every
+Prometheus target reports up == 1 (the samples above show which). Metrics and
+alerts are incomplete until it is fixed: http://localhost:9090/targets
+Exit status 3 means "applications ready, monitoring degraded".
+EOF
+  exit 3
+fi

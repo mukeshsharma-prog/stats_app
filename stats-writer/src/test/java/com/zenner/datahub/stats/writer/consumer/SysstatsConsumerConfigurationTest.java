@@ -91,7 +91,7 @@ class SysstatsConsumerConfigurationTest {
                 .isNotEqualTo(LorastatsConsumer.CONTAINER_FACTORY);
         assertThat(listener.ackMode()).isEqualTo("MANUAL");
         assertThat(listener.autoStartup())
-                .isEqualTo("#{@statsMessageProcessorAvailability.available('sysstats')}");
+                .isEqualTo("#{@statsMessageProcessorAvailability.available('sysstats') && ${spring.rabbitmq.listener.simple.auto-startup:true}}");
     }
 
     @Test

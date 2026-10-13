@@ -85,13 +85,3 @@ tasks.register<JavaExec>("redriveDlq") {
     classpath = sourceSets["main"].runtimeClasspath
     mainClass.set("com.zenner.datahub.stats.writer.redrive.DlqRedriveCommand")
 }
-
-// Many cached integration contexts share one PostgreSQL instance. Keep idle pools
-// small so adding stat-type contexts cannot exhaust its default connection limit.
-tasks.withType<Test>().configureEach {
-    // A cached live listener can steal a later class's acknowledgement probe.
-    // Close each previous context while keeping the shared containers alive.
-    systemProperty("spring.test.context.cache.maxSize", "1")
-    systemProperty("spring.datasource.hikari.maximum-pool-size", "4")
-    systemProperty("spring.datasource.hikari.minimum-idle", "1")
-}

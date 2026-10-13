@@ -31,9 +31,20 @@ the PostgreSQL settings. Keep a private backup of `.env` with the data backups.
 
 ## Monitoring
 
-Prometheus starts automatically. Open http://localhost:9090/targets; Input, Writer,
-API and PostgreSQL should all be **UP**. The startup script waits for successful
-scrapes before reporting ready. To repeat that check:
+Prometheus starts automatically and does **not** wait for the applications to be
+healthy (DL-167): if one of them fails, Prometheus is already running and
+http://localhost:9090/targets shows that target as **DOWN**. Normally Input, Writer,
+API and PostgreSQL should all be **UP**.
+
+`start-stats-app.sh` exit status:
+
+| Status | Meaning |
+|---|---|
+| `0` | Ready — every application healthy and every Prometheus target up |
+| `1` | Not started — a container failed or timed out (its last log lines are printed) |
+| `3` | Applications ready, **monitoring degraded** — the stack works, but at least one target is not up; the failing samples are printed |
+
+To repeat the monitoring check:
 
 ```bash
 ./docker/check-monitoring.sh

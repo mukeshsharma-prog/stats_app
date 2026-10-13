@@ -959,10 +959,14 @@ components:
       type: object
       description: |
         `imsi` is a subscriber identifier and is classified sensitive operational
-        data (ARD v1.1 §9). Whether it is returned in full, masked, or withheld from
-        some consumers is **not settled** — it needs the same consumer/security
-        review that closes ADR-006. Treated as returned-in-full here so the question
-        is visible rather than quietly decided.
+        data (ARD v1.1 §9). **It is returned MASKED on every route** (D-12 P3,
+        DL-167): the carrier prefix — the record's `plmn` when the IMSI starts with
+        it, otherwise the first five digits — and, when at least eight subscriber
+        digits follow, the last four stay visible; every other digit is `*`, so the
+        length is preserved. The raw value is stored and never returned. `lac` and
+        `cid` are returned as reported, by the same decision. This is the one member
+        whose read representation differs from the ingest schema on purpose; the CI
+        drift gate holds it to exactly this difference.
         **Every numeric here is a STRING**, and the technology field carries a
         capital T: `access_Technology`. Both were corrected against production on
         29 Aug 2026 (ADR-007) — the previous integer/lowercase declaration came from
@@ -981,7 +985,7 @@ components:
         access_Technology: { type: string, minLength: 1, description: 'Note the capital T. Production spelling; the lowercase form has never appeared on the wire. Observed values: "4G", "2G".' }
         operator: { type: string, minLength: 1 }
         plmn: { type: string, pattern: '^[0-9]{5,6}$', description: 'Public land mobile network code, as a string.' }
-        imsi: { type: string, pattern: '^[0-9]{1,20}$', description: 'SENSITIVE — masking policy pending review.' }
+        imsi: { type: string, pattern: '^[0-9]{0,6}\*+[0-9]{0,4}$', minLength: 1, maxLength: 20, description: 'SENSITIVE — always masked, e.g. "26201******7890" (D-12 P3, DL-167). Ingest accepts digits only; the read never returns them all.' }
         lac: { type: string, pattern: '^[0-9A-Fa-f]{1,16}$', description: 'Location area code, hexadecimal, as reported.' }
         cid: { type: string, pattern: '^[0-9A-Fa-f]{1,16}$', description: 'Cell identifier, hexadecimal, as reported.' }
         timespan: { type: string, pattern: '^(0|[1-9][0-9]{0,18})$', description: 'Reporting window in seconds, as a string. Optional — production omits it on some records.' }

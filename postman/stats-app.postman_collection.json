@@ -397,7 +397,9 @@
                   "pm.test(\"trace id returned\", () => pm.expect(pm.response.headers.get(\"X-Trace-Id\")).to.be.a(\"string\").and.not.empty);",
                   "pm.test(\"accepted JSON acknowledgement\", () => { pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/json\"); pm.expect(pm.response.json().status).to.eql(\"accepted\"); });",
                   "pm.test(\"body trace id matches response header\", () => pm.expect(pm.response.json().traceId).to.eql(pm.response.headers.get(\"X-Trace-Id\")));",
-                  "pm.environment.set(\"expectedDataLte\", JSON.stringify(JSON.parse(pm.variables.replaceIn(pm.request.body.raw)).data));",
+                  "// D-12 P3 (DL-167): the API returns imsi masked; expect what it returns, not what was sent.",
+                  "const maskImsi = d => { if (d.imsi === undefined) return d; const p = (d.plmn && d.imsi.startsWith(d.plmn)) ? d.plmn.length : 5; const s = d.imsi.length - p; const tail = s >= 8 ? 4 : 0; d.imsi = s < 4 ? \"*\".repeat(d.imsi.length) : d.imsi.slice(0, p) + \"*\".repeat(s - tail) + d.imsi.slice(d.imsi.length - tail); return d; };",
+                  "pm.environment.set(\"expectedDataLte\", JSON.stringify(maskImsi(JSON.parse(pm.variables.replaceIn(pm.request.body.raw)).data)));",
                   "pm.environment.set(\"wireRecordLte\", pm.variables.replaceIn(pm.request.body.raw));"
                 ]
               }
@@ -435,7 +437,9 @@
                   "pm.test(\"trace id returned\", () => pm.expect(pm.response.headers.get(\"X-Trace-Id\")).to.be.a(\"string\").and.not.empty);",
                   "pm.test(\"accepted JSON acknowledgement\", () => { pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/json\"); pm.expect(pm.response.json().status).to.eql(\"accepted\"); });",
                   "pm.test(\"body trace id matches response header\", () => pm.expect(pm.response.json().traceId).to.eql(pm.response.headers.get(\"X-Trace-Id\")));",
-                  "pm.environment.set(\"expectedDataLte2g\", JSON.stringify(JSON.parse(pm.variables.replaceIn(pm.request.body.raw)).data));"
+                  "// D-12 P3 (DL-167): the API returns imsi masked; expect what it returns, not what was sent.",
+                  "const maskImsi = d => { if (d.imsi === undefined) return d; const p = (d.plmn && d.imsi.startsWith(d.plmn)) ? d.plmn.length : 5; const s = d.imsi.length - p; const tail = s >= 8 ? 4 : 0; d.imsi = s < 4 ? \"*\".repeat(d.imsi.length) : d.imsi.slice(0, p) + \"*\".repeat(s - tail) + d.imsi.slice(d.imsi.length - tail); return d; };",
+                  "pm.environment.set(\"expectedDataLte2g\", JSON.stringify(maskImsi(JSON.parse(pm.variables.replaceIn(pm.request.body.raw)).data)));"
                 ]
               }
             }
@@ -472,7 +476,9 @@
                   "pm.test(\"trace id returned\", () => pm.expect(pm.response.headers.get(\"X-Trace-Id\")).to.be.a(\"string\").and.not.empty);",
                   "pm.test(\"accepted JSON acknowledgement\", () => { pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/json\"); pm.expect(pm.response.json().status).to.eql(\"accepted\"); });",
                   "pm.test(\"body trace id matches response header\", () => pm.expect(pm.response.json().traceId).to.eql(pm.response.headers.get(\"X-Trace-Id\")));",
-                  "pm.environment.set(\"expectedDataLteUnknown\", JSON.stringify(JSON.parse(pm.variables.replaceIn(pm.request.body.raw)).data));"
+                  "// D-12 P3 (DL-167): the API returns imsi masked; expect what it returns, not what was sent.",
+                  "const maskImsi = d => { if (d.imsi === undefined) return d; const p = (d.plmn && d.imsi.startsWith(d.plmn)) ? d.plmn.length : 5; const s = d.imsi.length - p; const tail = s >= 8 ? 4 : 0; d.imsi = s < 4 ? \"*\".repeat(d.imsi.length) : d.imsi.slice(0, p) + \"*\".repeat(s - tail) + d.imsi.slice(d.imsi.length - tail); return d; };",
+                  "pm.environment.set(\"expectedDataLteUnknown\", JSON.stringify(maskImsi(JSON.parse(pm.variables.replaceIn(pm.request.body.raw)).data)));"
                 ]
               }
             }
@@ -584,7 +590,9 @@
                   "pm.test(\"trace id returned\", () => pm.expect(pm.response.headers.get(\"X-Trace-Id\")).to.be.a(\"string\").and.not.empty);",
                   "pm.test(\"accepted JSON acknowledgement\", () => { pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/json\"); pm.expect(pm.response.json().status).to.eql(\"accepted\"); });",
                   "pm.test(\"body trace id matches response header\", () => pm.expect(pm.response.json().traceId).to.eql(pm.response.headers.get(\"X-Trace-Id\")));",
-                  "pm.environment.set(\"expectedDataLte\", JSON.stringify(JSON.parse(pm.variables.replaceIn(pm.request.body.raw)).data));"
+                  "// D-12 P3 (DL-167): the API returns imsi masked; expect what it returns, not what was sent.",
+                  "const maskImsi = d => { if (d.imsi === undefined) return d; const p = (d.plmn && d.imsi.startsWith(d.plmn)) ? d.plmn.length : 5; const s = d.imsi.length - p; const tail = s >= 8 ? 4 : 0; d.imsi = s < 4 ? \"*\".repeat(d.imsi.length) : d.imsi.slice(0, p) + \"*\".repeat(s - tail) + d.imsi.slice(d.imsi.length - tail); return d; };",
+                  "pm.environment.set(\"expectedDataLte\", JSON.stringify(maskImsi(JSON.parse(pm.variables.replaceIn(pm.request.body.raw)).data)));"
                 ]
               }
             }
@@ -898,6 +906,7 @@
                   "  postman.setNextRequest(pm.info.requestName);",
                   "} else {",
                   "  pm.environment.unset(\"pollLte\");",
+                  "  pm.test(\"raw IMSI is never returned (D-12 P3)\", () => pm.expect(pm.response.text()).to.not.include(JSON.parse(pm.environment.get(\"wireRecordLte\")).data.imsi));",
                   "  pm.test(\"ltestats persisted and readable\", () => {",
                   "    pm.response.to.have.status(200);",
                   "    pm.expect(pm.response.json().uid).to.eql(pm.environment.get(\"uidLte\"));",

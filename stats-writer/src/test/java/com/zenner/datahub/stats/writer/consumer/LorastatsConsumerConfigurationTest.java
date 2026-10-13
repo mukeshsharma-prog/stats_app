@@ -92,7 +92,7 @@ class LorastatsConsumerConfigurationTest {
         assertThat(listener.ackMode()).isEqualTo("MANUAL");
         // Selection is by stat type, not by "the only processor bean" -- see DL-097.
         assertThat(listener.autoStartup())
-                .isEqualTo("#{@statsMessageProcessorAvailability.available('lorastats')}");
+                .isEqualTo("#{@statsMessageProcessorAvailability.available('lorastats') && ${spring.rabbitmq.listener.simple.auto-startup:true}}");
     }
 
     @Test
