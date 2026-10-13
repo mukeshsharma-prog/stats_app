@@ -264,6 +264,12 @@ stats.amqp.exchange=app_stats_input
 # records_clock_skew_rejected{type}. Cross-field, so it cannot live in the schema.
 stats.input.validation.max-clock-skew=PT5M
 
+# ts.server against Input's own clock — DL-168. Further ahead than this is a 400
+# server_clock_ahead: a record with BOTH clocks in the future passes the skew check and
+# then finds no partition (23514). No default in code; keep it well inside the Writer's
+# pre-create-days.
+stats.input.validation.max-server-clock-ahead=PT1H
+
 # Request limits — STA-06B, T-018 (DL-121). ENGINEERING DEFAULTS, not ZC's answer:
 # D-03 fixes no numbers, and an unbounded ingest endpoint is wrong at every value it
 # can return. Over the limit is 413; over the rate is 429 with Retry-After. The rate
@@ -288,6 +294,10 @@ spring.rabbitmq.listener.simple.acknowledge-mode=manual
 spring.rabbitmq.publisher-confirm-type=correlated
 spring.rabbitmq.template.mandatory=true
 stats.amqp.confirm-timeout=5s
+# When that confirm does NOT arrive, the original is nacked with requeue after this
+# pause and records_handoff_unconfirmed{type} moves — DL-168. Never zero (a hot loop,
+# rule 5). Left unacknowledged instead, a MANUAL-mode delivery is never returned.
+stats.amqp.unconfirmed-handoff-requeue-delay=PT5S
 
 # Three explicit tiers, never a multiplier, every value externalised (G1/G4). One
 # attempt per tier, so a fourth failure retires the record to <type>.dlq. There is
@@ -372,14 +382,36 @@ spring.datasource.password=${POSTGRES_RO_PASSWORD:stats_ro}
 # defaults in code: an unset value must stop the module starting, never fall back
 # to a guessed security posture.
 spring.security.oauth2.resourceserver.jwt.issuer-uri=${KEYCLOAK_ISSUER}
-stats.security.audience=${STATS_API_AUDIENCE}
+spring.security.oauth2.resourceserver.jwt.audiences=${STATS_API_AUDIENCE}
 stats.security.read-role=${STATS_READ_ONLY_ROLE}
 stats.security.tenant-claim=${STATS_TENANT_CLAIM}
+# Opens /actuator/prometheus only — never /v1/** or another actuator endpoint (DL-166).
+# Local Compose sets it true; a shared deployment configures scrape access instead.
+stats.security.prometheus-public-access=false
 
 stats.api.default-page-size=100
 stats.api.max-page-size=1000
-stats.api.max-query-window-days=TBC
+# Tenant-wide list only; the device-scoped paths have no window (DL-151, DL-162).
+stats.api.max-query-window=PT1H
+# ≥ 32 bytes, identical on every replica, no default — stats-api will not start
+# without it (DL-162).
+stats.api.cursor.signing-key=${STATS_API_CURSOR_SIGNING_KEY}
+stats.api.cursor.ttl=PT15M
+
+# Every read is cancelled after 10 s and answered 503 (DL-168). NOT on the Writer,
+# whose pool runs DETACH … CONCURRENTLY — an interrupted detach wedges retention.
+spring.datasource.hikari.read-only=true
+spring.datasource.hikari.data-source-properties.options=-c statement_timeout=10s
+
+# Spring MVC's body writers log every response body at TRACE — an imsi among them.
+# Pinned so raising the parent package cannot release them (DL-167). Do not remove.
+logging.level.org.springframework.web.servlet.mvc.method.annotation.RequestResponseBodyMethodProcessor=INFO
+logging.level.org.springframework.web.servlet.mvc.method.annotation.HttpEntityMethodProcessor=INFO
 ```
+
+*Block refreshed 13 Oct 2026 (DL-169) from `stats-api/src/main/resources/application.properties`,
+which wins if the two ever differ. It had said `stats.security.audience` and
+`max-query-window-days=TBC`, both replaced by DL-162.*
 
 Give the API a **read-only database user**. The "only Module 2 writes" rule should
 be enforced by database grants, not just by convention — that way a mistake in
@@ -828,6 +860,10 @@ A stat type is done when:
 | `RESOURCE_LOCKED` / declaration error on startup | Two modules declaring the same topology with different arguments — use the shared constants in `stats-common` |
 | API returns 401 with a valid-looking token | Issuer URI mismatch, or expired token |
 | API returns empty for data that exists | Tenant filter — check `tenant` vs `maintenant` |
+| Ingest answers 400 `server_clock_ahead` on a fresh fixture | The fixture's `ts.server` is more than `PT1H` ahead of Input's clock — or the host clock is behind (DL-168) |
+| Ingest answers 400 `malformed_json` where it used to accept | Since DL-168 the body is parsed as bytes, strictly: invalid UTF-8, a duplicated member or content after the record are refused |
+| `records_handoff_unconfirmed` moving; one type's consumer slow | The retry/DLQ publish is not being confirmed (deleted DLQ, broker resource alarm); each such delivery is requeued after 5 s — SKILLS.md Skill 4 step 10 |
+| API returns 503 on a wide read | The 10 s `statement_timeout` cancelled it (DL-168) |
 | Timestamps show as 1970 | Seconds treated as milliseconds |
 | Data expires far too early | Expected for late-arriving records — retention keys on `ts.device` by design. Confirm it is not a units bug before calling it a defect. |
 | Nothing ever expires | Retention job not scheduled, or every replica lost the advisory-lock race and skipped the run |

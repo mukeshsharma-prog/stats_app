@@ -6,7 +6,6 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 COMPOSE="$ROOT/docker/docker-compose.yml"
 PROJECT=stats-app-bundle
 ENV_FILE="$ROOT/.env"
-IMAGE_ARCHIVE="$ROOT/stats-app-images.tar"
 
 random_hex() {
   od -An -N "$1" -tx1 /dev/urandom | tr -d ' \n'
@@ -134,9 +133,19 @@ fi
 
 # Always load an archive supplied with this distribution. Mutable :dev tags may
 # already exist from an older bundle, so image presence cannot prove freshness.
+# A bundle carries one single-platform archive per architecture; load the one that
+# matches this Docker engine (an older single-archive bundle has no suffix).
+engine_arch=$(docker version --format '{{.Server.Arch}}' 2>/dev/null || true)
+IMAGE_ARCHIVE="$ROOT/stats-app-images-$engine_arch.tar"
+[ -n "$engine_arch" ] && [ -f "$IMAGE_ARCHIVE" ] || IMAGE_ARCHIVE="$ROOT/stats-app-images.tar"
 if [ -f "$IMAGE_ARCHIVE" ]; then
-  printf 'Loading bundled Docker images...\n'
+  printf 'Loading bundled Docker images (%s)...\n' "$(basename "$IMAGE_ARCHIVE")"
   docker load -i "$IMAGE_ARCHIVE"
+elif ls "$ROOT"/stats-app-images-*.tar >/dev/null 2>&1; then
+  echo "This bundle has no images for this Docker engine's architecture (${engine_arch:-unknown})." >&2
+  echo "Bundled: $(cd "$ROOT" && ls stats-app-images-*.tar | tr '\n' ' ')" >&2
+  echo "No containers were changed." >&2
+  exit 1
 fi
 
 printf 'Starting PostgreSQL, RabbitMQ, Keycloak, Input, Writer, API, and monitoring...\n'

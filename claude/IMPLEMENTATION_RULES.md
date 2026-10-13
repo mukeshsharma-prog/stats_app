@@ -1,5 +1,12 @@
 # Stats App — Implementation Rules
 
+> **Version 1.5 — 13 October 2026 (DL-169).** One number and three rules. `FLOW.md` §8
+> has **sixteen** loss windows since DL-168 — a record answered 2xx that PostgreSQL can
+> never store — still twelve silent. §9's quiz table gains what DL-167 and DL-168 taught:
+> an unconfirmed failure hand-off, a classifier whose default is *retry*, and framework
+> loggers that print payloads at `TRACE`. §8's payload-logging paragraph says D-12's
+> logging half is decided for LTE/netstats (DL-167).
+>
 > **Version 1.4 — 21 September 2026.** One number and two rules. `FLOW.md` §8 has held
 > **fifteen** loss windows since DL-149, twelve of them silent — §9 said eleven and nine.
 > §9's quiz table gains the two rules the first end-to-end run taught (DL-149, DL-150),
@@ -201,7 +208,12 @@ events must permit traceability across `input`, `writer`, and `api` modules. Pay
 logging at `DEBUG` is an accepted V1 decision, but Docker log retention/access must be
 explicitly configured because records can contain IMSI, cell identifiers, IP addresses and
 device identifiers — see `docs/decisions/DATA-SENSITIVITY-INVENTORY.md` for which field is
-which, and **D-12** for the policy, which is not yet decided.
+which, and **D-12** for the policy. **For `ltestats` and `netstats` the answer is never, at
+any level** (guard P1, DL-114) — enforced since 12 Oct 2026 by
+`LteNetstatsPayloadsAreNeverLoggedIntegrationTest` in all three modules at `TRACE`, with
+`StatementCreatorUtils` (Writer) and MVC's body writers (API) pinned at `INFO` (DL-167).
+Do not remove those pins. The rest of D-12 (retention number, access list, audit) is
+still with security and compliance.
 
 A stack trace is not a payload and is not covered by the rule above, but it can carry
 payload values — a PostgreSQL constraint violation prints the offending key in its
@@ -222,7 +234,7 @@ For every task, follow this sequence.
 
 ### Why the quiz step exists
 
-Twelve of the fifteen ways this system can lose a record fail **silently**
+Twelve of the sixteen ways this system can lose a record fail **silently**
 (`claude/FLOW.md` §8). A query on `maintenant` passes every test written
 against the supplied samples. A timestamp read as milliseconds writes 1970
 with no error. A TTL on the DLQ deletes the last copy of a record and reports
@@ -238,10 +250,12 @@ hope. Ask about the specific hazard the change touches, not the general topic.
 | Timestamps | Unix **seconds**; `ts.device` vs `ts.server`; the retention consequence |
 | The Input response path | Why a 2xx before publisher confirm is unrecoverable; why a confirm is not a route |
 | Broker topology | `RESOURCE_LOCKED` on a mismatched declaration; why the DLQ takes no TTL |
-| Writer ACK or retry | Commit-then-ACK; publish-confirm-then-ACK on the retry hand-off |
+| Writer ACK or retry | Commit-then-ACK; publish-confirm-then-ACK on the retry hand-off; **what happens to the original when that publish is not confirmed** (nack with requeue after a pause — in `MANUAL` mode a rethrow strands it, DL-168); why a refused value throws `PermanentFailureException` and the classifier's default stays *retry* (DL-154, DL-168) |
+| The Input gate | Why a record the Writer could never store is a 400 here, while a payload-schema failure is still a dead-letter (DL-168 vs ADR-007 §5); why the body is parsed as **bytes** |
 | Inserts or the key | `(ts_device, uid)` column order; why `tenant` is out of the key |
 | Retention or partitions | Detach-and-drop vs row deletion; what happens if pre-creation fails; **why pre-creation covers the whole window and not only the days ahead** (DL-149 — an offline gateway's record is older than this deployment) |
 | Pagination | Why the sort is fixed and always applied; why the cursor carries its filters |
+| Any logging configuration | Why an LTE/netstats payload may not reach a log at any level, and which framework loggers print payloads at `TRACE` (DL-167) |
 | A Writer log statement | Which keys the MDC scope already owns and why repeating one **drops the line** under the ECS encoder (DL-150); what `SafeFailure` keeps out of a line (DL-124) |
 | The ingest endpoint or its filters | Which **door** the change is for and why both share one handler and one rate bucket (DL-151); why the external door binds nothing to the record's tenant until Q8a-2 (T-068) |
 | A new stat type | Why it must be additive; what `StatTypeFanOutTest` proves |

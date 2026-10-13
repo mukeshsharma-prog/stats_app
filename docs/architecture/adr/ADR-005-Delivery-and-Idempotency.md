@@ -62,6 +62,17 @@ crash produce a duplicate rather than a loss, and rule 6 above already renders t
 duplicate harmless. Trading a possible duplicate for a possible loss is the whole
 point of at-least-once.
 
+> **Note — 13 October 2026 (DL-168).** The rule says what to do when the hand-off *is*
+> confirmed. When it is **not** — a deleted DLQ, a broker refusing publishes under a
+> resource alarm — the original must still be returned, and rethrowing does not return
+> it: in `MANUAL` acknowledge mode Spring AMQP neither acks nor nacks a delivery whose
+> listener threw, so it stays unacknowledged on the open channel, one prefetch slot gone
+> per occurrence until the consumer receives nothing. The Writer therefore nacks the
+> original **with requeue after a pause** (`stats.amqp.unconfirmed-handoff-requeue-delay`,
+> `PT5S` — never immediate, rule 5), counts `records_handoff_unconfirmed{type}`, and
+> `StatsAppFailureHandoffUnconfirmed` pages. A refused value and SQLSTATE classes `22` and
+> `54` are classified **permanent**; the classifier's default stays *retry*.
+
 ## Replay after an upstream outage
 
 Replay is the same mechanism as redelivery, at volume. A 6-hour Heimdal outage is
@@ -115,6 +126,7 @@ stays exactly as it is.
 | Delivery semantics | At-least-once with database idempotency defence | **DECIDED** |
 | Consumer ACK point | After the PostgreSQL commit | **DECIDED (D7)** |
 | Retry/DLQ handoff ordering | Confirm the handoff publish before ACKing the original | **DECIDED** |
+| Unconfirmed handoff | Nack the original with requeue after a configured pause; metered and alerted | **DECIDED 13 Oct 2026 (DL-168)** |
 | Duplicate outcome | `ON CONFLICT (ts_device, uid) DO NOTHING`, metered | **DECIDED** |
 | `uid` uniqueness scope | `(ts_device, uid)`, per partition — see ADR-003 | **DECIDED (G2)** |
 | Writer batching | Individual first behind a batch-shaped interface; micro-batching is the target | **DECIDED (D11, G3)** |

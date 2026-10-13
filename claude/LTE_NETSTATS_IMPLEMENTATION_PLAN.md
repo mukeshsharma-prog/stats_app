@@ -7,7 +7,11 @@
 **Status (8 October 2026):** both software slices are implemented. The baseline
 inventory and proposed steps below are retained for traceability; current verification
 and delivery evidence is recorded in §11. Local LTE tests use the current string
-identifier contract. D-12 P3 and Q15g remain unresolved merge/release/feed conditions.
+identifier contract. ~~D-12 P3 and Q15g remain unresolved merge/release/feed conditions.~~
+**Update 13 Oct 2026:** D-12 P3 was **answered 12 Oct (DL-167)** — IMSI stored raw and
+masked on every API route by `ImsiMask`, `lac`/`cid` returned as reported. Q15g is
+re-worded (DL-169): the records exist upstream (DL-165); whether they reach Input on the
+HTTP forward is unconfirmed. The independent isolation/security review and D-09 remain.
 
 ## 1. Baseline at plan preparation
 
@@ -277,8 +281,8 @@ pass with 40 requests / 99 assertions. Temporary validation uses the uniquely na
 `stats-lte-netstats-verification` Compose project and `ltecheck-*` containers with
 alternate loopback ports; the existing developer stack is not restarted or replaced.
 
-**Still open:** D-12 P3 requires the raw/masked subscriber/location representation
-before LTE merge/shared release; keyed hashing was not adopted. Q15g requires actual
+**Still open (as of 8 Oct; see the 13 Oct update at the top):** ~~D-12 P3 requires the raw/masked subscriber/location representation
+before LTE merge/shared release; keyed hashing was not adopted.~~ Answered 12 Oct (DL-167). Q15g requires actual
 upstream netstats forwarding evidence. Independent isolation/security review, external
 contract confirmation and T-068 remain separate release conditions. The external task
 tracker is not marked Done by this local implementation; these gates must be retained.

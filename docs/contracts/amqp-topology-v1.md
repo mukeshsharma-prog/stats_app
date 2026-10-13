@@ -88,6 +88,11 @@ There is no `retry-multiplier` and no `retry-max-delay-ms`: the tiers are explic
 > **BUILT 5 September 2026 — T-024, DL-122.** `FailedDeliveryRouter` returns only once
 > the onward copy is confirmed, and `LorastatsConsumer` ACKs only after it returns; an
 > unconfirmed hand-off throws `UnconfirmedHandoffException` and nothing is acknowledged.
+> **Superseded in part 13 Oct 2026 (DL-168):** "nothing is acknowledged" stranded the
+> delivery — in `MANUAL` mode the container never returns a delivery whose listener threw.
+> The consumer now calls `FailedDeliveryRouter.requeueUnconfirmed`: count
+> `records_handoff_unconfirmed{type}`, pause `stats.amqp.unconfirmed-handoff-requeue-delay`
+> (`PT5S`), then `basicNack(requeue=true)`; `StatsAppFailureHandoffUnconfirmed` pages.
 > Attempts are counted in `x-stats-attempt` — **our** header, because a tier's TTL
 > expiring appends `x-death` and our explicit publish does not, so a count taken from
 > `x-death` would reset and the record would retry forever. A **permanent** failure
@@ -132,7 +137,11 @@ redrives it. An authorised manual redrive preserves the attempt and safe failure
 metadata and gives the record one processing attempt. If that attempt fails, the
 Writer returns it directly to the same type's DLQ without allocating the three retry
 tiers again. The confirmed manual hand-off and its audit fields are specified in
-`docs/runbooks/dlq-redrive.md`.
+`docs/runbooks/dlq-redrive.md`. **Since 13 Oct 2026 (DL-168)** a record the command will
+not move — outside the retention window (`RetentionWindow`'s cutoff), wrong type, no
+`ts.device`, not JSON — is skipped, held for the rest of the run and nacked back to the
+DLQ in its original position at the end; one such record at the head no longer aborts
+every run for that type.
 
 **Two things the runbook must state outright.** A 503 during redrive or replay is the backpressure channel working, not an incident. And a message that has sat in the DLQ long enough becomes `expired_on_arrival` the moment it is redriven, because its `ts.device` has aged past the 90-day retention window — **a redrive after roughly 90 days is not a recovery, it is a no-op that increments a counter.**
 

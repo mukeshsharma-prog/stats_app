@@ -10,7 +10,10 @@
 # stats-common is NOT buildable this way — it is a shared library, not deployable.
 
 # --- build -----------------------------------------------------------------
-FROM eclipse-temurin:21-jdk AS build
+# Pinned to the BUILD machine's platform: the jar is platform-independent, so a
+# multi-platform bundle (package-bundle.sh) runs Gradle once, natively, instead of
+# again under emulation for every target. Only the runtime stage below is per target.
+FROM --platform=$BUILDPLATFORM eclipse-temurin:21-jdk AS build
 WORKDIR /workspace
 
 # Wrapper and build scripts first, on their own layer. Dependency resolution is

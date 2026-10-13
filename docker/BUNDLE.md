@@ -5,7 +5,16 @@ Stats App stack without source code or registry access after download.
 
 ## Start
 
-Prerequisite: Docker Engine or Docker Desktop with Compose v2.
+Prerequisite: Docker Engine or Docker Desktop with Compose v2, on an Intel/AMD
+(`amd64`) or ARM (`arm64`, e.g. Apple Silicon) machine. Nothing else — no Java,
+Gradle, Postman or registry access. Ports 8080–8083, 5432, 5672, 15672, 9090, 9187
+(and 3000 for Grafana) must be free on the machine.
+
+Check the download first; the `.sha256` file is delivered beside the archive:
+
+```bash
+sha256sum -c stats-app-docker-bundle-<version>.tar.gz.sha256   # macOS: shasum -a 256 -c …
+```
 
 ```bash
 tar -xzf stats-app-docker-bundle-<version>.tar.gz
@@ -14,7 +23,8 @@ cd stats-app-docker-bundle-<version>
 ```
 
 The first start generates `.env` with random local credentials, loads the bundled
-images, starts eight long-running containers (including Prometheus and PostgreSQL exporter),
+images for this machine's architecture (`stats-app-images-amd64.tar` or
+`stats-app-images-arm64.tar`; the other one is never read), starts eight long-running containers (including Prometheus and PostgreSQL exporter),
 waits for their health checks, and verifies all four metrics targets are UP.
 
 When upgrading an existing installation, copy its `.env` into the extracted bundle
@@ -81,12 +91,11 @@ A successful ingest returns JSON `{"status":"accepted","traceId":"…"}` with a
 matching `X-Trace-Id` header after broker confirmation. Database persistence remains
 asynchronous; the collection polls the API until Writer commits.
 
-The v6 monitoring bundle includes the 6 October 2026 acknowledgement change. The older v3
-archive returns an empty success body. The startup script always loads the images
-from this archive, so existing mutable `:dev` tags cannot silently select older code.
-To retain the existing credentials and data, copy the old bundle's `.env` into this
-bundle before starting; both bundles use the same `stats-app-bundle` Compose project.
-Re-import the new Postman collection to get its acknowledgement checks.
+The startup script always loads the images from this archive, so existing mutable
+`:dev` tags from an older bundle cannot silently select older code. To retain the
+existing credentials and data, copy the old bundle's `.env` into this bundle before
+starting; every bundle uses the same `stats-app-bundle` Compose project. Re-import the
+Postman collection from this bundle — older copies lack the newer checks.
 
 For the Postman desktop application, import both files in `postman/`. Replace the
 environment's blank password values with the corresponding values from `.env`.
@@ -109,8 +118,14 @@ shared or production network.
 The runtime intentionally consists of separate containers. `stats-common` is a
 library embedded in the three application images; it is not a fourth application.
 
-LTE/netstats support requires the v5 bundle. LTE checks include measured, 2G and
+All five stat types are built end to end. LTE checks include measured, 2G and
 unknown-technology records. Primary LTE/netstats examples match the 9 October
 live-export shapes using synthetic identifiers and addresses. Optional degraded
-states, extra interfaces and numeric boundaries remain covered by source regression tests. LTE identifiers follow the current
-string contract for local evaluation; D-12 still gates merge/shared release.
+states, extra interfaces and numeric boundaries remain covered by source regression
+tests. **`imsi` is stored as received and masked on every read API response** (carrier
+prefix and last four digits visible, the rest `*`, length kept — DL-167); `lac`/`cid`
+are returned as reported. No LTE/netstats payload is written to any log at any level.
+
+Input refuses, with a 400, a record PostgreSQL could not store — an over-long `uid`,
+a blank `tenant`, an out-of-range `version`, a NUL character — instead of accepting it
+and dead-lettering it later (DL-168).

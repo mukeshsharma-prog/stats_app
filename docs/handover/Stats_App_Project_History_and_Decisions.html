@@ -2,7 +2,7 @@
 <html lang="en"><head><meta charset="utf-8"/><meta content="width=device-width,initial-scale=1" name="viewport"/><title>Stats App Project History and Decisions</title><style>body{font:17px/1.65 Georgia,'Times New Roman',serif;color:#263346;background:#eef1f5;margin:0}main{max-width:930px;margin:32px auto;background:white;padding:52px 64px;box-shadow:0 5px 28px #20354d12}h1,h2,h3,h4{color:#205381;line-height:1.25}h1{font-size:42px}h2{font-size:29px;margin:0 0 22px}h3{font-size:21px;margin:30px 0 12px;border-bottom:1px solid #d6e5f0;padding-bottom:7px}h4{font-size:18px}p,li{max-width:none}p{margin:14px 0}a{color:#205381}code{font-family:'DejaVu Sans Mono',monospace;font-size:.83em;background:#f3f5f7;overflow-wrap:anywhere}pre{background:#f4f6f8;border:1px solid #d9e0e7;border-radius:3px;padding:16px;white-space:pre-wrap;overflow-wrap:anywhere;font:13px/1.6 'DejaVu Sans Mono',monospace}.cover{text-align:center;min-height:460px;display:flex;flex-direction:column;justify-content:center;padding:30px 0 65px}.cover h1{margin:20px 0}.brand,.phase-label,.box-label{font-family:Georgia,serif;text-transform:uppercase;letter-spacing:1.6px;color:#205381;font-size:13px;font-weight:bold}.brand{letter-spacing:3px}.subtitle{font-size:23px;font-style:italic;color:#596d83;max-width:640px;margin:8px auto}.meta{font-size:14px;color:#63768b;margin-top:36px}.contents{padding:24px 28px;background:#f4f7fa;margin-bottom:35px}.contents h2{font-size:25px}.contents a{display:block;text-decoration:none;font-weight:bold;margin:10px 0}.contents .hint{font-size:14px;font-style:italic;color:#63768b}.phase{margin-top:48px}.phase-header{background:#edf3f8;border-left:4px solid #205381;padding:20px 24px;margin-bottom:22px}.phase-header h2{margin:8px 0 0}.decision-box,.note,.trap-box{background:#fce5d7;border-left:4px solid #c75b11;border-radius:3px;padding:16px 21px;margin:22px 0}.decision-box h4{margin:7px 0 12px}.decision-box p,.trap-box p{margin:8px 0}.decision-box .ids{font-size:12px;color:#647489;margin-top:12px}.trap-box{background:#fff3cd;border-left-color:#bf9400}.decision-box .box-label,.trap-box .box-label{font-size:12px;letter-spacing:1px}.note{background:#fff3cd;border-left-color:#bf9400}table{border-collapse:collapse;width:100%;margin:22px 0;font:14px/1.5 Georgia,serif}th,td{border:1px solid #d9e0e7;padding:10px;text-align:left;vertical-align:top}th{background:#eaf1f7;color:#205381}tr:nth-child(even) td{background:#f9fafb}button,input{padding:9px 13px;border:1px solid #bdcbd8;border-radius:3px;background:white;color:#205381;font:14px/1.4 system-ui,sans-serif;margin:4px;cursor:pointer}input{max-width:90%;cursor:text}.tools{background:#edf3f8;padding:12px;margin-bottom:24px}.decision-records{margin:25px 0}.decision-records>h3{font-size:18px}.decision-records>p{font-size:14px;color:#647489}details{border:1px solid #dae2e9;border-left:3px solid #9bb4ca;border-radius:3px;padding:12px 16px;margin:10px 0;background:#fbfcfd;font-size:14px}summary{color:#205381;font-weight:bold;cursor:pointer;line-height:1.5}.record{padding:8px 0;color:#303a49;overflow-wrap:anywhere}.record p{margin:13px 0}.record table{font-size:12px}.preview{font-style:italic;color:#647489}.flow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:18px;background:#edf3f8}.flow span{padding:9px 13px;border:1px solid #9cb3c9;background:white;color:#205381;font-weight:bold;font-size:14px}.flow b{color:#758da4}.status{font-size:14px;color:#63768b;font-style:italic}.muted{color:#647489;font-size:14px}.search-hidden{display:none}
 @media(max-width:700px){main{margin:0;padding:26px 22px}h1{font-size:32px}h2{font-size:25px}.cover{min-height:350px}table{font-size:12px}.phase-header{padding:16px}}
 @media print{body{background:white;color:#263346;font-size:10.25pt;line-height:1.5}main{max-width:none;margin:0;padding:0;box-shadow:none}.cover{min-height:230mm;padding:0;break-after:page}.cover h1{font-size:33pt}.subtitle{font-size:18pt}.meta{font-size:11pt}.contents{background:white;padding:0;break-after:page}.phase{margin:10mm 0 0;break-before:auto}.phase-header{break-inside:avoid;break-after:avoid}.phase>.status{break-after:avoid}.phase-header{padding:14px 18px}.phase-header h2{font-size:23pt}.phase-label{font-size:9pt}h2,.phase-label{break-after:avoid}h3{font-size:15pt;break-after:avoid}p{orphans:3;widows:3}h4{break-after:avoid}table{font-size:9pt}thead{display:table-header-group}tr{break-inside:avoid}pre{font-size:8.5pt}.decision-box,.trap-box,.note{break-inside:avoid;padding:12px 16px}button,.tools{display:none}.decision-records>h3,.decision-records>p{display:none}details:not([open]){display:none}details[open]{background:white;border-left:2px solid #9bb4ca;font-size:9.5pt}.record{display:block}.record table{font-size:8.5pt}.record p{white-space:normal!important}summary{break-after:avoid}.flow{padding:12px}.flow span{font-size:9pt}.status,.muted{font-size:9pt}a{color:inherit;text-decoration:none}@page{size:A4;margin:18mm 17mm}}
-</style></head><body><main><header class="cover"><div class="brand">Zenner · Datahub Core</div><h1>The Stats App</h1><p class="subtitle">Project history and decisions<br/>From the foundation to all five stat types and v6 monitoring delivery</p><p class="meta">Updated 12 October 2026 · Decisions through DL-166 · Latest recorded full verification: 9 October 2026</p></header><nav class="contents"><h2>What is in this guide</h2><p class="hint">Read it in order for the project story. Important decisions are boxed beside the work they explain. Full dated records are available inside each phase.</p><a href="#overview">Start here · What the system does and what exists now</a><a href="#phase0">Phase 0 · Reconcile requirements and unblock the build</a><a href="#phase1">Phase 1 · Foundation</a><a href="#phase2">Phase 2 · The LoRa reference slice</a><a href="#phase3">Phase 3 · Type expansion</a><a href="#phase4">Phase 4 · The read API</a><a href="#phase5">Phase 5 · Operational readiness and v3 delivery</a><a href="#phase6">Phase 6 · Five-type delivery, current functions and v6 monitoring</a><a href="#remaining">Reference · Open decisions and glossary</a></nav><div class="tools"><input aria-label="Find a decision" id="search" placeholder="Find a decision by ID or phrase" type="search"/><button onclick="jumpToMatch()">Jump to match</button><button onclick="setAll(true)">Expand records</button> <button onclick="setAll(false)">Collapse records</button><button onclick="printGuide(false)">Print guide</button><button onclick="printGuide(true)">Print with full records</button><span id="count"></span></div><section class="phase" id="overview"><header class="phase-header"><div class="phase-label">Start here</div><h2>What the system does and what exists now</h2></header><p class="status">Current source and v6 baseline, checked 12 October 2026; recorded verification from 9 October</p>
+</style></head><body><main><header class="cover"><div class="brand">Zenner · Datahub Core</div><h1>The Stats App</h1><p class="subtitle">Project history and decisions<br/>From the foundation to all five stat types and v6 monitoring delivery</p><p class="meta">Updated 13 October 2026 · Decisions through DL-169 · Latest recorded full verification: 13 October 2026 (1,213 tests, 0 failures)</p></header><nav class="contents"><h2>What is in this guide</h2><p class="hint">Read it in order for the project story. Important decisions are boxed beside the work they explain. Full dated records are available inside each phase.</p><a href="#overview">Start here · What the system does and what exists now</a><a href="#phase0">Phase 0 · Reconcile requirements and unblock the build</a><a href="#phase1">Phase 1 · Foundation</a><a href="#phase2">Phase 2 · The LoRa reference slice</a><a href="#phase3">Phase 3 · Type expansion</a><a href="#phase4">Phase 4 · The read API</a><a href="#phase5">Phase 5 · Operational readiness and v3 delivery</a><a href="#phase6">Phase 6 · Five-type delivery, current functions, v6 monitoring and the 13 October hardening</a><a href="#remaining">Reference · Open decisions and glossary</a></nav><div class="tools"><input aria-label="Find a decision" id="search" placeholder="Find a decision by ID or phrase" type="search"/><button onclick="jumpToMatch()">Jump to match</button><button onclick="setAll(true)">Expand records</button> <button onclick="setAll(false)">Collapse records</button><button onclick="printGuide(false)">Print guide</button><button onclick="printGuide(true)">Print with full records</button><span id="count"></span></div><section class="phase" id="overview"><header class="phase-header"><div class="phase-label">Start here</div><h2>What the system does and what exists now</h2></header><p class="status">Current source and v6 baseline, checked 12 October 2026; recorded verification from 9 October</p>
 <p>Heimdal sends measurements from gateway devices identified by <code>clsbox</code>. The Stats App keeps those measurements for a configurable retention period and makes them available to authorised tenant readers. Five stat types are recognised: <code>lorastats</code> for radio activity, <code>ltestats</code> for cellular activity, <code>sysstats</code> for system health, <code>omsstats</code> for OMS activity and <code>netstats</code> for network interfaces.</p>
 <table><thead><tr><th>Area</th><th>Implemented baseline</th><th>Remaining qualification</th></tr></thead><tbody><tr><td>Input</td><td>Two POST paths, envelope/skew/limit gates, byte-preserving confirmed publication and JSON acknowledgement</td><td>Inbound identity and external tenant binding remain open</td></tr><tr><td>Writer</td><td>All five consumers; payload validation, qualified batch writers, V8/V9 LTE/network tables, idempotency, retry/DLQ and retention</td><td>LTE masking/representation approval D-12 P3 still gates merge/shared release</td></tr><tr><td>API</td><td>Four GET route shapes for all five types; tenant isolation, signed cursors and wire reconstruction</td><td>D-09 confirmation, independent review and production performance remain due</td></tr><tr><td>Operations</td><td>Automatic Prometheus/exporter startup; four successful scrapes; alerts, dashboards and local drills</td><td>Production capacity, backups/recovery and live cleanup evidence remain operational work</td></tr><tr><td>Delivery</td><td>v6 offline bundle, ten images, eight default services, optional Grafana and 40-request collection</td><td>Local evaluation configuration; upstream feed confirmation Q15g remains open</td></tr></tbody></table>
 <p>Design sizing assumes 160,000 gateways reporting every ten minutes: about 267 records per second per type, 1,333 across five types and 115.2 million records per day. At 90 days, that is approximately 10.4 billion rows across all types. These figures explain the partitioning, retention and scaling choices; they are design inputs, not a measurement of the current local bundle.</p>
@@ -3603,7 +3603,7 @@ work on a stack that already has alerts; before/after set difference does.</p><p
 D8's shape is N Writers on one queue. The corpus is minutes old when replayed; a replay
 after a multi-week outage meets the late-arrival guard (DL-133), by design — the runbook
 says so, the drill cannot show it. Whether Heimdal honours the cap stays unmeasurable from
-here (DL-109).</p></div></details></div></section><section class="phase" id="phase6"><header class="phase-header"><div class="phase-label">Phase six · 6–12 October 2026</div><h2>Five-type delivery, current functions and v6 monitoring</h2></header>
+here (DL-109).</p></div></details></div></section><section class="phase" id="phase6"><header class="phase-header"><div class="phase-label">Phase six · 6–13 October 2026</div><h2>Five-type delivery, current functions and v6 monitoring</h2></header>
 <p class="status">Current implementation traced to code; test figures below are dated evidence from 9 October, not a newly executed regression run</p>
 <h3>6.1 Make HTTP acceptance explicit</h3><p>DL-163 adds <code>{"status":"accepted","traceId":"…"}</code> to both ingest paths, after confirmed routed publication. The default response stays 200, configurable to 202, with the same JSON body and matching <code>X-Trace-Id</code>. Publication bytes and error behavior remain unchanged. Acceptance precedes Writer validation, retention decisions and database commit.</p>
 <h3>6.2 Preserve LTE and network wire shapes</h3><p>DL-164/165 complete the missing persistence paths. LTE’s V8 table stores typed signal values and identifier strings; the reader maps <code>access_technology</code> back to <code>access_Technology</code>, returns signals as strings and omits absent optional fields. An unknown modem returns only its <code>etxt</code>. Leading zeroes and hexadecimal LAC/CID spelling survive. Measured-plus-error records fail the schema gate.</p><p>Network V9 stores an integer root <code>timespan</code> and dynamic <code>interfaces</code> JSONB. Known counters on all accepted interfaces are checked before exact BIGINT conversion and restored as strings on read. DNS arrays, addresses, driver, accepted additional interfaces and nested extensions remain intact. Non-interface extensions are kept separately. Stored SQL keys are internal details and do not replace the wire payload.</p>
@@ -3660,14 +3660,282 @@ for that environment rather than treating the local setting as a production defa
 metrics URLs return 200; anonymous stats reads and actuator/info return 401.
 251 API tests and 273 shared tests pass with zero failures or skips. Prometheus
 history was copied to its application-project volume; the original volume was
-retained. Existing database/broker containers and their data were preserved.</p></div></details></div></section><section class="phase" id="remaining"><header class="phase-header"><div class="phase-label">Reference</div><h2>Open decisions and glossary</h2></header><p class="status">Keep implementation, approval and production verification separate</p><h3>R.1 Open approvals and production evidence</h3>
+retained. Existing database/broker containers and their data were preserved.</p></div></details><details id="DL-167"><summary>DL-167 — D-12 P3 answered (IMSI masked at the API, `lac`/`cid` as reported); monitoring, listener start-up and payload logging made production-ready</summary><div class="record"><p style="white-space:pre-wrap">**12 Oct 2026** · `SECURITY` · `OPERATIONS` · D-12 P3, ADR-006, STA-35, NFR-03, DL-164, DL-166 · T-034, T-050, T-056</p><p style="white-space:pre-wrap">**Trigger.** The review of DL-164 (merged to `main` as `09a942c`) found LTE merged
+against its own gate (D-12 P3), and four engineering defects: Prometheus gated on the
+health of what it monitors; only two of five consumers honouring Spring&#x27;s listener
+switch; the API scrape opened without the no-caller-data guard; and guard **P1** — &quot;never
+log an `ltestats`/`netstats` payload at any level&quot;, adopted 4 Sep 2026 (DL-114) — with no
+test anywhere, now that both types exist. (The review first called P1 new; it is not —
+DL-164 only copied it into the D-12 checklist row.)</p><p style="white-space:pre-wrap">**Decision — D-12 P3 (approver: Naman Vashishtha, 12 Oct 2026).**
+* **IMSI: stored raw, masked on read.** The table, the DLQ and backups keep the value
+  Heimdal sent; every API route returns it masked by `ImsiMask` — the carrier prefix
+  (the record&#x27;s `plmn` when the IMSI starts with it, else the first five digits) and,
+  when at least eight subscriber digits follow, the last four; every other digit `*`,
+  length preserved; a value too short to hide anything after the prefix is masked
+  completely. `LtestatsReader` is the only reader of the column.
+* **`lac`/`cid`: returned as reported**, no masking.
+* **The read contract says so.** `openapi.yaml` `LtestatsMeasured.imsi` is the masked
+  form; `check_schema_drift.py` holds `imsi` to exactly that one difference and fails CI
+  if the ingest rule (`^[0-9]{1,20}$`) changes without the projection being revisited.</p><p style="white-space:pre-wrap">**Decision — engineering.**
+1. **Prometheus depends on its targets being *started*, never *healthy*.** The bundle
+   start script waits for monitoring before the applications, points at
+   `:9090/targets` when an application fails, and reports degraded monitoring after a
+   healthy start as **exit 3** with the ready banner, instead of failing the start.
+2. **All five listeners share one `autoStartup` expression**
+   (`StatTypeDeployment.AUTO_STARTUP_PREFIX/SUFFIX`), which honours
+   `spring.rabbitmq.listener.simple.auto-startup` for every type alike.
+   `ConsumerAutoStartupIsUniformTest` scans the package. The suite-wide test workaround
+   (context cache 1, Hikari pool 4) is **removed**: uniform start-up removed the listener
+   interference it hid, and the remaining connection exhaustion is fixed where it lives —
+   the shared test PostgreSQL runs `max_connections=400`, so every test context keeps the
+   production pool size and the timing drills still measure production&#x27;s shape.
+3. **`MetricsCarryNoCallerDataIntegrationTest` is restored**, adapted to
+   `stats.security.prometheus-public-access=true` and extended to the two new types.
+4. **P1 (DL-114) is enforced, not asserted.**
+   `LteNetstatsPayloadsAreNeverLoggedIntegrationTest` exists in Input, Writer and API:
+   distinctive values in every sensitive member, every outcome (accepted, envelope and
+   clock-skew 400s on both doors; stored, duplicate, unmappable, payload-rejected,
+   expired; every read route), our loggers and Spring&#x27;s at `TRACE`. It found two real
+   leaks, now pinned at `INFO` on the exact logger so raising the parent package cannot
+   release them: `org.springframework.jdbc.core.StatementCreatorUtils` (Writer — every
+   bound SQL parameter, raw IMSI included) and Spring MVC&#x27;s
+   `RequestResponseBodyMethodProcessor` / `HttpEntityMethodProcessor` (API — every
+   response body). Input was clean at `TRACE`. The pins apply to all five types; the
+   other three lose framework payload logging they never relied on.
+5. **The startup-script tests run in CI.** DL-166&#x27;s four (now seven) cases were local-only.</p><p style="white-space:pre-wrap">**Why.** Masking at read keeps every option open — tightening to Writer-side masking
+later is a migration plus a DLQ policy decision, loosening is a one-line change — while
+no tenant token ever sees a subscriber number. Monitoring that waits for health is absent
+exactly when it is needed. A switch two of five listeners obey stops two types silently.
+A rule nothing tests is a rule the next framework upgrade or incident-time log level
+breaks — this one was already broken in two modules at `TRACE`.</p><p style="white-space:pre-wrap">**Rejected.** *Masking at the Writer* — irreversible, destroys carrier correlation, and
+the approver chose read-side. *Masking `lac`/`cid`* — decided against. *Making the API
+mask configurable* — a switch that can turn a privacy control off. *Keeping the test
+workaround* — it changed the pool size of the drills the runbooks quote and hid the
+listener defect. *A logback `TurboFilter` that drops those loggers outright* — stronger,
+but a second logging configuration surface for one rule; the exact-logger pin plus three
+tests that fail the build is the boring version. *Editing V8&#x27;s column comment* — an
+applied Flyway migration&#x27;s checksum would change on every existing database.</p><p style="white-space:pre-wrap">**Verification.** Full build `--rerun-tasks`: **1,173 tests, 0 failures, 0 skipped** (api 266, common 273, input 79, testsupport 16, writer 539; was 1,154). `redocly lint` 2.51.2 clean on both contracts.
+Mutation-checked: the reader returning the raw IMSI fails the read tests; a
+`service_healthy` Prometheus dependency fails `MonitoringIsIndependentTest`; removing
+either logger pin fails its module&#x27;s payload-logging test (both were found failing before
+the pin). Drift gate 8/8, fixtures 117/0, startup tests 7/7.</p><p style="white-space:pre-wrap">**Quiz (DL-005).** Two questions were asked (what `auto-startup=false` does to records
+and what reports it; why DEBUG-gated payload logging is insufficient for LTE/netstats).
+The approver answered &quot;do all&quot;: **waived, not passed.** The answers: records accumulate
+in their durable per-type queues — nothing is lost — and `StatsAppQueueNoConsumer` /
+oldest-message-age alerts report it; DEBUG is what an operator enables in an incident,
+on a store with its own retention and access list, and frameworks (JDBC parameters, MVC
+bodies) print payloads at levels our own code never uses.</p><p style="white-space:pre-wrap">**Residuals.**
+* An operator who names one of the pinned loggers explicitly can still release it — a
+  deliberate act, not an incident-time accident.
+* Raw IMSIs remain in the table, the DLQ and backups by decision; access to those is D-12
+  Q4/Q5 (log/DLQ access, audit), still with security and compliance.
+* V8&#x27;s column comment still reads &quot;policy remains D-12&quot;; the decision lives here.
+* Q15g&#x27;s &quot;zero netstats records&quot; in `claude/CLAUDE.md` §7 is contradicted by DL-165&#x27;s
+  1,000-record export and is not reconciled by this entry.</p></div></details><details id="DL-168"><summary>DL-168 — Nothing is answered 2xx that PostgreSQL cannot store, and the failure arm cannot strand a delivery</summary><div class="record"><p style="white-space:pre-wrap">**13 Oct 2026** · `CORRECTNESS` · `OPERATIONS` · STA-03A, STA-04A, STA-12, STA-25A, ADR-002 §9/§12, ADR-005, ADR-007 §5, DL-133, DL-138, DL-154 · T-013, T-024, T-052, T-062</p><p style="white-space:pre-wrap">**Trigger.** A whole-codebase probe: the full suite uncached (1,173 green), every CI gate,
+and crafted records posted to the running dev stack and to the then-current jars against
+scratch infrastructure. Nine defects survived a green build; every one was reproduced end
+to end before it was fixed.</p><p style="white-space:pre-wrap">1. **A `uid` over 255 UTF-8 bytes was answered 503 forever.** Input copies the `uid` into
+   the AMQP `messageId`, a short string; the publish failed on the client, every resend
+   failed the same way, and Heimdal retries every non-2xx (255 bytes → 200, 256 → 503).
+2. **An unconfirmed retry/DLQ hand-off stranded the delivery.** The consumer rethrew; in
+   `MANUAL` ack mode Spring AMQP neither acks nor nacks a delivery whose listener threw
+   (`BlockingQueueConsumer.rollbackOnExceptionIfNecessary`), so it stayed unacknowledged on
+   the open channel: never redelivered, one prefetch slot gone. Reproduced by deleting a
+   DLQ: two records sat unacked indefinitely while good ones flowed — until `prefetch`
+   of them, when the consumer receives nothing. On a confirm *timeout* (broker resource
+   alarm) every gauge reads normally. The consumer tests asserted this behaviour, with a
+   comment expecting &quot;a hot redelivery loop&quot; that never happened.
+3. **Permanent failures were retried 35½ minutes.** `version` &gt; 32767 and a whitespace-only
+   `uid`/`tenant`/`maintenant` passed the schema and threw `IllegalArgumentException` in all
+   five writers — transient by the classifier&#x27;s default. A random 5,000-character `tenant`
+   overflowed the 2,704-byte btree row (SQLSTATE 54000), which Spring translates to
+   `DataAccessResourceFailureException` — also transient. All three dead-lettered as
+   `permanent=false` after the full tier walk. DL-154&#x27;s class of bug, in three new places.
+4. **Records answered 200 that no redrive can ever store:** U+0000 anywhere (text 22021,
+   jsonb 22P05 — including unknown `data` members and `meta`); invalid UTF-8 (Input decoded
+   with `new String(body, UTF_8)`, replacing the byte with U+FFFD, while the Writer parsed
+   the raw bytes and refused them); and `ts.server` in the future — Q14a compares the
+   record&#x27;s two clocks with each other, so both 30 days ahead passed, found no partition
+   (23514) and dead-lettered.
+5. **One record at the head of a DLQ blocked redrive for the whole type.** The command
+   aborted on the first record it refused and nacked it back to the head, so every later
+   run aborted on it. The DLQ is FIFO and never expires anything (ADR-002 §12), so its
+   oldest record is exactly the one that ages out of the window first.
+6. A `uid` of 129–255 characters was stored and never readable — the read contract caps it
+   at 128.
+7. Input&#x27;s parse was lenient: content after the record was ignored and a duplicated member
+   resolved to whichever copy Jackson kept (a second `tenant` was stored). `malformed/
+   README.md` already said duplicates should be rejected &quot;where the parser can detect it&quot;.
+8. No statement timeout on any API read.
+9. The redrive command computed its own cutoff (`now − days`), a second definition beside
+   `RetentionWindow` — conservative by up to a day, but against DL-133.</p><p style="white-space:pre-wrap">**Decision — the approver&#x27;s (Naman Vashishtha, 13 Oct 2026).** U+0000 is refused **at
+Input with 400**, not stripped by the Writer (which would store something other than what
+Heimdal sent, against ADR-004) and not left to the DLQ. Unpaired surrogates are the same
+case and get the same answer.</p><p style="white-space:pre-wrap">**Decision — engineering.**
+* **The envelope bounds what the Writer can store, so Input says 400 where it can.**
+  `uid`, `tenant`, `maintenant`: `maxLength` 128 and `pattern` `\S` (ECMAScript via Joni,
+  so Java and the Python gate agree); `version`: `maximum` 32767. `openapi.yaml`&#x27;s envelope
+  carries the same bounds. 128 is the read contract&#x27;s existing bound, and far above every
+  real value (production `uid`s are 43 characters).
+* **`EnvelopeGate`** parses the **bytes** through a strict reader
+  (`FAIL_ON_TRAILING_TOKENS`, `STRICT_DUPLICATE_DETECTION`) — only for this parse; the
+  shared mapper and the Writer stay lenient so nothing already queued starts failing. After
+  the schema it walks every member name and string value: U+0000 or an unpaired surrogate is
+  `unstorable_character`, reported at the value&#x27;s pointer or, for a bad member name, its
+  parent&#x27;s, so the pointer never carries the offending text. Then `ts.server` beyond
+  `stats.input.validation.max-server-clock-ahead` (`PT1H`, no default in code) of an
+  injected `Clock` is `server_clock_ahead`, metered with the skew rejections. A UTF-8 BOM is
+  now accepted (Jackson skips it on bytes, as the Writer does) where it used to be a 400.
+* **`messageId` is omitted when the `uid` exceeds 255 UTF-8 bytes** — 128 non-ASCII
+  characters still can. The Writer only seeds its log scope from it and binds the `uid`
+  from the record.
+* **An unconfirmed hand-off is nacked with requeue, after a pause.**
+  `FailedDeliveryRouter.requeueUnconfirmed`: count `records_handoff_unconfirmed{type}`
+  (registered at zero for every type), log `handoff_unconfirmed` at ERROR, sleep
+  `stats.amqp.unconfirmed-handoff-requeue-delay` (`PT5S`, must be positive — rule 5), then
+  `basicNack(requeue=true)`. Interrupted during the pause it leaves the delivery for the
+  closing channel. Sleeping on the listener thread is deliberate: it slows a type whose
+  failure arm is broken. `StatsAppFailureHandoffUnconfirmed` (critical) pages on any
+  increase in 5 minutes; promtool-tested.
+* **Permanent means permanent.** The writers&#x27; `version` and blank-identifier refusals throw
+  `PermanentFailureException`. `FailureClassifier` treats SQLSTATE class `22` (data
+  exception) and `54` (program limit exceeded) as permanent, read from the `SQLException`
+  itself rather than through Spring&#x27;s translation. The default stays *retry*.
+* **Redrive skips and continues.** A record it will not move (`outside_retention_window`,
+  `type_mismatch`, `no_ts_device`, `not_json`) is held unacknowledged for the rest of the
+  run, printed as `record_skipped` with a constant reason and the body hash, and nacked
+  back to the DLQ at its original position at the end; `redrive_completed` reports `moved`
+  and `skipped`. A failed publish still aborts. The cutoff is
+  `RetentionWindow.cutoffFor(clock, days)`, which the guard&#x27;s `cutoff(type)` now also uses.
+* **API reads: `statement_timeout = 10s`** via the pgjdbc `options` property; a cancelled
+  statement is a transient data-access failure, already 503. **Not on the Writer**, whose
+  pool runs `DETACH … CONCURRENTLY` — an interrupted detach wedges retention (§6).</p><p style="white-space:pre-wrap">**Why.** Heimdal retries only a non-2xx. A record that can never be stored is better
+refused where the sender is still listening than accepted into a queue that never expires
+and that no redrive can drain. ADR-007 §5 still holds: a *payload-schema* failure is still
+accepted and dead-lettered, because there the mistake may be ours and a redrive can fix
+it. None of this DL&#x27;s 400s can be fixed on our side — PostgreSQL&#x27;s limits are not a schema
+we got wrong.</p><p style="white-space:pre-wrap">**Rejected.** *Stripping U+0000 at the Writer* — the approver chose 400. *Defaulting the
+classifier to permanent*, or *every `IllegalArgumentException` permanent* — the first
+dead-letters what a 30-second wait would have stored; the second is too broad, since
+library code throws it for transient reasons. *Leaving the delivery unacked and closing
+the channel* — returns every in-flight delivery on that channel, not the one that failed.
+*An immediate requeue* — a hot loop on a failure that usually persists (rule 5).
+*Restricting `uid` to ASCII* — &quot;ZC guarantees uniqueness, not a shape&quot;; the byte guard
+costs nothing. *A Writer statement timeout* — see above. *A tool that deletes single DLQ
+messages* — disposition stays an approved, separate act.</p><p style="white-space:pre-wrap">**Verification.** Full build `--rerun-tasks`: **1,213 tests, 0 failures, 0 skipped**
+(common 278, input 95, writer 557, api 267, testsupport 16; was 1,173). Fixtures **124**
+assertions, 0 failed (was 117); Java parity 98 → **103**. `redocly lint` 2.51.2 clean on
+both contracts; drift gate OK; promtool `check` and `test` green on all three rule files;
+dashboards check sees 39 application series; startup-script tests OK. **End to end on the
+rebuilt jars against scratch RabbitMQ/PostgreSQL:** every probe that used to be a 200 then
+a DLQ (or a 503) is now a 400; a BOM body, an emoji tenant and a 128-character / 256-byte
+`uid` are stored; no record reached a retry tier or a DLQ. With the DLQ deleted, poison
+records cycled every 5 s (`records_handoff_unconfirmed` 5 after 22 s) while good records
+were stored, and drained to the DLQ on restart. Redrive with an expired record ahead of a
+fresh one: `moved 1, skipped 1`, the fresh record stored, the expired one back on the DLQ.</p><p style="white-space:pre-wrap">**Quiz (DL-005).** Three questions. *What happens to the original when the hand-off is not
+confirmed?* — answered correctly (nack with requeue). *Why is a payload-schema failure
+dead-lettered rather than 400&#x27;d?* — answered correctly (a 400 is unrecoverable; a DLQ copy
+can be redriven after the schema is fixed). *What is the right fix for `version: 40000`
+being retried?* — the approver answered &quot;do what is the best approach&quot;: **waived, not
+passed.** The answer: throw `PermanentFailureException` where the specific value is
+refused, and keep the classifier&#x27;s default as retry.</p><p style="white-space:pre-wrap">**Residuals.**
+* `requiredText` in the writers uses Java&#x27;s `isBlank`, which counts U+001C–U+001F as
+  whitespace while ECMAScript&#x27;s `\s` does not; a `tenant` made only of those passes Input
+  and dead-letters permanently at the Writer. Exotic, and now permanent rather than retried.
+* While a type&#x27;s failure arm is broken, its consumer pauses 5 s per failing record; with
+  many failing records good ones slow down too. Deliberate, and paged.
+* `unstorable_character` and `server_clock_ahead` are field-level codes, like
+  `clock_skew_exceeded`; the problem `type` stays `invalid_parameter`.
+* Data already on the dev stack from the probe (≈10 `PROBE-` rows, DLQ copies) is left for
+  the owner to dispose of.</p></div></details><details id="DL-169"><summary>DL-169 — The documents and the tracker are reconciled to DL-153…DL-168, and the tracker is corrected to `main`: the 29 September basic-auth work never merged</summary><div class="record"><p style="white-space:pre-wrap">**13 October 2026** · `ENGINEERING` · DL-002, DL-152 (the previous reconciliation), DL-153…DL-168 · **approver:** Naman Vashishtha (requested &quot;update all the docs and xlsx file of stats app to latest&quot;)</p><p style="white-space:pre-wrap">**Trigger.** The last reconciliation was DL-152 on 21 September. Since then sixteen entries
+landed — omsstats, `WireNumbers`, the six Phase 5 drills, Phase 4, the JSON
+acknowledgement, both remaining types, D-12 P3 and DL-168&#x27;s nine defects — and each
+updated the documents it touched and few others. `README.md` still said the fixture gate
+had 115 assertions, Phase 4&#x27;s entry criterion was still &quot;signed off by ZC&quot;, `FLOW.md`&#x27;s
+status table was dated 21 September, `SCHEMA_CATALOGUE.md` said 103 assertions,
+`DEVELOPMENT.md`&#x27;s `stats-api` properties block named two keys DL-162 had replaced,
+`CLAUDE.md` §7 still called Q15g &quot;zero records&quot; (DL-167&#x27;s own residual), and the tracker had
+not been saved since 29 September.</p><p style="white-space:pre-wrap">**What the reconciliation found, and it is the reason this entry exists.** The tracker&#x27;s
+29 September edits describe work that is **not on `main`**: *DL-163 — Heimdal is a
+ForwardRule* (Q8a-2 &quot;answered by decision&quot;, `stats.input.auth.mode=basic` **built**,
+`maxRetry = 3` read into rule 8, `ops/prometheus/input-alerts.yml`, a Q15f worst-case
+metric, `FLOW.md` window 16), a second *DL-163* opening the API scrape, Done row DN-079,
+traps 41–42, T-068 **unblocked** and a new **T-070**. That work is commit `1a4f28a`
+(dated 7 Oct) on `feat/dl-163-input-basic-auth`. The branch was never merged and was
+deleted; the commit survived only as a reflog entry, which git expires after 30 days.
+`main` then reused DL-163 on 6 October for the JSON acknowledgement (Mukesh&#x27;s
+`0c8932d`), and DL-166/DL-167 re-did the API-scrape half differently. So on `main`:
+`stats.input.auth.mode` is `none | mtls | oauth2`; Q8a-2 is open; no DL entry records the
+approver&#x27;s 29 September decision; `/actuator/prometheus` on the API is opened by
+`stats.security.prometheus-public-access` (DL-166), not by the branch&#x27;s `permitAll`. The
+share bundle built on 30 September (`build/share/`, outside version control) *does* carry
+the branch&#x27;s `input-alerts.yml` and `STATS_INPUT_AUTH_MODE=basic` — so that bundle is not
+reproducible from `main`.</p><p style="white-space:pre-wrap">**Decision.**</p><p style="white-space:pre-wrap">1. **The tracker describes `main`.** Nothing that records the approver&#x27;s decision is
+   deleted — it is a real decision — but every row that claims the work is built says
+   where it actually is: the two branch DL-163 rows and DN-079 are marked *not on `main`*;
+   traps 41–42 are marked *off-`main`*; T-017&#x27;s note says so; **T-068 returns to BLOCKED**,
+   now on the branch rather than on Q8a-2 (the mechanism is decided; the code is not
+   merged); T-070 is blocked on both; Q8a-2&#x27;s status reads *decided 29 Sep, built
+   off-`main`*. New task **T-071**: merge the branch with its DL entry renumbered past this
+   one (resolving its overlap with DL-166/DL-167&#x27;s scrape work and with DL-168&#x27;s
+   `EnvelopeGate`/`IngestMetrics` changes), or retire it and reopen Q8a-2. It leads
+   `Next Up`, because three other rows were written as if it had merged.
+2. **The commit is protected, not merged.** A local branch
+   `feat/dl-163-input-basic-auth` now points at `1a4f28a` again, so it cannot be garbage
+   collected. Nothing was merged, rebased or pushed: merging ~2,200 lines of code that
+   conflict with three later entries is a code change with its own quiz and review, not
+   a side effect of a documentation pass.
+3. **Tracker, otherwise.** Decisions rows for `main`&#x27;s DL-163 and DL-164…DL-169; T-034
+   and T-037 DONE; notes on T-013, T-017, T-024, T-028, T-034, T-037, T-050, T-052, T-056,
+   T-062, T-066, T-068, T-070; Done rows DN-080…DN-089; Open Questions: D-12 P3 answered (Q2/Q3 of its five),
+   Q15g re-worded, Q8a-2 as above; Traps: coverage of 1, 4, 12, 13 and 34 re-assessed
+   against the tests DL-162 wrote, 41–42 marked *not covered on `main`*, seven new traps
+   (43–49) from DL-167/DL-168; Notes rows for 6 → 13 Oct; `Next Up` re-ranked; every
+   table&#x27;s `ref` re-extended to its last row (five had drifted again — T-070, DN-076…079,
+   DL-160…163, traps 40–42 and six Notes rows sat outside their tables, invisible to a
+   filter); stray freeze panes on Tasks (A52) and Done (A35) reset to A2; status, priority
+   and coverage fills re-derived from their values; Read Me re-dated.
+4. **Documents.** `README.md` status, current-state box, tree and open items (D5a was
+   still listed as unsigned; D-09 as the item that gates work). `FLOW.md`: status table
+   re-dated with the DL-163…DL-168 rows, §2 ingest steps and failure table (and the
+   `ts.converter` row that still said 400 a month after ADR-007), §3.4 redrive, §4.3
+   failure paths, §5.1 timeout and masking, **§8 window 16**. `CLAUDE.md` 1.32.
+   `PROJECT_STATUS_AND_PLAN.md`, `CODE_START_CHECKLIST.md` (Phase 3/4/5 state),
+   `IMPLEMENTATION_RULES.md` 1.5, `SKILLS.md` 1.6, `DEVELOPMENT.md` (config blocks and
+   troubleshooting), `SCHEMA_CATALOGUE.md`, `amqp-topology-v1.md`, `ops/prometheus/README.md`,
+   `LTE_NETSTATS_IMPLEMENTATION_PLAN.md`, the project-history handover page, and a note
+   each in ADR-003 (D9 and the third cutoff reader), ADR-005 (the unconfirmed hand-off) and
+   ADR-007 (§5 and storage refusals).
+5. **Window 16.** DL-168&#x27;s &quot;a record answered 2xx that PostgreSQL can never store&quot; is a
+   way a record is lost — Heimdal saw success and will not resend, and the only copy sits
+   in a DLQ no redrive can drain — so `FLOW.md` §8, which calls itself the complete list,
+   gains it. It is loud (the DLQ alerts), so the silent count stays at twelve:
+   **sixteen windows, twelve silent**.
+6. **Q15g is re-worded, not closed.** &quot;Zero netstats records in the datastore&quot; was the
+   18 September aggregate query; the 9 October export holds 1,000 (DL-165). DL-165 itself
+   says an export proves payload shape, not the forwarding path, so the question becomes
+   *does netstats reach Input on Heimdal&#x27;s HTTP forward?* — still Hasan&#x27;s to answer.</p><p style="white-space:pre-wrap">**Rejected.** *Deleting the tracker rows for the unmerged work* — they record a decision
+the approver took and a branch that still exists; deleting them would lose the only
+record outside git. *Merging the branch here* — see decision 2. *Renumbering `main`&#x27;s
+DL-163* — it has been on `main` and in the handover page since 6 October; the unmerged
+entry is the one that moves. *Rebuilding `Stats_App_Developer_Guide.pdf` in full* — a
+66-page function-by-function walkthrough of the code as of 18 September, outside the
+repository; regenerating it for Phase 4, two types and DL-168 is its own task. This change
+adds a dated currency notice to its source and reprints it, so nobody reads it as current.
+*Amending SRS/BRD/ARB* — the v1.2 amendment set is the normative baseline and has never
+been edited by a reconciliation; the ADR notes carry the change.</p><p style="white-space:pre-wrap">**Consequence.** Every document that names a count now names the same one: 16 loss
+windows (12 silent), 100 fixture files, 124 assertions, 103 Java parity cases, 1,213 tests,
+71 tasks, 49 traps, migrations V1–V9. Until T-071 closes, a reader should take every
+&quot;basic&quot; in the tracker to mean *decided on 29 Sep, built off-`main`*.</p><p style="white-space:pre-wrap">**Quiz (DL-005).** Not asked: this change alters no code, contract or runtime behaviour —
+documents and the tracker only — which `IMPLEMENTATION_RULES.md` §9 step 4 exempts as a
+reversible documentation edit. T-071 will need one.</p></div></details></div></section><section class="phase" id="remaining"><header class="phase-header"><div class="phase-label">Reference</div><h2>Open decisions and glossary</h2></header><p class="status">Keep implementation, approval and production verification separate</p><h3>R.1 Open approvals and production evidence</h3>
 <ul>
 <li><strong>Contract confirmation D 09:</strong> external confirmation of the read OpenAPI contract remains open. Phase 4 was built by explicit requester decision ahead of confirmation, so later contract changes can require code rework.</li>
 <li><strong>Independent API security review:</strong> Mukesh is named for independent review because the implementation author also wrote the isolation and security suites. Recheck the mutations and production configuration before Phase 4 release.</li>
-<li><strong>Inbound identity Q8a 2 and external tenant binding T 068:</strong> agree the mechanism and enforce the external writer tenant. Local mode none is evaluation behaviour.</li>
+<li><strong>Inbound identity Q8a 2 and external tenant binding T 068:</strong> the approver decided on 29 September to accept Heimdal's ForwardRule Basic credentials, and commit 1a4f28a built it on branch feat/dl-163-input-basic-auth — <strong>never merged</strong> (<a href="#DL-169">DL-169</a>). On main the Input door is still unauthenticated in mode none. Merge or retire the branch (T-071), then enforce the external writer tenant (T-068) and prove one live Heimdal request (T-070).</li>
 <li><strong>Keycloak production identifiers Q8b 2:</strong> issuer, audience, role and claim names remain the proposal pending confirmation.</li>
-<li><strong>Data handling D 12:</strong> settle classification, IMSI masking, identifier storage, log and DLQ access and retention, encryption and audit. The sensitivity inventory is input to the decision, not an approved policy. LTE identifiers can remain indefinitely in a no TTL DLQ, so handle this before LTE persistence is released.</li>
-<li><strong>LTE/network release qualification:</strong> T-034/T-037 implementation exists in the current source. D-12 P3 still gates LTE merge/shared release; Q15g still requires upstream forwarding/feed confirmation. The 9 October exports prove payload compatibility, not feed ownership, URL or credentials.</li>
+<li><strong>Data handling D 12:</strong> P3 was answered on 12 October (<a href="#DL-167">DL-167</a>): the IMSI is stored raw and masked on every API route, and lac/cid are returned as reported. Still with security and compliance: classification, network identifiers, log and DLQ access and retention, encryption and audit. Raw IMSIs now exist in the table, the DLQ and backups by decision, which makes access and audit the urgent remainder.</li>
+<li><strong>LTE/network release qualification:</strong> T-034/T-037 are built and D-12 P3 is answered. Q15g is re-worded (<a href="#DL-169">DL-169</a>): the 9 October export holds 1,000 netstats records, so they exist upstream; whether they reach Input on Heimdal's HTTP forward is still unconfirmed.</li>
 <li><strong>Production read performance:</strong> measure query latency at expected row count before widening the tenant list window or claiming the latency requirement is met.</li>
 <li><strong>Traffic evidence:</strong> read the first 24 hour reporting histogram and agree a useful upstream non OK status threshold.</li>
 <li><strong>Operational completeness:</strong> schedule external backups, rehearse full recovery, size replicas/storage and configure scrape access for shared deployments. Local metrics scraping now works. The 9 October audit left scheduled live cleanup unverified; its next-pass date is past and completion must be established by newer evidence.</li>

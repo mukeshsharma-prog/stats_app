@@ -33,6 +33,8 @@ elif a[0] == 'inspect':
         print('unhealthy')
     else:
         print('healthy')
+elif a[0] == 'version':
+    print(os.environ.get('FAKE_ARCH', 'arm64'))
 elif a[0] == 'run':
     sys.exit(int(os.environ['FAKE_AUTH_FAILURE']))
 elif a[0] == 'compose':
@@ -47,7 +49,8 @@ elif a[0] not in ['load', 'logs']:
 
 class StartupCredentialsTest(unittest.TestCase):
     def exercise(self, volumes=False, postgres=False, auth_failure=False, env_exists=False,
-                 unhealthy='', monitoring_down=False):
+                 unhealthy='', monitoring_down=False, arch='arm64',
+                 archives=('stats-app-images-amd64.tar', 'stats-app-images-arm64.tar')):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         root = Path(temporary.name)
@@ -59,13 +62,15 @@ class StartupCredentialsTest(unittest.TestCase):
         fake.parent.mkdir()
         fake.write_text(DOCKER)
         fake.chmod(0o755)
-        (root / 'stats-app-images.tar').touch()
+        for archive in archives:
+            (root / archive).touch()
         if env_exists:
             (root / '.env').write_text('POSTGRES_USER=test\nPOSTGRES_PASSWORD=test-only\n')
         env = dict(os.environ, PATH=str(fake.parent) + ':' + os.environ['PATH'],
                    FAKE_ROOT=str(root), FAKE_VOLUMES=str(int(volumes)),
                    FAKE_POSTGRES=str(int(postgres)), FAKE_AUTH_FAILURE=str(int(auth_failure)),
                    FAKE_UNHEALTHY=unhealthy, FAKE_MONITORING_DOWN=str(int(monitoring_down)),
+                   FAKE_ARCH=arch,
                    MONITORING_TIMEOUT_SECONDS='1')
         result = subprocess.run(['sh', str(root / 'docker/start-stats-app.sh')],
                                 env=env, text=True, capture_output=True, timeout=15)
@@ -118,6 +123,25 @@ class StartupCredentialsTest(unittest.TestCase):
         self.assertIn('9090/targets shows stats-api as down', result.stderr)
         waited = [c[3] for c in calls if c[0] == 'inspect' and 'State.Health' in c[2]]
         self.assertLess(waited.index('stats-prometheus'), waited.index('stats-input'))
+
+    def test_loads_the_image_archive_matching_the_engine_architecture(self):
+        for arch in ['amd64', 'arm64']:
+            with self.subTest(arch=arch):
+                root, result, calls = self.exercise(arch=arch)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                loads = [c for c in calls if c[0] == 'load']
+                self.assertEqual(loads, [['load', '-i', str(root / f'stats-app-images-{arch}.tar')]])
+
+    def test_older_single_archive_bundle_still_loads(self):
+        root, result, calls = self.exercise(archives=('stats-app-images.tar',))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(['load', '-i', str(root / 'stats-app-images.tar')], calls)
+
+    def test_missing_architecture_stops_before_any_container_change(self):
+        _, result, calls = self.exercise(arch='amd64', archives=('stats-app-images-arm64.tar',))
+        self.assertEqual(result.returncode, 1)
+        self.assertIn('no images for this Docker engine', result.stderr)
+        self.assertFalse(any(c[0] in ['load', 'compose'] for c in calls))
 
 
 class MonitoringIsIndependentTest(unittest.TestCase):

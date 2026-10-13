@@ -1,6 +1,6 @@
 # Stats App Schema Catalogue and Fixture Standard
 
-**Status:** `ACTIVE` — schemas are strict and CI-gated. **Re-derived from production 29 August 2026 (ADR-007).**  
+**Status:** `ACTIVE` — schemas are strict and CI-gated. **Re-derived from production 29 August 2026 (ADR-007).** Envelope storage bounds added 13 Oct 2026 (DL-168); counts refreshed 13 Oct 2026 (DL-169).  
 **Purpose:** Provide machine-testable message contracts for Input validation, contract tests, Writer mapping, and API response references.
 
 ## 1. Required catalogue layout
@@ -13,7 +13,7 @@ docs/schemas/
 ├── sysstats-v1.schema.json
 ├── omsstats-v1.schema.json
 ├── netstats-v1.schema.json              # strict since Q4a; interface required-set cut to tx/rx by ADR-007
-├── validate-fixtures.py                 # CI gate: 103 assertions, exits non-zero on any mismatch
+├── validate-fixtures.py                 # CI gate: 124 assertions (13 Oct 2026), exits non-zero on any mismatch
 └── fixtures/
     ├── MANIFEST.md                      # what each fixture proves
     ├── valid/                           # must validate
@@ -25,7 +25,7 @@ docs/schemas/
 Run the gate from `docs/schemas/`:
 
 ```bash
-python3 validate-fixtures.py     # 103 assertions checked, 0 failed
+python3 validate-fixtures.py     # 124 assertions checked, 0 failed (13 Oct 2026; 103 Java parity cases)
 ```
 
 A schema document is an executable contract, not sample documentation.
@@ -36,9 +36,9 @@ A schema document is an executable contract, not sample documentation.
 
 | Field | Rule |
 |---|---|
-| `uid` | Required non-empty string. UUID format may be enforced only if Heimdal guarantees it for all records. |
-| `tenant` | Required non-empty string; canonical format/allowed character set pending tenant-policy approval. |
-| `maintenant` | Required non-empty string; deliberately test a value different from `tenant`. |
+| `uid` | Required string, **at most 128 characters, with at least one non-whitespace character** (`pattern: \S`, DL-168). No format is enforced — ZC guarantees uniqueness, not a shape; production values are `CLSCON-`-prefixed, 43 characters. Sent as the AMQP `messageId` only when it fits 255 UTF-8 bytes. |
+| `tenant` | Required string, at most 128 characters, with a non-whitespace character (DL-168); canonical format/allowed character set pending tenant-policy approval. |
+| `maintenant` | Required string, same bounds as `tenant` (DL-168); deliberately test a value different from `tenant`. |
 | `clsbox` | Required 12 hexadecimal characters. Canonical upper/lower case must be selected and normalized/validated consistently. |
 | `type` | Required literal enumeration; must match schema, routing key, queue, consumer, and PostgreSQL table. |
 | `ts.server` | Required integer Unix epoch seconds. **The canonical arrival clock** — what the SRS called `ts.processor` (ADR-007 §3). |
@@ -47,9 +47,11 @@ A schema document is an executable contract, not sample documentation.
 | `ts.converter` | Optional integer Unix epoch seconds. Preserved, never read, metered as `records_converter_ts_present{type}`. **Present on 100% of production records** (ADR-007 §2). |
 | `ts.expiresOn` | Optional ISO-8601 instant as a **string** *or* as `{"$date": "<string>"}` — both spellings have been seen (DL-146, Q15e); an integer is invalid. Preserved in whichever form arrived, never read — the legacy Mongo TTL key. |
 | `meta`, `ts.deviceOrig` | Optional. Sent when Heimdal has **rewritten `ts.device`** to equal `ts.server`: `meta.tsDeviceCorrected: true` and the gateway's own clock in `ts.deviceOrig` (DL-146, Q15f). Accepted by `additionalProperties`, preserved in `passthrough`, never read. |
-| `version` | Optional integer. Preserved, never read. **Not a payload discriminator** — all three `lorastats` dialects carry `version: 1`. |
+| `version` | Optional integer, **at most 32767** (`smallint`, DL-168). Preserved, never read. **Not a payload discriminator** — all three `lorastats` dialects carry `version: 1`. |
 | `status` | Optional array of strings, e.g. `["conversion ok"]`. Preserved, never interpreted. |
 | `data` | Required object, validated by the selected schema **at the Writer**, not at Input. |
+
+**Checks Input makes that no schema can express (DL-168).** U+0000 or an unpaired surrogate in any member name or string value is `unstorable_character`; a body that is not valid UTF-8, repeats a member name or has content after the record is `malformed_json` (the body is parsed as bytes, strictly); a `ts.server` more than `stats.input.validation.max-server-clock-ahead` ahead of Input's clock is `server_clock_ahead`. Each is a 400 and each has a fixture (`edge/envelope-unstorable-character.json`, `malformed/invalid-utf8.json`, `malformed/trailing-content.json`, `edge/envelope-server-clock-ahead.json`).
 
 The unexpected-field policy is **D14**: accept and preserve unknown `data` fields, reject invalid envelope fields. It is a deliberate decision, and it must never be settled silently by a Jackson annotation or deserialiser default.
 

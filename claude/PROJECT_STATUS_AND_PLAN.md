@@ -1,12 +1,16 @@
 # Stats App — Status and Implementation Plan
 
-**Implementation update — 8 October 2026 (DL-164):** T-034 and T-037 software slices
-are implemented for local development, including Writer, V8/V9 and secured reads.
-D-12 P3 still gates LTE merge/shared release; Q15g still requires upstream netstats
-confirmation. The dated fan-out ordering below is historical. Current acceptance
-and delivery evidence lives in `LTE_NETSTATS_IMPLEMENTATION_PLAN.md`.
+**Implementation update — 13 October 2026 (DL-169):** every build row in phases 1–5 is
+DONE except three. **T-028** waits for an independent review of the isolation and security
+suites. **T-068** and **T-070** wait on the approver's 29 Sep basic-auth decision reaching
+`main`: it was built on `feat/dl-163-input-basic-auth` (`1a4f28a`), never merged, and is
+now **T-071**. T-034/T-037 were built 8 Oct (DL-164); D-12 P3 was answered 12 Oct
+(DL-167: IMSI masked at the API). Since 13 Oct nothing is answered 2xx that PostgreSQL
+cannot store (DL-168). The dated tables below are historical; the current one is
+*What to pick up next — 13 October 2026*. LTE/netstats delivery evidence lives in
+`LTE_NETSTATS_IMPLEMENTATION_PLAN.md`.
 
-**Owner:** Naman (SSE) · **Date:** 18 August 2026, last updated 21 September 2026 · **Status:** working document
+**Owner:** Naman (SSE) · **Date:** 18 August 2026, last updated 13 October 2026 · **Status:** working document
 
 Consolidates `Stats_App_Answers_v1_0.docx`, the Aug 15 v1.2 amendment pack,
 `Stats_App_Internal_Decisions_v1.0.docx`, and the ARD (v1.1) into one picture:
@@ -223,10 +227,10 @@ decision are in `docs/decisions/2B-ANSWERS-18AUG2026.md`. **Do not reopen these.
 
 | Item | Why it matters | Blocks |
 |---|---|---|
-| **Q8a-2** — Heimdal inbound auth: mTLS or OAuth2, issuer, audience, identity, rotation | The Input port is unauthenticated until it closes | Nothing today. **Must close before any shared deployment** — and, since DL-151, before `/external/stats` is exposed anywhere: the external door shares Heimdal's authentication and binds nothing to the record's tenant (**T-068**, BLOCKED on this) |
+| **Q8a-2** — Heimdal inbound auth: mTLS or OAuth2, issuer, audience, identity, rotation | The Input port is unauthenticated until it closes | Nothing today. **Must close before any shared deployment** — and, since DL-151, before `/external/stats` is exposed anywhere: the external door shares Heimdal's authentication and binds nothing to the record's tenant (**T-068**). **29 Sep 2026:** the approver decided ahead of ZC — Heimdal's ForwardRule, Basic credentials from the URL, `maxRetry = 3` — and it was built on `feat/dl-163-input-basic-auth`, **never merged** (DL-169). ZC's confirmation and the merge (T-071) are both still owed |
 | **Q8a-3** — is the stats push a Heimdal *ForwardRule*, with what credential and what `maxRetry`? (DL-139) | Basic-in-URL is a mode `stats.input.auth.mode` cannot express; a bounded `maxRetry` means a sustained 503 burns a budget we cannot see. **Transport confirmed HTTP on 17 Sep 2026 (DL-145)** — a ForwardRule of type `HTTP` is now the likely mechanism; the handover table is `heimdal-input-contract-v1.md` §0 and Heimdal's door is `/internal/stats` | Nothing today. Ask with Q8a-2, in one row |
 | **Q8b-2** — confirmation of the proposed Keycloak values | Every value is a property with no default, so this is a config change | Hardening sign-off, not development |
-| **Q15e / Q15f / Q15g** — from the first look at live data, 18 Sep 2026 (DL-146): which `ts.expiresOn` spelling the forward sends; when Heimdal rewrites `ts.device`; where `netstats` records go | Both `expiresOn` forms and both correction members are accepted and preserved, so nothing waits on the first two. **Zero `netstats` records exist in the datastore** | Nothing today; Q15g blocks T-037 `netstats` |
+| **Q15e / Q15f / Q15g** — from the first look at live data, 18 Sep 2026 (DL-146): which `ts.expiresOn` spelling the forward sends; when Heimdal rewrites `ts.device`; whether `netstats` reaches Input on the HTTP forward | Both `expiresOn` forms and both correction members are accepted and preserved, so nothing waits on the first two. Q15g re-worded 13 Oct (DL-169): the 18 Sep query found zero `netstats` records, the 9 Oct export holds 1,000 (DL-165) — the records exist upstream, the forwarding path is unconfirmed | Nothing — T-037 is built (DL-164) |
 
 **Q13b, Q13c, Q4b and the four Q15 questions were removed from this table on 4 September 2026** — all answered. **Q14a and Q5a were removed on 29 August 2026** — both decided, not answered. See §2c and §2d. The three auth items (Q8a-2, Q8a-3, Q8b-2) and the three 18 September live-data questions are what remain owed by ZC / Hasan; none has been sent yet — the sending is rows 3 and 4 of `Next Up`.
 
@@ -316,7 +320,29 @@ is a harmless no-op; retention boundary test passes on both sides.
 > window, outage drill — T-033 is Phase 3's entry criterion) and **T-060** (DLQ depth
 > and age alerting, now **unblocked** and sizeable against real dead-letter volume).
 
-### What to pick up next — 21 September 2026
+### What to pick up next — 13 October 2026
+
+What happened since 21 Sep, in order: **21–22 Sep** T-036 `omsstats`, T-062
+`WireNumbers`, and the Phase 5 drills T-051, T-054, T-055, T-056, T-048, T-049 — every one
+measured, not assumed (DL-153…DL-161); **26 Sep** Phase 4 built ahead of D-09 (DL-162);
+**29 Sep / 7 Oct** the approver's basic-auth decision built on a branch that **never
+merged** (DL-169); **6 Oct** the JSON acknowledgement and the share bundle (DL-163);
+**8–9 Oct** `ltestats` and `netstats` built and checked against 1,000 live records each
+(DL-164, DL-165); monitoring starts with the app stack (DL-166); **12 Oct** D-12 P3
+answered — IMSI masked at the API — and P1 enforced at `TRACE` in all three modules
+(DL-167); **13 Oct** a whole-codebase probe found nine defects behind a green build, all
+fixed (DL-168).
+
+| | Naman | Mukesh |
+|---|---|---|
+| **Now** | **Decide the basic-auth branch (T-071)** — merge `feat/dl-163-input-basic-auth` with its DL entry renumbered past DL-169, or retire it and reopen Q8a-2. Three `Next Up` rows (the ZC message, T-068, T-070) are written as if it had merged | **Independent review of the isolation and security suites (T-028, T-045)** — re-run DL-162's four mutations, and add the DL-167 `ImsiMask` read path to the review |
+| **Then** | Send ZC the ForwardRule confirmation with D-09 (the contract now carries the DL-151 paths, the masked `imsi` and the DL-168 bounds); send Q15e–Q15g to Hasan with Q15g re-worded | Read the first 24 h of `records_ts_server_cycle_offset_seconds` and set the `StatsAppUpstreamStatusNotOk` threshold |
+| **When T-071 lands** | T-068 (per-door credential with its tenant bound in configuration), then T-070 (one live Heimdal request in non-prod) | — |
+| **Housekeeping** | Dispose of the ≈10 `PROBE-` rows and DLQ copies DL-168 left on the dev stack (approved disposition, not a script) | — |
+
+> **Do not expose `/external/stats` anywhere shared before T-068** — unchanged.
+
+### What to pick up next — 21 September 2026 *(superseded 13 Oct)*
 
 Everything in the 12 September table is done or merged. What happened since, in order:
 **17 Sep** six branches merged (the three drills, T-047, T-053, T-060 — DL-140…DL-144) and
@@ -409,8 +435,11 @@ for `rsrp`/`rsrq` are nullable, and the `etxt`-only record from a never-register
 is a stored row, not a dead-letter. `netstats` last —
 its schema was finalised by Q4a on 18 Aug 2026, so nothing gates it but the reference
 slice, and it is the `jsonb` hybrid the typed-column slice templates least well — and
-**no `netstats` record exists in the datastore today** (Q15g), so confirm the source
-before wiring a consumer to an empty queue.
+~~**no `netstats` record exists in the datastore today** (Q15g)~~ — the 9 Oct export holds
+1,000 (DL-165); whether they reach Input is the re-worded Q15g.
+
+**Status 13 Oct 2026: DONE.** All five types are built — `omsstats` 21 Sep (DL-153),
+`ltestats` and `netstats` 8 Oct (DL-164) — and D-12 P3 was answered 12 Oct (DL-167).
 Every new type's table carries `data_extra jsonb` (DL-095) **and** the `clsbox` CHECK
 (DL-115). If any of these requires
 editing Phase 2 code, the abstraction is wrong — that comes back to you.
@@ -420,7 +449,10 @@ type does not stall another.
 
 ### Phase 4 — Stats API (you + 1 junior)
 
-Only after the OpenAPI is confirmed. Keycloak resource server, tenant claim mapping,
+**Status 13 Oct 2026: BUILT** (DL-162, 26 Sep) — ahead of D-09 by the approver's decision;
+LTE/netstats readers added 8 Oct (DL-164), `imsi` masked 12 Oct (DL-167), a 10 s read
+statement timeout 13 Oct (DL-168). Exit is held only by the independent review (T-028).
+The original plan text follows: only after the OpenAPI is confirmed. Keycloak resource server, tenant claim mapping,
 GET-only routes, tenant predicate in every query, keyset pagination with a unique
 tie-breaker, error mapping.
 
@@ -440,6 +472,11 @@ Load test at 1,333/s sustained plus the burst profile; DB and broker outage dril
 rehearsal~~ **done 11 Sep 2026 (T-052, DL-138 — `docs/runbooks/dlq-redrive.md`)**;
 backup/restore; dashboards; ~~alerts~~ **done 17–19 Sep 2026 (T-060, T-050)**; runbook.
 The end-to-end demo exists since 20 Sep 2026 (`docker/demo.sh`, T-069).
+**Status 13 Oct 2026: every Phase 5 build row is DONE** — T-051, T-054, T-055, T-056,
+T-048 (21 Sep), T-049 (22 Sep), the first observability render (DL-160), monitoring with
+the app stack (DL-166, DL-167) — except **T-070**, the live Heimdal request, which waits on
+T-071. Still owed as *readings*, not builds: the first 24 h of the Q13b histogram and the
+upstream-status threshold.
 
 ---
 

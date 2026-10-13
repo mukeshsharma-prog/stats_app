@@ -5975,3 +5975,169 @@ refused, and keep the classifier's default as retry.
   `clock_skew_exceeded`; the problem `type` stays `invalid_parameter`.
 * Data already on the dev stack from the probe (≈10 `PROBE-` rows, DLQ copies) is left for
   the owner to dispose of.
+
+### DL-169 — The documents and the tracker are reconciled to DL-153…DL-168, and the tracker is corrected to `main`: the 29 September basic-auth work never merged
+
+**13 October 2026** · `ENGINEERING` · DL-002, DL-152 (the previous reconciliation), DL-153…DL-168 · **approver:** Naman Vashishtha (requested "update all the docs and xlsx file of stats app to latest")
+
+**Trigger.** The last reconciliation was DL-152 on 21 September. Since then sixteen entries
+landed — omsstats, `WireNumbers`, the six Phase 5 drills, Phase 4, the JSON
+acknowledgement, both remaining types, D-12 P3 and DL-168's nine defects — and each
+updated the documents it touched and few others. `README.md` still said the fixture gate
+had 115 assertions, Phase 4's entry criterion was still "signed off by ZC", `FLOW.md`'s
+status table was dated 21 September, `SCHEMA_CATALOGUE.md` said 103 assertions,
+`DEVELOPMENT.md`'s `stats-api` properties block named two keys DL-162 had replaced,
+`CLAUDE.md` §7 still called Q15g "zero records" (DL-167's own residual), and the tracker had
+not been saved since 29 September.
+
+**What the reconciliation found, and it is the reason this entry exists.** The tracker's
+29 September edits describe work that is **not on `main`**: *DL-163 — Heimdal is a
+ForwardRule* (Q8a-2 "answered by decision", `stats.input.auth.mode=basic` **built**,
+`maxRetry = 3` read into rule 8, `ops/prometheus/input-alerts.yml`, a Q15f worst-case
+metric, `FLOW.md` window 16), a second *DL-163* opening the API scrape, Done row DN-079,
+traps 41–42, T-068 **unblocked** and a new **T-070**. That work is commit `1a4f28a`
+(dated 7 Oct) on `feat/dl-163-input-basic-auth`. The branch was never merged and was
+deleted; the commit survived only as a reflog entry, which git expires after 30 days.
+`main` then reused DL-163 on 6 October for the JSON acknowledgement (Mukesh's
+`0c8932d`), and DL-166/DL-167 re-did the API-scrape half differently. So on `main`:
+`stats.input.auth.mode` is `none | mtls | oauth2`; Q8a-2 is open; no DL entry records the
+approver's 29 September decision; `/actuator/prometheus` on the API is opened by
+`stats.security.prometheus-public-access` (DL-166), not by the branch's `permitAll`. The
+share bundle built on 30 September (`build/share/`, outside version control) *does* carry
+the branch's `input-alerts.yml` and `STATS_INPUT_AUTH_MODE=basic` — so that bundle is not
+reproducible from `main`.
+
+**Decision.**
+
+1. **The tracker describes `main`.** Nothing that records the approver's decision is
+   deleted — it is a real decision — but every row that claims the work is built says
+   where it actually is: the two branch DL-163 rows and DN-079 are marked *not on `main`*;
+   traps 41–42 are marked *off-`main`*; T-017's note says so; **T-068 returns to BLOCKED**,
+   now on the branch rather than on Q8a-2 (the mechanism is decided; the code is not
+   merged); T-070 is blocked on both; Q8a-2's status reads *decided 29 Sep, built
+   off-`main`*. New task **T-071**: merge the branch with its DL entry renumbered past this
+   one (resolving its overlap with DL-166/DL-167's scrape work and with DL-168's
+   `EnvelopeGate`/`IngestMetrics` changes), or retire it and reopen Q8a-2. It leads
+   `Next Up`, because three other rows were written as if it had merged.
+2. **The commit is protected, not merged.** A local branch
+   `feat/dl-163-input-basic-auth` now points at `1a4f28a` again, so it cannot be garbage
+   collected. Nothing was merged, rebased or pushed: merging ~2,200 lines of code that
+   conflict with three later entries is a code change with its own quiz and review, not
+   a side effect of a documentation pass.
+3. **Tracker, otherwise.** Decisions rows for `main`'s DL-163 and DL-164…DL-169; T-034
+   and T-037 DONE; notes on T-013, T-017, T-024, T-028, T-034, T-037, T-050, T-052, T-056,
+   T-062, T-066, T-068, T-070; Done rows DN-080…DN-089; Open Questions: D-12 P3 answered (Q2/Q3 of its five),
+   Q15g re-worded, Q8a-2 as above; Traps: coverage of 1, 4, 12, 13 and 34 re-assessed
+   against the tests DL-162 wrote, 41–42 marked *not covered on `main`*, seven new traps
+   (43–49) from DL-167/DL-168; Notes rows for 6 → 13 Oct; `Next Up` re-ranked; every
+   table's `ref` re-extended to its last row (five had drifted again — T-070, DN-076…079,
+   DL-160…163, traps 40–42 and six Notes rows sat outside their tables, invisible to a
+   filter); stray freeze panes on Tasks (A52) and Done (A35) reset to A2; status, priority
+   and coverage fills re-derived from their values; Read Me re-dated.
+4. **Documents.** `README.md` status, current-state box, tree and open items (D5a was
+   still listed as unsigned; D-09 as the item that gates work). `FLOW.md`: status table
+   re-dated with the DL-163…DL-168 rows, §2 ingest steps and failure table (and the
+   `ts.converter` row that still said 400 a month after ADR-007), §3.4 redrive, §4.3
+   failure paths, §5.1 timeout and masking, **§8 window 16**. `CLAUDE.md` 1.32.
+   `PROJECT_STATUS_AND_PLAN.md`, `CODE_START_CHECKLIST.md` (Phase 3/4/5 state),
+   `IMPLEMENTATION_RULES.md` 1.5, `SKILLS.md` 1.6, `DEVELOPMENT.md` (config blocks and
+   troubleshooting), `SCHEMA_CATALOGUE.md`, `amqp-topology-v1.md`, `ops/prometheus/README.md`,
+   `LTE_NETSTATS_IMPLEMENTATION_PLAN.md`, the project-history handover page, and a note
+   each in ADR-003 (D9 and the third cutoff reader), ADR-005 (the unconfirmed hand-off) and
+   ADR-007 (§5 and storage refusals).
+5. **Window 16.** DL-168's "a record answered 2xx that PostgreSQL can never store" is a
+   way a record is lost — Heimdal saw success and will not resend, and the only copy sits
+   in a DLQ no redrive can drain — so `FLOW.md` §8, which calls itself the complete list,
+   gains it. It is loud (the DLQ alerts), so the silent count stays at twelve:
+   **sixteen windows, twelve silent**.
+6. **Q15g is re-worded, not closed.** "Zero netstats records in the datastore" was the
+   18 September aggregate query; the 9 October export holds 1,000 (DL-165). DL-165 itself
+   says an export proves payload shape, not the forwarding path, so the question becomes
+   *does netstats reach Input on Heimdal's HTTP forward?* — still Hasan's to answer.
+
+**Rejected.** *Deleting the tracker rows for the unmerged work* — they record a decision
+the approver took and a branch that still exists; deleting them would lose the only
+record outside git. *Merging the branch here* — see decision 2. *Renumbering `main`'s
+DL-163* — it has been on `main` and in the handover page since 6 October; the unmerged
+entry is the one that moves. *Rebuilding `Stats_App_Developer_Guide.pdf` in full* — a
+66-page function-by-function walkthrough of the code as of 18 September, outside the
+repository; regenerating it for Phase 4, two types and DL-168 is its own task. This change
+adds a dated currency notice to its source and reprints it, so nobody reads it as current.
+*Amending SRS/BRD/ARB* — the v1.2 amendment set is the normative baseline and has never
+been edited by a reconciliation; the ADR notes carry the change.
+
+**Consequence.** Every document that names a count now names the same one: 16 loss
+windows (12 silent), 100 fixture files, 124 assertions, 103 Java parity cases, 1,213 tests,
+71 tasks, 49 traps, migrations V1–V9. Until T-071 closes, a reader should take every
+"basic" in the tracker to mean *decided on 29 Sep, built off-`main`*.
+
+**Quiz (DL-005).** Not asked: this change alters no code, contract or runtime behaviour —
+documents and the tracker only — which `IMPLEMENTATION_RULES.md` §9 step 4 exempts as a
+reversible documentation edit. T-071 will need one.
+
+### DL-170 — The share bundle runs on amd64 and arm64, one single-platform image archive per architecture
+
+**13 Oct 2026** · `OPERATIONS` · NFR-06, DL-164, DL-166, DL-167, DL-168
+
+**Trigger.** A bundle of `1243102` (DL-168) to hand to Hasan, who must be able to
+reproduce everything without the source. `docker/package-bundle.sh` built with
+`docker compose build`, so the images were the build machine's architecture only: a bundle
+built on an Apple Silicon Mac would not start on an Intel/AMD machine.
+
+**Decision.**
+* `package-bundle.sh` builds the three application images with `docker buildx build
+  --platform "$PLATFORMS"` (default `linux/amd64,linux/arm64`), pulls every infrastructure
+  and test-runner image for each platform, and writes **one single-platform archive per
+  architecture** — `stats-app-images-amd64.tar`, `stats-app-images-arm64.tar` — with
+  `docker save --platform`.
+* `start-stats-app.sh` loads the archive matching `docker version --format
+  '{{.Server.Arch}}'`; an older bundle's unsuffixed `stats-app-images.tar` still loads; a
+  bundle with no archive for this engine stops **before** any container changes.
+* The Dockerfile's build stage is `FROM --platform=$BUILDPLATFORM`: the jar is
+  platform-independent, so Gradle runs once, natively, and only the runtime stage is built
+  per target. A plain `docker compose build` is unaffected (`BUILDPLATFORM` is the host).
+* `BUILDX_FLAGS` passes extra flags to the image builds, for build-network workarounds.
+* The placeholder guard used `rg`, which is not installed for `sh`; the `if` read the
+  "command not found" as "no match" and the guard never ran. It is `grep -F` now.
+  `__pycache__` directories are no longer copied into the bundle.
+* `docker/BUNDLE.md` says which architectures are supported, which ports must be free,
+  how to check the `.sha256`, and no longer says D-12 gates release (DL-167 answered it).
+
+**Found on the way — the build network, not the repository.** One of the four addresses of
+`release-assets.githubusercontent.com` (where `services.gradle.org` redirects the Gradle
+download) was unreachable from the build machine, from the host as well as from containers.
+curl fails over to the next address; the Gradle wrapper's `HttpURLConnection` tries only the
+first one DNS returns, so every image build failed with `Connect timed out` after 10 s while
+every manual curl check passed. Built with `BUILDX_FLAGS='--add-host
+release-assets.githubusercontent.com:185.199.110.133'`. A second consequence: the
+Dockerfile's dependency-warming layer ends in `|| true`, so a failed download there is
+**cached as success** and every later build downloads Gradle again in the `bootJar` step.
+
+**Rejected.** *One multi-platform archive* — whether `docker load` of a multi-platform
+archive works depends on the receiver's image store (containerd vs. classic); a
+single-platform archive loads on both. *Two separate downloads* — the recipient would have
+to know which one to take; the size saved is the other architecture's ~1 GB. *Raising the
+wrapper's `networkTimeout`* — a connect to an unreachable address never completes, however
+long the wait.
+
+**Verification.** `docker/tests/test-start-stats-app.py`: **10 tests OK** (was 7; new:
+archive matches engine arch, old single archive still loads, a missing arch changes
+nothing). Bundle `dist/stats-app-docker-bundle-1243102.tar.gz`, 1.9 GB; `.sha256` checks.
+Each image archive holds the same 10 images for its own architecture. **End to end from a
+fresh extract** (dev stack stopped for the run, then restored): `./docker/start-stats-app.sh`
+exit **0**, all eight containers healthy, all four Prometheus targets UP;
+`./docker/run-postman.sh` **40 requests, 100 assertions, 0 failed**, all five types
+included, `raw IMSI is never returned` among them; Grafana from the README's command reports
+healthy. **Then the same stack on the amd64 archive** under emulation
+(`DOCKER_DEFAULT_PLATFORM=linux/amd64`, every container confirmed `amd64`): healthy, 4/4
+targets UP, **100 assertions, 0 failed**. The application code is `1243102` unchanged; the
+bundle's scripts and README are this entry's working-tree changes.
+
+**Quiz (DL-005).** Not asked: packaging and start-up only — no record path, contract or
+isolation rule changes. **Waived, not passed.**
+
+**Residuals.**
+* The archive name carries `1243102`, but the bundle's scripts and README come from this
+  entry's changes on top of it. Rebuild after committing if the name must match exactly.
+* The dependency-warming layer's `|| true` can cache a failed download (above). Not fixed
+  here: it changes the image build for every caller and the `bootJar` step still fails loudly.

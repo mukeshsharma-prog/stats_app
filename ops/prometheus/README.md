@@ -95,6 +95,20 @@ If a DLQ redrive is in progress when this fires, it is the ~90-day trap
 (`docs/runbooks/dlq-redrive.md`): the redriven records are too old to store and are not
 being recovered. Stop the redrive.
 
+## Failure hand-off unconfirmed — DL-168
+
+`StatsAppFailureHandoffUnconfirmed` (critical, `for: 0m`) fires on
+`sum by (type) (increase(records_handoff_unconfirmed_total[5m])) > 0`: the broker did not
+confirm the retry or DLQ copy of a failed record, so the Writer nacked the original back to
+its main queue after `stats.amqp.unconfirmed-handoff-requeue-delay` (`PT5S`) instead of
+acknowledging it. Nothing is lost, but nothing that needs the failure arm progresses, and
+the pause slows the whole type. The usual causes are a missing `retry.1-3`/`.dlq` queue or
+binding and a broker memory/disk alarm; restarting the Writer redeclares missing queues.
+The counter is registered at zero for every type at startup. Summed, not `max`: each replica
+counts its own requeues. Before DL-168 this fault had no symptom at all on a confirm
+*timeout* — the delivery sat unacknowledged on the channel, one prefetch slot gone per
+record, until the consumer received nothing.
+
 ## Upstream status — a PROVISIONAL threshold
 
 `StatsAppUpstreamStatusNotOk` (warning) fires when, for a sustained hour, more than **1 %**

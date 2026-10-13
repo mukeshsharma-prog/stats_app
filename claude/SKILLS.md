@@ -4,6 +4,13 @@ Reusable, repeatable procedures for the Stats App. Each skill is a checklist
 for a task that will be done more than once — the point is that the *second*
 time it is done, it is done the same way as the first.
 
+> **Version 1.6 — 13 October 2026 (DL-169).** Skill 4 gains the triage question DL-168
+> taught — *is a failure hand-off going unconfirmed?* — and its redrive step says the
+> command now skips what it will not move instead of aborting. Skill 8's payload item
+> says what DL-167 enforces: an `ltestats`/`netstats` payload reaches no log at any level.
+> Skill 8's error contract names both cross-tenant answers (404 by `uid`, empty 200 on a
+> list).
+>
 > **Version 1.5 — 21 September 2026.** Skill 1 step 6 names the **three** operations a
 > type has since DL-151 (list, device-scoped, `uid`) and the demo step to extend; Skill 4
 > gains the triage question the first end-to-end run taught — *is the Writer logging at
@@ -313,6 +320,14 @@ being written.
    running (advisory lock held by a dead replica? `retention_oldest_partition_age_days`
    climbing?), not that a record was "too old" — that record would have been skipped by
    `RetentionGuard`, not dead-lettered.
+10. **Is a failure hand-off going unconfirmed?** `records_handoff_unconfirmed{type}`
+    moving (alert `StatsAppFailureHandoffUnconfirmed`) means the retry or DLQ publish for
+    that type is not being confirmed — a deleted DLQ, a broker resource alarm. Since
+    DL-168 each such delivery is nacked with requeue after a 5 s pause, so the type's
+    consumer slows by 5 s per failing record and good records slow with it. Fix the
+    failure arm (redeclare the queue, clear the alarm); the requeued records drain on
+    their own. Before DL-168 the same fault left the delivery unacknowledged and
+    silently ate one prefetch slot per record until the consumer stopped.
 
 ### After resolution
 - [ ] Redrive DLQ messages once the root cause is fixed — an authorised operations
@@ -321,7 +336,10 @@ being written.
       **The command exists since T-052 (DL-138):** `./gradlew :stats-writer:redriveDlq`
       with `--type`, `--max-messages`, `--rate-per-second`, `--retention-days`,
       `--change-id` and `--root-cause-resolved=true`, under dedicated per-type broker
-      credentials. It refuses a record past the window, confirms the copy before ACKing
+      credentials. It **skips** a record past the window (or of the wrong type, without
+      `ts.device`, or not JSON) — reported as `record_skipped` and returned to the DLQ in
+      place at the end of the run, so one old record at the head no longer blocks the type
+      (DL-168) — confirms the copy before ACKing
       the original, and marks the copy `x-stats-manual-redrive=true` so a repeat failure
       goes straight back to the DLQ. **Follow `docs/runbooks/dlq-redrive.md`** — one-record
       pilot first, evidence file, stop conditions — rather than running it from memory.
@@ -466,7 +484,11 @@ leave a trace someone can act on.
       producing all the 400s" and "Heimdal changed its envelope" stay different
       incidents? *(DL-151 — Input only)*
 - [ ] Is the **full payload** kept out of `INFO` and above? These records carry
-      device identifiers — IMSI, MAC, gateway IDs. *(D2)*
+      device identifiers — IMSI, MAC, gateway IDs. *(D2)* **For `ltestats` and `netstats`,
+      out of every level, `DEBUG` and `TRACE` included** (P1, enforced by
+      `LteNetstatsPayloadsAreNeverLoggedIntegrationTest` in all three modules, DL-167) —
+      and remember a *framework* logger can print it for you: `StatementCreatorUtils` and
+      MVC's body writers are pinned at `INFO` for that reason
 - [ ] Is the level right? `WARN` for handled-but-abnormal (retry, dead-letter,
       validation failure); `ERROR` only for conditions needing a human. *(D1)*
 - [ ] Is there a metric as well as a log? Logs explain *why*; metrics show
@@ -490,8 +512,9 @@ instrumented.
 - Unrecognised stat type gets its own code (`unknown_stat_type`), not a
   generic field error — it signals a routing problem, not a malformed record
 - Same shape reused by Module 1 and Module 3, so they do not diverge
-- Cross-tenant reads return **empty**, never 403 — a 403 confirms the record
-  exists
+- Cross-tenant reads never return 403 — a 403 confirms the record exists. A
+  foreign `uid` is **404**, byte-identical to a missing one; a foreign `clsbox` on the
+  device paths is an **empty 200** (ADR-006 Amendment 21 Sep 2026)
 
 ---
 

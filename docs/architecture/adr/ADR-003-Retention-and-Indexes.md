@@ -341,6 +341,13 @@ Before this decision both oracles treated every `edge/` fixture as expected-vali
 meant the open question already had "accept" baked into ten green assertions — see trap
 16 in the tracker.
 
+**Note — 13 October 2026 (DL-168).** D9 compares the record's two clocks with each other,
+so a record with **both** in the future passed it and then found no partition beyond the
+pre-create horizon (SQLSTATE `23514`, permanent). Input now also compares `ts.server` with
+its own clock: more than `stats.input.validation.max-server-clock-ahead` (`PT1H`, no
+default in code) ahead is **400 `server_clock_ahead`**, metered with the skew rejections.
+Keep it well inside `stats.retention.pre-create-days`.
+
 ## Consequence: `uid` uniqueness cannot be global
 
 **This changed STA-21B and STA-25A. Both are amended (24 Aug 2026) — see the
@@ -447,8 +454,10 @@ remove almost immediately anyway. It must be metered and logged, never silent.
 than throwing**, because this path has to end in a broker ACK and an exception would instead
 route a valid record into the retry arm and then a DLQ that never expires. It shares
 `RetentionWindow` with the sweep, so the boundary it enforces and the boundary the sweep
-drops on are the same instant by construction. **The alert is not built** — that half is
-T-050.
+drops on are the same instant by construction. ~~**The alert is not built** — that half is
+T-050.~~ **The alert is built** (`StatsAppLateArrival`, T-050, DL-147). **Since DL-168 the
+DLQ redrive reads the same definition** (`RetentionWindow.cutoffFor`) instead of its own
+`now − days`, so three readers share one cutoff.
 
 **Engineering agreed Option B on 29 August 2026 (Naman Vashishtha), with one
 addition: alert when `records_expired_on_arrival` is non-zero.** A systemic gateway

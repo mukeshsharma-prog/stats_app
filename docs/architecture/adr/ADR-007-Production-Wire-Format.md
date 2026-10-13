@@ -6,7 +6,7 @@
 **Requirements:** STA-01A, STA-02, STA-03A, STA-14A, STA-21A, STA-23B
 **Supersedes:** the envelope field names in SRS v1.0 and every document derived from them
 **Amends:** ADR-004 (§2 below), ADR-003 (column names)
-**Amended by:** the *Amendment — 4 September 2026* section below, which answers Q15a–Q15d and **reverses §4**; and the *Amendment — 18 September 2026* section, which extends §6 to `ltestats` and widens the envelope on live data (DL-146). §1 carries a one-paragraph application to URL path parameters (21 Sep 2026, DL-151)
+**Amended by:** the *Amendment — 4 September 2026* section below, which answers Q15a–Q15d and **reverses §4**; and the *Amendment — 18 September 2026* section, which extends §6 to `ltestats` and widens the envelope on live data (DL-146). §1 carries a one-paragraph application to URL path parameters (21 Sep 2026, DL-151). §5 carries a note on what Input refuses because PostgreSQL could never store it (13 Oct 2026, DL-168)
 
 > **Numbering warning (G5).** `Datahub_Core_StatsApp_ARD_v1_1.pdf` carries its own
 > ADR-007. Cite the ARD's as **`ARD-ADR-07`**. An unqualified "ADR-007" always means
@@ -357,6 +357,21 @@ the records ops most needs, in a queue that never expires.
   "Heimdal added a field", not as a defect.
 * **One device's `ltestats` cadence is every ~29 minutes, not 10.** One data point,
   not a capacity decision; T-050's first-24-hours histogram is where it becomes one.
+
+## Note — 13 October 2026 (DL-168): §5 and records PostgreSQL cannot store
+
+§5's two gates are unchanged: a **payload-schema** failure is still accepted and
+dead-lettered, because there the mistake may be ours and a redrive can fix it. What DL-168
+adds sits wholly inside the **envelope** gate. Input now answers **400** to a record the
+Writer could never store whatever we fixed: `uid`/`tenant`/`maintenant` over 128 characters
+or without a non-whitespace character, `version` over 32767, U+0000 or an unpaired surrogate
+anywhere (`unstorable_character`), invalid UTF-8, a duplicated member or trailing content
+(`malformed_json` — the body is parsed as bytes, strictly), and a `ts.server` more than
+`PT1H` ahead of Input's clock (`server_clock_ahead`). None of these is a schema we got
+wrong; each is a PostgreSQL limit, so refusing where the sender still listens is the only
+answer that does not end in a DLQ no redrive can drain. The approver chose 400 over
+stripping U+0000 at the Writer, which would store something other than what Heimdal sent
+(§2, ADR-004).
 
 ## Verification
 

@@ -148,7 +148,9 @@ Include validation, **no transformation** of the received record, publisher conf
 
 **Entry criteria:** Phase 2's reference slice exists and is green.
 
-`sysstats`, `omsstats`, `ltestats`, then `netstats` — each an **additive** copy of the Phase 2 pattern. *(`ltestats` schema reshaped on live data 18 Sep 2026, DL-146 — two closed shapes, `rsrp`/`rsrq` nullable; `netstats` has no records in the datastore, Q15g.)* **Order corrected 5 Sep 2026 (DL-125):** `ltestats` is blocked on D-12 P3 (whether `imsi` is stored masked or raw and whether it may be a predicate) and `sysstats` is not, so the first copy is rehearsed on the type nothing gates; `netstats` stays last as the `jsonb` hybrid. If any of them requires editing Phase 2 code, the abstraction is wrong and that is a design smell to raise, not to work around (STA-14A, STA-22).
+**State on 13 Oct 2026: DONE.** `sysstats` (19 Sep, DL-148), `omsstats` (21 Sep, DL-153), `ltestats` and `netstats` (8 Oct, DL-164); D-12 P3 answered 12 Oct (DL-167). Exit criterion: poison isolation is proved by `PoisonMessageIsolationIntegrationTest` and the three `<Type>PersistenceConsumerIntegrationTest`s for lorastats, sysstats and omsstats; `ltestats`/`netstats` are covered by `LteNetstatsPersistenceIntegrationTest` and `ops/drills/lte-netstats-smoke.py`, **not** yet by a cross-type poison test of their own.
+
+`sysstats`, `omsstats`, `ltestats`, then `netstats` — each an **additive** copy of the Phase 2 pattern. *(`ltestats` schema reshaped on live data 18 Sep 2026, DL-146 — two closed shapes, `rsrp`/`rsrq` nullable; `netstats` had no records in the 18 Sep datastore query (Q15g), and 1,000 in the 9 Oct export — DL-165.)* **Order corrected 5 Sep 2026 (DL-125):** `ltestats` is blocked on D-12 P3 (whether `imsi` is stored masked or raw and whether it may be a predicate) and `sysstats` is not, so the first copy is rehearsed on the type nothing gates; `netstats` stays last as the `jsonb` hybrid. If any of them requires editing Phase 2 code, the abstraction is wrong and that is a design smell to raise, not to work around (STA-14A, STA-22).
 
 **Exit criteria:** all approved types ingesting; the poison-message isolation test proves one bad type does not stall another.
 
@@ -158,13 +160,15 @@ Include validation, **no transformation** of the received record, publisher conf
 
 Implement Keycloak resource-server integration, token claim mapping, strict tenant-scoped repository queries, GET-only endpoints, deterministic pagination, response/error mapping, and contract tests. There is no tenant query parameter in the ordinary API unless a separately approved privileged access model exists.
 
+*State on 13 Oct 2026: BUILT* (DL-162, 26 Sep) — ahead of ZC's sign-off by the approver's decision, so the sign-off criterion above is now a rework risk, not a gate. LTE/netstats readers since DL-164; `imsi` masked since DL-167; 10 s read statement timeout since DL-168. **Exit is held by the independent review of the isolation and security suites (T-028).**
+
 *Since 21 Sep 2026 (DL-151) the contract has three operations, told apart by segment count: the tenant-wide list, the device-scoped `/{type}/{clsbox}/{from}[/{to}]` (T-067) and `/{type}/{uid}`. On the device paths a foreign or unknown `clsbox` is an **empty 200**, never 404 — a list, not a lookup (ADR-006 Amendment 21 Sep 2026). Problem `type` URIs use one spelling, underscores, as `ErrorCode.typeUri()` emits (DL-145).*
 
 ### Phase 5 — Operational readiness and release
 
 **Entry criteria:** D-11 and D-12 are approved; the operations runbook and dashboards exist.
 
-*State on 21 Sep 2026:* the DLQ redrive runbook (T-052), graceful shutdown (T-053), DLQ and main-queue alerting (T-060, T-050) and an end-to-end demo against the Compose stack (T-069, `docker/demo.sh`) exist; dashboards (T-056), the timed restore drill (T-051), the lock and detach measurements (T-054, T-055) and the load test (T-048) do not.
+*State on 13 Oct 2026:* every Phase 5 build row exists — the DLQ redrive runbook (T-052, skip-and-continue since DL-168), graceful shutdown (T-053), DLQ and main-queue alerting (T-060, T-050), the end-to-end demo (T-069), the timed restore drill (T-051), the lock and detach measurements (T-054, T-055), dashboards (T-056), the burst load test (T-048) and the replay drill (T-049) — except **T-070**, one live Heimdal request, which waits on the unmerged basic-auth branch (T-071, DL-169). D-12's remaining questions (classification, network identifiers, log retention, audit) are still with security and compliance. ~~*State on 21 Sep 2026:* dashboards, the timed restore drill, the lock and detach measurements and the load test do not exist.*~~
 
 Perform capacity/load testing, broker/DB failure tests, graceful-shutdown and redelivery tests, security tests, backup/restore verification, alert validation, DLQ redrive exercise, and consumer acceptance testing. Production release is blocked until observability and ownership are proven.
 

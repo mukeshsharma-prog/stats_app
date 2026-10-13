@@ -4,15 +4,25 @@ A **Datahub Core** add-on at Zenner. It receives statistics pushed from the
 **Heimdal Core**, buffers them through RabbitMQ, persists them per statistics type
 in **PostgreSQL**, and exposes them through a read-only, tenant-scoped REST API.
 
-**Status (8 October 2026):** all five V1 stat types now have dedicated Writer
-consumers, PostgreSQL persistence and tenant-scoped API readers. LTE supports measured,
-2G and unknown-technology records; netstats preserves dynamic interfaces and checks
-all known counters before conversion. The fixture gate covers 91 files and 115 assertions.
-The v5 offline bundle and Postman collection include all five types. Verification evidence
-is in [the LTE/netstats delivery record](claude/LTE_NETSTATS_IMPLEMENTATION_PLAN.md).
-LTE merge/shared release remains gated by **D-12 P3**; netstats production-feed confirmation
-remains **Q15g**. Local tests follow the current string-identifier contract. Earlier
-verification figures below describe their dated milestones.
+**Status (13 October 2026):** all five V1 stat types are built end to end — dedicated
+Writer consumers, PostgreSQL tables V1–V9 and tenant-scoped API readers (DL-164). LTE
+supports measured, 2G and unknown-technology records; netstats preserves dynamic
+interfaces and checks every known counter before conversion. **D-12 P3 is answered**
+(DL-167): the IMSI is stored raw and **masked on every API route**, `lac`/`cid` are
+returned as reported, and no LTE/netstats payload reaches a log at any level — proved at
+`TRACE` in all three modules. **Since 13 October nothing is answered 2xx that PostgreSQL
+cannot store** (DL-168): oversized or blank identifiers, U+0000, invalid UTF-8, duplicate
+members and a `ts.server` more than an hour ahead are a 400 at Input; an unconfirmed
+retry/DLQ hand-off is requeued after a pause instead of stranding the delivery; the DLQ
+redrive skips what it will not move and carries on; every API read has a 10 s statement
+timeout. Full build **1,213 tests, 0 failures**; the fixture gate covers **100 files and
+124 assertions** (103 Java parity cases). Still owed: an **independent review** of the
+isolation and security suites (T-028), ZC's confirmation of the contract (D-09), the
+first-24-h histogram reading, and the actual netstats feed (Q15g). **The Input door is
+still unauthenticated on `main`** — the approver's 29 Sep decision to accept Heimdal's
+ForwardRule Basic credential was built on branch `feat/dl-163-input-basic-auth` and
+**never merged** (see `claude/DECISIONS.md` DL-169). Earlier figures below describe
+their dated milestones.
 
 Since **8 September 2026 `lorastats` is complete end to end**, in all three of the
 payload dialects production actually sends: the Writer's per-type payload gate refuses
@@ -91,16 +101,16 @@ Heimdal Core ──POST──> stats-input ──AMQP──> RabbitMQ ──> st
 New to Gradle or Spring Boot? This section is the whole loop, start to finish.
 `claude/DEVELOPMENT.md` is the deeper reference; this is the short path.
 
-> **What exists today (5 September 2026).** `stats-input` has a real `POST` endpoint:
-> it validates the **envelope**, applies the clock-skew check, and returns 2xx only
-> after the publisher confirm — 503 on a broker failure or an unroutable message, 400
-> on a bad envelope, 413 over 256 KB, 429 over the rate limit. `stats-writer` consumes
-> `lorastats`, writes it idempotently into a daily partition, ACKs only after the
-> commit, and routes a failed delivery through three retry tiers to a per-type DLQ.
-> Migrations V1–V5 exist. **`stats-api` is still a skeleton** — one `main()` class, no
-> controllers — because the OpenAPI contract is not confirmed yet (D-09), so the `GET`
-> half of the smoke test in `claude/DEVELOPMENT.md` §3.4 still describes the target
-> rather than the current state.
+> **What exists today (13 October 2026).** `stats-input` has two `POST` doors on one
+> handler (`/internal/stats`, `/external/stats`): it validates the **envelope**, applies
+> the clock-skew and server-clock checks, and returns 2xx with
+> `{"status":"accepted","traceId":…}` only after the publisher confirm — 503 on a broker
+> failure or an unroutable message, 400 on a bad or unstorable envelope, 413 over 256 KB,
+> 429 over the rate limit. `stats-writer` consumes **all five types**, writes each
+> idempotently into a daily partition, ACKs only after the commit, and routes a failed
+> delivery through three retry tiers to a per-type DLQ. Migrations V1–V9 exist.
+> **`stats-api` serves all three read operations** (DL-162) — ahead of ZC's confirmation
+> of the contract (D-09), by decision. `docker/demo.sh` drives the whole stack.
 
 ### Prerequisites
 
@@ -265,14 +275,14 @@ Every working document lives in `claude/`. The repository root holds only this
 |---|---|
 | `claude/CLAUDE.md` | Project context, non-negotiable rules, known traps, open questions. Auto-loaded via the root `CLAUDE.md` pointer. |
 | `claude/DECISIONS.md` | **Every meaningful decision and why** — architecture, libraries, conventions, and the choices too small for an ADR. `DL-nnn` IDs. The answer to *why is it like this?* |
-| `claude/FLOW.md` | **The execution flow** — a record from Heimdal to an API response, every failure exit, and the fifteen windows where one could be lost — twelve of them silent. Says what is built versus specified |
+| `claude/FLOW.md` | **The execution flow** — a record from Heimdal to an API response, every failure exit, and the sixteen windows where one could be lost — twelve of them silent. Says what is built versus specified |
 | `claude/IMPLEMENTATION_RULES.md` | Detailed implementation rules, code structure, and the required working sequence |
 | `claude/PROJECT_STATUS_AND_PLAN.md` | What is answered, what is open and who owns it, the phased plan, and the delegation split |
 | `claude/DEVELOPMENT.md` | Build, run, test, configure, troubleshoot |
 | `claude/SKILLS.md` | Repeatable procedures — add a stat type, review tenant isolation, write tests, diagnose a queue, change retention |
 | `claude/CODE_START_CHECKLIST.md` | Stop/go decision register and phase entry criteria |
 | `claude/OPEN_QUESTIONS_STATUS_29AUG2026.md` | Every open question and decision as at 29 Aug 2026: what was decided that day and why, what actually blocks which task, and the tracker inconsistencies found |
-| `Stats_App_Tracker.xlsx` (one level above the checkout, beside it — it is not committed) | **The working task tracker.** 69 tasks across phases 1–5 with acceptance criteria, requirement IDs and blockers; plus what is already done, the open questions by owner, every decision, the 34 known traps with the test that catches each and whether that test exists yet, and a change log. Refreshed 21 Sep 2026 (DL-152). **Read the `Next Up` sheet first** — added 5 Sep 2026, it is the ranked sequence across both owners with the gate on each row; the Tasks sheet is the backlog behind it. |
+| `Stats_App_Tracker.xlsx` (one level above the checkout, beside it — it is not committed) | **The working task tracker.** 71 tasks across phases 1–5 with acceptance criteria, requirement IDs and blockers; plus what is already done, the open questions by owner, every decision, the 34 known traps with the test that catches each and whether that test exists yet, and a change log. Refreshed 21 Sep 2026 (DL-152). **Read the `Next Up` sheet first** — added 5 Sep 2026, it is the ranked sequence across both owners with the gate on each row; the Tasks sheet is the backlog behind it. |
 | `Stats_App_Work_Brief_Mukesh_05SEP2026.pdf` (not in this checkout — generated 5 Sep 2026 and handed over; the tracker supersedes it) | **The delegation brief.** The same information aimed at one person: what Mukesh owns, in what order, the procedure for each block of work, the traps with the test that catches each, and the definition of done. Generated 5 Sep 2026; the tracker is the live source, this is the readable snapshot. `Stats_App_Developer_Guide.pdf` sits beside it (built 18 Sep 2026 — it predates DL-147 onward). |
 
 ### Specifications — `docs/`
@@ -284,9 +294,11 @@ Every working document lives in `claude/`. The repository root holds only this
 | `docs/architecture/adr/` | ADR-001 … **ADR-007**. **`ADR-nnn` always means one of these.** The ARD carries its own ADR-001…010 with different meanings — cite those as `ARD-ADR-nn`. **Start with ADR-007** if you have not read this repository since 29 Aug 2026: it rebuilt the envelope on the production wire format and amends ADR-002, ADR-003 and ADR-004. |
 | `docs/architecture/Stats_App_Flow.png` | End-to-end flow diagram |
 | `docs/contracts/` | Heimdal inbound HTTP contract (`heimdal-input-contract-v1.md`, with its OpenAPI twin **`openapi-input.yaml`**), AMQP topology, **`writer-metrics-v1.md`** (every Writer metric and its measurement boundary), and **`openapi.yaml`** — the read API contract, OpenAPI 3.1, GET-only. Both contracts are draft pending ZC confirmation; `build-html.sh` renders them onto one page (DL-145). Since 21 Sep 2026 (DL-151) the inbound contract has two doors (`/internal/stats`, `/external/stats`) and the read contract three operations — the device-scoped `/{type}/{clsbox}/{from}[/{to}]` joined the list and the `uid` lookup |
-| `docs/runbooks/` | **`dlq-redrive.md`** — the guarded per-type DLQ redrive: access, pilot, audit, stop conditions, and the 90-day trap made checkable |
-| `ops/prometheus/` | **`dlq-alerts.yml`** (T-060) and **`writer-alerts.yml`** (T-050) with their `promtool` unit tests, and a README with the Q13b histogram query — both rule files are validated in CI |
-| `docker/` | Compose stack, Dockerfile, `postgres-init/`, and **`demo.sh`** — the ten-step end-to-end demo against the running stack (T-069, 20 Sep 2026), each step naming the rule it proves |
+| `docs/runbooks/` | **`dlq-redrive.md`** — the guarded per-type DLQ redrive (since DL-168 it skips what it will not move and carries on); **`partition-restore.md`** (T-051); **`load-test-burst.md`** (T-048); **`replay-drill.md`** (T-049) |
+| `ops/prometheus/` | **`dlq-alerts.yml`** (T-060), **`writer-alerts.yml`** (T-050; `StatsAppFailureHandoffUnconfirmed` since DL-168) and **`postgres-alerts.yml`** (T-051) with their `promtool` unit tests, plus `prometheus.yml` and a README with the Q13b histogram query — all validated in CI |
+| `ops/grafana/`, `ops/postgres-exporter/`, `ops/drills/`, `ops/load/` | Generated Writer / Input / PostgreSQL dashboards and their CI checker (T-056); the one custom exporter query (`pg_settings_archive_mode`, DL-160); the Phase 5 drills with their measured numbers; the open-loop `BurstLoad.java` generator |
+| `docker/` | Compose stack, Dockerfile, `postgres-init/`, **`demo.sh`** — the end-to-end demo against the running stack (T-069), each step naming the rule it proves — and **`share/`**, the offline bundle (`docker/BUNDLE.md`) |
+| `postman/` | The Postman collection — all five types, exact wire read-back, byte-identical duplicate replay |
 | `docs/schemas/` | JSON Schema catalogue, per-type schemas, and fixtures |
 | `docs/prompts/` | Prompt templates for working on this repo |
 | `docs/setup/` | Local IDE setup and `keycloak-realm-statsapp.json`, the importable dev realm whose four users are each a specific test |
@@ -350,18 +362,20 @@ on 18 August 2026 (`docs/decisions/2B-ANSWERS-18AUG2026.md`), and the OpenAPI
 contract — which was always ours to write, not ZC's to supply — was drafted on
 21 August as `docs/contracts/openapi.yaml`.
 
-Two items are **risk accepted rather than answered**, and both must be re-read
-before any shared deployment:
+One item is **risk accepted rather than answered**, and it must be re-read before any
+shared deployment:
 
-1. **The Input endpoint is unauthenticated** (Q8a-2). Auth is deferred by
+1. **The Input endpoint is unauthenticated on `main`** (Q8a-2). Auth is deferred by
    decision, behind `stats.input.auth.mode` with no default in code, a `WARN` on
-   every `none` startup, and a test that refuses to start under `prod`. Until ZC
-   answers, anything that can reach the Input port can write.
-2. **No RPO/RTO number exists** (D5a). ADR-003 D5 has the framing to take to
-   product and operations. Engineering's proposal, awaiting a decision: **RPO ≤ 5 min**
-   via continuous WAL archiving, **RTO 1 h per partition / 24 h full cluster**. RPO is
-   the tight one because a record we answered `200` and then lost is unrecoverable —
-   Heimdal retries only on a non-2xx.
+   every `none` startup, and a test that refuses to start under `prod`. Anything that
+   can reach the Input port can write. The approver decided on 29 Sep 2026 to build
+   against Heimdal's ForwardRule (Basic credentials from the URL, `maxRetry = 3`); that
+   implementation sits on the unmerged branch `feat/dl-163-input-basic-auth` (commit
+   `1a4f28a`) and is **not in this checkout** — DL-169 records why.
+2. ~~**No RPO/RTO number exists** (D5a).~~ **CLOSED — D5a was SIGNED on 4 September
+   2026 (DL-111) at RPO ≤ 5 min / RTO 1 h per partition, and both are now drilled and
+   alerted** (T-051, DL-155): a 200,000-row day restores and re-attaches in 1.23 s, and
+   `postgres-alerts.yml` pages when WAL archiving fails or stalls.
 3. ~~**The late-arrival policy has engineering agreement but no product signature**~~
    **CLOSED — D5b was SIGNED on 4 September 2026 (DL-112) and BUILT on 10 September
    (T-026, DL-133).** Skip the write, meter `records_expired_on_arrival{type}`, ACK.
@@ -379,9 +393,10 @@ confirms it — since T-050 (DL-147) that histogram exists,
 `records_ts_server_cycle_offset_seconds{type}` on `stats-input`, with the query in
 `ops/prometheus/README.md`. Reading its first 24 h is the next step, not building it.
 
-The one item that genuinely gates work is **ZC's confirmation of
-`docs/contracts/openapi.yaml`** — ten tasks sit behind it, essentially all of Phase 4, and since
-21 Sep 2026 (DL-151) the contract being confirmed also carries the device-scoped read paths.
+**ZC's confirmation of `docs/contracts/openapi.yaml`** (D-09) no longer gates work: the
+approver built Phase 4 past it on 26 Sep 2026 (DL-162), so it is now a **rework risk** —
+a change ZC asks for costs code as well as YAML. The contract carries the device-scoped
+read paths (DL-151), the masked `imsi` (DL-167) and the DL-168 envelope bounds.
 
 **Closed on 29 August 2026 — do not reopen:** Q14a (clock skew — rejected at Input
 beyond a configurable tolerance), Q3a (topology declared by broker-connected modules
