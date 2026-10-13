@@ -6,6 +6,33 @@ It is still auto-loaded every session: the repository-root `CLAUDE.md` is a
 pointer file whose only content is an `@claude/CLAUDE.md` import. Edit this file,
 not the pointer.
 
+> **Version 1.31 — 13 October 2026.** No decision in 1.30 changes. What changes is that
+> **nothing is answered 2xx that PostgreSQL cannot store, and the failure arm cannot strand
+> a delivery**. Governing entry: **DL-168** — nine defects a whole-codebase probe found, all
+> reproduced end to end before they were fixed.
+>
+> * **Input refuses what the Writer could never store, with a 400 Heimdal sees.** Envelope:
+>   `uid`/`tenant`/`maintenant` ≤ 128 characters with a non-whitespace character, `version`
+>   ≤ 32767. Gate: U+0000 or an unpaired surrogate anywhere → `unstorable_character`;
+>   `ts.server` more than `stats.input.validation.max-server-clock-ahead` (`PT1H`) ahead of
+>   Input's clock → `server_clock_ahead`; the body is parsed **as bytes**, strictly —
+>   invalid UTF-8, duplicate member names, trailing content → `malformed_json`. A `uid` over
+>   255 UTF-8 bytes used to be **503 forever** (it rides as the AMQP `messageId`).
+> * **An unconfirmed retry/DLQ hand-off is nacked with requeue after a pause**
+>   (`stats.amqp.unconfirmed-handoff-requeue-delay`, `PT5S`), counted as
+>   `records_handoff_unconfirmed{type}` and paged by `StatsAppFailureHandoffUnconfirmed`.
+>   It used to stay unacknowledged on the open channel — in `MANUAL` mode the container
+>   never returns it — one prefetch slot lost per occurrence until the consumer stopped.
+> * **Permanent means permanent.** The writers' value refusals throw
+>   `PermanentFailureException`; SQLSTATE classes `22` and `54` are permanent whatever Spring
+>   translated them to (54000 had been retried 35½ minutes as a "resource failure").
+> * **The DLQ redrive skips what it will not move and carries on**, returning skipped records
+>   to the DLQ in place, and reads `RetentionWindow`'s cutoff. One expired record at the head
+>   used to abort every run for that type.
+> * **Every API read has `statement_timeout = 10s`** (→ 503). The Writer deliberately has none.
+> * **Quiz for this change:** two of three passed; the classifier question was **waived, not
+>   passed** (DL-168 records the answer). The NUL policy (400 at Input) is the approver's.
+>
 > **Version 1.30 — 12 October 2026.** No decision in 1.29 changes except D-12 P3, which is
 > now **answered**. Governing entry: **DL-167**.
 >
@@ -1254,6 +1281,7 @@ plan is not written against a repository that no longer exists. Full reasoning:
 | DL-154 | **One wire-number coercion, and the build refuses a second.** `WireNumbers` — `requiredInteger`/`optionalInteger`, `requiredDigitString`/`optionalDigitString(Sign)`, `parseDigitString` — range-checks against `BigInteger` before conversion; every refusal is permanent and names only the field. Found on extraction: a lorastats integer overflow was *retried* (35½ min) before dead-lettering, and the dialect-B coercion accepted a negative string. `WireNumbersIsTheOnlyCoercionTest` scans the persistence package | T-062, T-034, T-037 |
 | DL-153 | **`omsstats` is built, additively, from the sysstats slice — and nothing shared moved.** `V7__omsstats_table.sql` with the CHECK, `data_extra`, `(ts_device, uid)` and the two ADR-003 indexes; every payload column a `NOT NULL bigint`; `ts.converter` preserved in `passthrough`, no normalisation column (ADR-004). An integer wider than `BIGINT` is `unmappable` before conversion; `"300"` is refused, not guessed. Fixture `valid/omsstats-counter-overflow.json`. The coercion helper is deliberately left to T-062 | T-036, T-062 |
 | DL-167 | **D-12 P3 answered: IMSI raw at rest, masked by the API; `lac`/`cid` as reported.** `ImsiMask` in `LtestatsReader`; `openapi.yaml` and the drift gate carry the masked form. **No LTE/netstats payload in any log at any level**, proved in all three modules at `TRACE`; framework leaks pinned (`StatementCreatorUtils`, MVC body writers). Prometheus waits on targets *started*; bundle exit 3 = monitoring degraded. All five listeners share one `autoStartup`. Scrape guard restored | T-034, T-050, T-056 |
+| DL-168 | **Nothing answered 2xx that cannot be stored; the failure arm cannot strand a delivery.** Envelope bounds (`uid`/`tenant`/`maintenant` ≤ 128 and non-blank, `version` ≤ 32767), `unstorable_character`, `server_clock_ahead`, strict byte-level parse; `messageId` omitted past 255 bytes. Unconfirmed hand-off → pause, nack-requeue, `records_handoff_unconfirmed`, alert. Writer refusals permanent; SQLSTATE 22/54 permanent. Redrive skips and continues on one cutoff. API `statement_timeout=10s` | T-013, T-024, T-052, T-062 |
 
 > **What to do next lives in `Stats_App_Tracker.xlsx` → the `Next Up` sheet**, ranked
 > across both owners with the gate on each row. T-063, T-057 and T-064 were done on

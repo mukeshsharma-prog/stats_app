@@ -79,7 +79,10 @@ TYPES = ("sysstats", "lorastats", "ltestats", "omsstats", "netstats")
 # green, which would have hidden exactly the regression the 29 Aug 2026 production
 # sample caught. Changing this number is a deliberate act that belongs in the same
 # commit as the fixture change, with the reason in claude/DECISIONS.md.
-EXPECTED_ASSERTIONS = 117
+# 117 -> 124 on 13 Oct 2026 (DL-168): three envelope bounds (uid length, blank tenant,
+# version range) in invalid/, and two input-reject edges (unstorable_character,
+# server_clock_ahead), each a marker plus a schema assertion.
+EXPECTED_ASSERTIONS = 124
 
 
 def load_registry():

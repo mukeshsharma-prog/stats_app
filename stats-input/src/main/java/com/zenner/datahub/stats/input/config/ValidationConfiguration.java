@@ -1,6 +1,7 @@
 package com.zenner.datahub.stats.input.config;
 
 import com.zenner.datahub.stats.common.validation.StatsSchemaValidator;
+import java.time.Clock;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -18,5 +19,14 @@ public class ValidationConfiguration {
     @Bean
     public StatsSchemaValidator statsSchemaValidator() {
         return new StatsSchemaValidator();
+    }
+
+    /**
+     * The one wall clock the envelope gate reads, so that the {@code ts.server} bound
+     * (DL-168) is testable against a fixed instant instead of the machine's.
+     */
+    @Bean
+    public Clock inputClock() {
+        return Clock.systemUTC();
     }
 }

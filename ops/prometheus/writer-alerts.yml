@@ -132,6 +132,30 @@ groups:
             records are too old to store and are NOT being recovered.
           runbook: docs/runbooks/dlq-redrive.md
 
+      # ---- The failure arm itself is broken (DL-168) -----------------------------
+      # A record that failed is handed to a retry tier or the DLQ, and the original is
+      # ACKed only once that copy is confirmed. When the copy is NOT confirmed — a retry
+      # or DLQ queue missing, a broker refusing publishes under a resource alarm — the
+      # original goes back to its main queue after a pause and this counter moves. Every
+      # record that needs the failure arm is then cycling instead of progressing, and the
+      # pause slows the whole type, so this pages. Summed: each replica counts its own.
+      - alert: StatsAppFailureHandoffUnconfirmed
+        expr: sum by (type) (increase(records_handoff_unconfirmed_total[5m])) > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Stats App {{ $labels.type }}: {{ $value | humanize }} failed record(s) could not be handed to a retry tier or the DLQ in 5 minutes"
+          description: >-
+            The broker did not confirm the retry or dead-letter copy of a failed
+            {{ $labels.type }} record, so the original was returned to its main queue
+            instead. Nothing is lost, but nothing that needs the failure arm progresses,
+            and the requeue pause slows this type's consumption. Check that
+            app_statsstore.{{ $labels.type }}.retry.1-3 and .dlq exist and are bound to
+            app_stats_dlx, and the broker's memory and disk alarms. Restarting the
+            Writer redeclares missing queues.
+          runbook: claude/SKILLS.md#skill-4--diagnose-a-stuck-or-growing-queue
+
       # ---- Upstream conversion status (DL-108, DL-128) ---------------------------
       # A ratio of not-OK to consumed over an hour. THE THRESHOLD IS PROVISIONAL: DL-139
       # found that some upstream documents carry ["ok"] where stats records carry

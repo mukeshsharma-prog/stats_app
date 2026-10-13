@@ -17,9 +17,15 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * <p><strong>maxClockSkew</strong> closes Q14a (ADR-003 D9). It is externalised
  * rather than hard-coded, on the G4 precedent: a tolerance that needs a rebuild to
  * change gets widened in an incident instead of tuned.</p>
+ *
+ * <p><strong>maxServerClockAhead</strong> (DL-168) bounds {@code ts.server} against this
+ * instance's own clock. Q14a compares the record's two clocks with each other, so a
+ * record whose clocks agreed with each other and were both decades ahead passed it,
+ * was answered 200, and then found no partition at the Writer.</p>
  */
 @ConfigurationProperties(prefix = "stats.input.validation")
-public record InputValidationProperties(String intendedScope, Duration maxClockSkew) {
+public record InputValidationProperties(
+        String intendedScope, Duration maxClockSkew, Duration maxServerClockAhead) {
 
     /** The only scope Input may run at (ADR-007 §5). */
     public static final String ENVELOPE_SCOPE = "envelope";
@@ -27,6 +33,8 @@ public record InputValidationProperties(String intendedScope, Duration maxClockS
     public InputValidationProperties {
         Objects.requireNonNull(intendedScope, "stats.input.validation.intended-scope");
         Objects.requireNonNull(maxClockSkew, "stats.input.validation.max-clock-skew");
+        Objects.requireNonNull(
+                maxServerClockAhead, "stats.input.validation.max-server-clock-ahead");
 
         if (!ENVELOPE_SCOPE.equals(intendedScope)) {
             // Refuse to start rather than run a gate nobody decided on. Validating the
@@ -40,6 +48,10 @@ public record InputValidationProperties(String intendedScope, Duration maxClockS
         if (maxClockSkew.isNegative()) {
             throw new IllegalArgumentException(
                     "stats.input.validation.max-clock-skew must not be negative");
+        }
+        if (maxServerClockAhead.isNegative()) {
+            throw new IllegalArgumentException(
+                    "stats.input.validation.max-server-clock-ahead must not be negative");
         }
     }
 }

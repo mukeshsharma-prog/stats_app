@@ -1,6 +1,5 @@
 package com.zenner.datahub.stats.writer.redrive;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rabbitmq.client.AMQP;
@@ -11,13 +10,17 @@ import com.rabbitmq.client.GetResponse;
 import com.rabbitmq.client.LongString;
 import com.zenner.datahub.stats.common.amqp.AmqpTopology;
 import com.zenner.datahub.stats.common.model.StatType;
+import com.zenner.datahub.stats.writer.retention.RetentionWindow;
 import com.zenner.datahub.stats.writer.retry.FailedDeliveryRouter;
+import java.io.IOException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Clock;
 import java.time.Instant;
-import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -26,6 +29,17 @@ import java.util.regex.Pattern;
 /**
  * Moves a bounded batch from one dead-letter queue after confirming each replacement.
  * The command requires dedicated operator credentials and emits no payload values.
+ *
+ * <p><strong>A record it will not move does not stop the run (DL-168).</strong> One
+ * that is past the retention window, declares another type, or is not JSON is
+ * <em>skipped</em>: held unacknowledged for the rest of the run, so it cannot be fetched
+ * twice, reported as {@code record_skipped} with a constant reason, and returned to the
+ * DLQ — at its original position — when the run ends. Before DL-168 the first such record
+ * aborted the run and went back to the head of the queue, so every later run aborted on
+ * it too; and because the DLQ is FIFO and never expires anything, its oldest record is
+ * exactly the one that ages out first. Skipped records stay on the DLQ for the approved
+ * disposition the runbook describes. A failed <em>publish</em> still aborts: that is the
+ * broker, not the record.</p>
  */
 public final class DlqRedriveCommand {
     static final int MAX_RATE = 2_667;
@@ -40,15 +54,18 @@ public final class DlqRedriveCommand {
         ConnectionFactory factory = connectionFactory(System.getenv());
         try (Connection connection = factory.newConnection("stats-dlq-redrive:" + options.changeId());
                 Channel channel = connection.createChannel()) {
-            int moved = redrive(channel, options);
+            Result result = redrive(channel, options);
             System.out.printf(
                     "{\"event\":\"redrive_completed\",\"changeId\":\"%s\","
-                            + "\"type\":\"%s\",\"moved\":%d}%n",
-                    options.changeId(), options.type().wireName(), moved);
+                            + "\"type\":\"%s\",\"moved\":%d,\"skipped\":%d}%n",
+                    options.changeId(), options.type().wireName(), result.moved(), result.skipped());
         }
     }
 
-    static int redrive(Channel channel, Options options) throws Exception {
+    /** What one invocation did: records moved to the main queue, and records left on the DLQ. */
+    record Result(int moved, int skipped) {}
+
+    static Result redrive(Channel channel, Options options) throws Exception {
         String source = AmqpTopology.deadLetterQueue(options.type());
         String target = AmqpTopology.mainQueue(options.type());
         channel.queueDeclarePassive(source);
@@ -60,87 +77,128 @@ public final class DlqRedriveCommand {
                 (code, text, exchange, key, properties, body) -> returned.set(code + " " + text));
 
         int moved = 0;
+        List<Long> held = new ArrayList<>();
         int snapshotLimit = options.maxMessages();
         boolean snapshotTaken = false;
         long nextPublish = System.nanoTime();
-        while (moved < snapshotLimit) {
-            GetResponse delivery = channel.basicGet(source, false);
-            if (delivery == null) {
-                break;
-            }
-            if (!snapshotTaken) {
-                // Bound this invocation to records that were ready when its first
-                // delivery arrived. A fast repeat failure returns at the tail and
-                // must wait for another explicit operator invocation.
-                snapshotLimit = Math.min(options.maxMessages(), delivery.getMessageCount() + 1);
-                snapshotTaken = true;
-            }
-            try {
-                validate(delivery, options);
-                nextPublish = pace(nextPublish, options.ratePerSecond());
-                returned.set(null);
-                AMQP.BasicProperties properties = redriveProperties(delivery, options, moved + 1);
-                channel.basicPublish(
-                        AmqpTopology.INPUT_EXCHANGE,
-                        AmqpTopology.routingKey(options.type()),
-                        true,
-                        properties,
-                        delivery.getBody());
-                if (!channel.waitForConfirms(options.confirmTimeoutMillis())) {
-                    throw new IllegalStateException("Broker negatively acknowledged the redrive copy");
+        try {
+            while (moved + held.size() < snapshotLimit) {
+                GetResponse delivery = channel.basicGet(source, false);
+                if (delivery == null) {
+                    break;
                 }
-                if (returned.get() != null) {
-                    throw new IllegalStateException("Redrive copy was returned: " + returned.get());
+                if (!snapshotTaken) {
+                    // Bound this invocation to records that were ready when its first
+                    // delivery arrived. A fast repeat failure returns at the tail and
+                    // must wait for another explicit operator invocation.
+                    snapshotLimit = Math.min(options.maxMessages(), delivery.getMessageCount() + 1);
+                    snapshotTaken = true;
                 }
-                // The original leaves the DLQ only after its replacement is confirmed.
-                channel.basicAck(delivery.getEnvelope().getDeliveryTag(), false);
-                moved++;
-                System.out.printf(
-                        "{\"event\":\"record_redriven\",\"changeId\":\"%s\","
-                                + "\"type\":\"%s\",\"sequence\":%d,"
-                                + "\"previousAttempt\":\"%s\","
-                                + "\"previousFailure\":\"%s\","
-                                + "\"bodySha256\":\"%s\"}%n",
-                        options.changeId(),
-                        options.type().wireName(),
-                        moved,
-                        safeAttempt(delivery),
-                        safeFailure(delivery),
-                        sha256(delivery.getBody()));
-            } catch (Exception failure) {
+                String refusal = refusal(delivery, options);
+                if (refusal != null) {
+                    held.add(delivery.getEnvelope().getDeliveryTag());
+                    System.out.printf(
+                            "{\"event\":\"record_skipped\",\"changeId\":\"%s\","
+                                    + "\"type\":\"%s\",\"reason\":\"%s\",\"bodySha256\":\"%s\"}%n",
+                            options.changeId(),
+                            options.type().wireName(),
+                            refusal,
+                            sha256(delivery.getBody()));
+                    continue;
+                }
                 try {
-                    channel.basicNack(delivery.getEnvelope().getDeliveryTag(), false, true);
-                } catch (Exception requeueFailure) {
-                    failure.addSuppressed(requeueFailure);
+                    nextPublish = pace(nextPublish, options.ratePerSecond());
+                    returned.set(null);
+                    AMQP.BasicProperties properties = redriveProperties(delivery, options, moved + 1);
+                    channel.basicPublish(
+                            AmqpTopology.INPUT_EXCHANGE,
+                            AmqpTopology.routingKey(options.type()),
+                            true,
+                            properties,
+                            delivery.getBody());
+                    if (!channel.waitForConfirms(options.confirmTimeoutMillis())) {
+                        throw new IllegalStateException("Broker negatively acknowledged the redrive copy");
+                    }
+                    if (returned.get() != null) {
+                        throw new IllegalStateException("Redrive copy was returned: " + returned.get());
+                    }
+                    // The original leaves the DLQ only after its replacement is confirmed.
+                    channel.basicAck(delivery.getEnvelope().getDeliveryTag(), false);
+                    moved++;
+                    System.out.printf(
+                            "{\"event\":\"record_redriven\",\"changeId\":\"%s\","
+                                    + "\"type\":\"%s\",\"sequence\":%d,"
+                                    + "\"previousAttempt\":\"%s\","
+                                    + "\"previousFailure\":\"%s\","
+                                    + "\"bodySha256\":\"%s\"}%n",
+                            options.changeId(),
+                            options.type().wireName(),
+                            moved,
+                            safeAttempt(delivery),
+                            safeFailure(delivery),
+                            sha256(delivery.getBody()));
+                } catch (Exception failure) {
+                    try {
+                        channel.basicNack(delivery.getEnvelope().getDeliveryTag(), false, true);
+                    } catch (Exception requeueFailure) {
+                        failure.addSuppressed(requeueFailure);
+                    }
+                    throw failure;
                 }
-                throw failure;
+            }
+        } finally {
+            // Back to the DLQ, each at its original position. Closing the channel would
+            // do the same; doing it here means the run says so, and does it in order.
+            for (long tag : held) {
+                try {
+                    channel.basicNack(tag, false, true);
+                } catch (IOException | RuntimeException channelGone) {
+                    // Not swallowed in effect: a broken channel returns every unacknowledged
+                    // delivery to the DLQ on close. Said here so the operator knows why.
+                    System.err.printf(
+                            "{\"event\":\"skipped_requeue_deferred\",\"changeId\":\"%s\","
+                                    + "\"failure\":\"%s\"}%n",
+                            options.changeId(), channelGone.getClass().getSimpleName());
+                }
             }
         }
-        return moved;
+        return new Result(moved, held.size());
     }
 
-    private static void validate(GetResponse delivery, Options options) throws Exception {
+    static final String NOT_JSON = "not_json";
+    static final String TYPE_MISMATCH = "type_mismatch";
+    static final String NO_TS_DEVICE = "no_ts_device";
+    static final String OUTSIDE_RETENTION = "outside_retention_window";
+
+    /**
+     * Why this record is not redriven, as a constant safe to print — or {@code null} when
+     * it is. A record outside the window would only increment
+     * {@code records_expired_on_arrival}: it needs the approved disposition, not a redrive.
+     */
+    static String refusal(GetResponse delivery, Options options) {
+        return refusal(delivery, options, Clock.systemUTC());
+    }
+
+    static String refusal(GetResponse delivery, Options options, Clock clock) {
         JsonNode body;
         try {
             body = JSON.readTree(delivery.getBody());
-        } catch (JsonProcessingException unsafeFailure) {
-            // Parser messages can quote source bytes, so this boundary replaces them
-            // with a static diagnostic before they can reach an operator terminal.
-            throw new IllegalArgumentException("DLQ message is not valid JSON");
+        } catch (IOException unsafeFailure) {
+            // Parser messages can quote source bytes, so they never leave this method.
+            return NOT_JSON;
         }
-        if (!options.type().wireName().equals(body.path("type").asText())) {
-            throw new IllegalArgumentException("DLQ message type does not match selected type");
+        if (body == null || !options.type().wireName().equals(body.path("type").asText())) {
+            return TYPE_MISMATCH;
         }
         if (!body.path("ts").path("device").canConvertToLong()) {
-            throw new IllegalArgumentException("DLQ message has no usable ts.device");
+            return NO_TS_DEVICE;
         }
         Instant device = Instant.ofEpochSecond(body.path("ts").path("device").longValue());
-        Instant cutoff = Instant.now().minus(options.retentionDays(), ChronoUnit.DAYS);
-        if (!device.isAfter(cutoff)) {
-            throw new IllegalStateException(
-                    "DLQ message is outside the retention window; redrive would only increment "
-                            + "records_expired_on_arrival. Use an approved disposition instead");
+        // The Writer's own definition, so this agrees with RetentionGuard to the second.
+        if (device.isBefore(RetentionWindow.cutoffFor(clock, options.retentionDays()))) {
+            return OUTSIDE_RETENTION;
         }
+        return null;
     }
 
     static AMQP.BasicProperties redriveProperties(

@@ -1,9 +1,11 @@
 package com.zenner.datahub.stats.writer.retry;
 
+import com.rabbitmq.client.Channel;
 import com.zenner.datahub.stats.common.amqp.AmqpTopology;
 import com.zenner.datahub.stats.common.model.StatType;
 import com.zenner.datahub.stats.writer.log.SafeFailure;
 import com.zenner.datahub.stats.writer.log.WriterLogContext;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -85,6 +87,9 @@ public class FailedDeliveryRouter {
         this.properties = Objects.requireNonNull(properties, "properties");
         this.classifier = Objects.requireNonNull(classifier, "classifier");
         this.metrics = Objects.requireNonNull(metrics, "metrics");
+        for (StatType type : StatType.values()) {
+            metrics.registerFor(type);
+        }
     }
 
     /**
@@ -109,6 +114,49 @@ public class FailedDeliveryRouter {
             return;
         }
         retry(statType, message, attempt, reason, failure);
+    }
+
+    /**
+     * Returns a delivery whose onward copy was NOT confirmed to its main queue — after a
+     * pause, never immediately (DL-168).
+     *
+     * <p>Leaving it unacknowledged is not an option, though it looks like one. In
+     * {@code MANUAL} ack mode the listener container neither acks nor nacks a delivery
+     * whose listener threw, so the record stays assigned to this open channel until the
+     * channel closes: never redelivered, and holding one prefetch slot. After
+     * {@code prefetch} of them the consumer stops receiving altogether, and the gauges
+     * that would show it read normally whenever the queue itself is healthy.</p>
+     *
+     * <p>Nack with requeue keeps the broker holding the only copy, which is the property
+     * the hand-off exists to protect. The pause is rule 5: the cause — a missing retry or
+     * DLQ queue, a broker refusing publishes under a resource alarm — usually persists,
+     * and an immediate requeue would spin on it. Sleeping on the listener thread is
+     * deliberate: it also slows this type's consumption while its failure arm is broken.
+     * Interrupted during the pause (shutdown), the delivery is left unacknowledged and the
+     * closing channel returns it.</p>
+     */
+    public void requeueUnconfirmed(StatType statType, Message message, Channel channel)
+            throws IOException, InterruptedException {
+        Objects.requireNonNull(statType, "statType");
+        Objects.requireNonNull(message, "message");
+        Objects.requireNonNull(channel, "channel");
+
+        metrics.handoffUnconfirmed(statType);
+        WriterLogContext.errorCode("handoff_unconfirmed");
+        log.atError()
+                .addKeyValue("event", "handoff_unconfirmed")
+                .addKeyValue("requeueDelay", properties.unconfirmedHandoffRequeueDelay())
+                .log(
+                        "The retry/DLQ copy was not confirmed; the original is returned to its "
+                                + "main queue after the delay. The failure arm itself is broken "
+                                + "- check the retry and DLQ queues and broker alarms (DL-168)");
+        try {
+            Thread.sleep(properties.unconfirmedHandoffRequeueDelay().toMillis());
+        } catch (InterruptedException shutdown) {
+            Thread.currentThread().interrupt();
+            throw shutdown;
+        }
+        channel.basicNack(message.getMessageProperties().getDeliveryTag(), false, true);
     }
 
     private void retry(

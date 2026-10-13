@@ -362,12 +362,14 @@ components:
         |---|---|---|
         | `/` | `empty_body` | Zero-length body. |
         | `/` | `unreadable_body` | The body could not be read as a request at all. |
-        | `/` | `malformed_json` | Not a JSON object. |
+        | `/` | `malformed_json` | Not a single JSON object in UTF-8: unparseable, invalid UTF-8, a duplicated member name, or content after the closing brace (DL-168). |
         | `/<member>` | `missing` | A required envelope member is absent. |
         | `/<member>` | `invalid_type` | An envelope member has the wrong JSON type. |
         | `/<member>` | `invalid_parameter` | An envelope member fails its constraint (e.g. `clsbox` not 12 hex characters). |
         | `/type` | `unknown_stat_type` | `type` is not one of the five V1 types. The problem `type` URI is `unknown_stat_type` too. |
         | `/ts/device` | `clock_skew_exceeded` | `ts.device` exceeds `ts.server` by more than `stats.input.validation.max-clock-skew` (`PT5M`). **Fix the gateway clock.** |
+        | `/ts/server` | `server_clock_ahead` | `ts.server` is ahead of the Stats App's clock by more than `stats.input.validation.max-server-clock-ahead` (`PT1H`). **Fix the sending clock** (DL-168). |
+        | pointer, or the parent object for a member name | `unstorable_character` | A member name or string value contains U+0000 or an unpaired surrogate, which PostgreSQL cannot store (DL-168). |
 
         Field errors name the **member and the code, never the offending value**
         (DL-102). `statType` is present when `type` could be read.

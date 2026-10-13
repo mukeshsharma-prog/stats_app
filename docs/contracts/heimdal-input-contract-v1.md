@@ -50,6 +50,8 @@ The Input Module validates the received message and publishes it byte-identicall
 | Invalid JSON, **invalid envelope**, or unknown type | 400 | Do not retry unchanged record; fix sender/schema. |
 | Valid envelope, **payload fails its per-type schema** | **200/202 — accepted and published**, then dead-lettered by the Writer | Nothing. Heimdal must NOT redeliver. Disposition is a Stats App operations concern (ADR-002 §12, ADR-007 §5). |
 | `ts.device` ahead of `ts.server` beyond the tolerance | 400, field code `clock_skew_exceeded` | Do not retry unchanged; **fix the gateway clock**. See §4. |
+| `ts.server` ahead of the Stats App's clock beyond the tolerance | 400, field code `server_clock_ahead` | Do not retry unchanged; **fix the sending clock**. See §4. |
+| U+0000 or an unpaired surrogate in any member name or string | 400, field code `unstorable_character` | Do not retry unchanged; PostgreSQL cannot store it. See §4. |
 | Missing/invalid inbound credentials | 401 | Configuration/credential issue; do not retry blindly. |
 | Authenticated but forbidden | 403 | Configuration/identity issue. |
 | RabbitMQ unavailable, confirm timeout, **or an unroutable message** | 503 | Heimdal dead-letter/retry handling applies because response is non-2xx. |
@@ -166,6 +168,18 @@ stats.input.validation.max-clock-skew=PT5M   # starting value; externalised, nev
 ```
 
 The response is 400 with a `ts.device` field-level error carrying the reason code `clock_skew_exceeded`, and the rejection is metered as `records_clock_skew_rejected{type}`. The tolerance exists because a few seconds of NTP drift is normal and must not be an outage. This is a **cross-field** check comparing two instance locations, which JSON Schema 2020-12 cannot express, so it lives in Input's code rather than in `envelope-v1.schema.json` — the five `edge/<type>-clock-skew-future.json` fixtures stay schema-valid and are marked `$expect: "input-reject"` instead.
+
+**Nothing is answered 2xx that cannot be stored — 13 October 2026 (DL-168).** Before this, five kinds of record were accepted with a 2xx and then dead-lettered permanently by the Writer, where no redrive could ever succeed; each is now a 400 at Input, which Heimdal is told about:
+
+| Record | Now |
+|---|---|
+| `uid`, `tenant` or `maintenant` longer than 128 characters, or whitespace only | 400 `invalid_parameter` on the member (envelope schema). A `uid` over 255 UTF-8 bytes also used to be answered **503 on every resend**, because it is carried as the AMQP `messageId` |
+| `version` above 32767 | 400 `invalid_parameter` on `/version` (envelope schema) |
+| U+0000 or an unpaired surrogate anywhere | 400 `unstorable_character` |
+| `ts.server` more than `stats.input.validation.max-server-clock-ahead` (`PT1H`) ahead of the Stats App's clock | 400 `server_clock_ahead` on `/ts/server` |
+| Invalid UTF-8, a duplicated member name, or content after the record | 400 `malformed_json` |
+
+The `ts.server` bound complements Q14a rather than replacing it: Q14a compares the record's two clocks with each other, so a record whose clocks agreed and were both far ahead passed it and then found no partition at the Writer.
 
 Invalid responses use the approved RFC 9457-compatible Problem Details shape. The response may identify field names, reason codes, stat type, and `uid`, but must not echo sensitive offending values or access credentials. The business answer permits payload logging in the Java logger/Docker logs **at `DEBUG` only, which is off in production** — never at `INFO` or above, on any path (DL-102; `claude/DEVELOPMENT.md` §7 is authoritative). Production data-classification and access policy still governs what is retained and who can see it, and neither is decided: see **D-12** and the field-level catalogue in `docs/decisions/DATA-SENSITIVITY-INVENTORY.md`.
 

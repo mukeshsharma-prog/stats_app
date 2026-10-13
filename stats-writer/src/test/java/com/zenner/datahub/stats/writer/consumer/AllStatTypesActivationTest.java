@@ -36,7 +36,7 @@ class AllStatTypesActivationTest {
                 .withBean(FailedDeliveryRouter.class, () -> mock(FailedDeliveryRouter.class))
                 .withBean(WriterAmqpProperties.class, () -> new WriterAmqpProperties(
                         new WriterAmqpProperties.Retry(Duration.ofSeconds(30), Duration.ofMinutes(5), Duration.ofMinutes(30)),
-                        3, Duration.ofSeconds(5)));
+                        3, Duration.ofSeconds(5), Duration.ofSeconds(5)));
         for (StatType type : StatType.values()) {
             String prefix = "stats.consumer." + type.wireName();
             runner = runner.withPropertyValues(prefix + ".concurrency=1", prefix + ".prefetch=500", prefix + ".shutdown-timeout=5s");

@@ -14,7 +14,7 @@ class InputPropertiesTest {
     @DisplayName("the envelope scope binds")
     void acceptsEnvelopeScope() {
         InputValidationProperties properties =
-                new InputValidationProperties("envelope", Duration.ofMinutes(5));
+                new InputValidationProperties("envelope", Duration.ofMinutes(5), Duration.ofHours(1));
         assertThat(properties.maxClockSkew()).isEqualTo(Duration.ofMinutes(5));
     }
 
@@ -24,7 +24,7 @@ class InputPropertiesTest {
         // Setting this to `payload` would make Input 400 a dialect disagreement, which
         // Heimdal never retries. The failure has to be at startup, not in production.
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> new InputValidationProperties("payload", Duration.ofMinutes(5)))
+                .isThrownBy(() -> new InputValidationProperties("payload", Duration.ofMinutes(5), Duration.ofHours(1)))
                 .withMessageContaining("envelope");
     }
 
@@ -32,7 +32,18 @@ class InputPropertiesTest {
     @DisplayName("a negative clock-skew tolerance refuses to start")
     void rejectsNegativeSkew() {
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> new InputValidationProperties("envelope", Duration.ofMinutes(-1)));
+                .isThrownBy(() -> new InputValidationProperties("envelope", Duration.ofMinutes(-1), Duration.ofHours(1)));
+    }
+
+    @Test
+    @DisplayName("a negative server-clock tolerance refuses to start — DL-168")
+    void rejectsNegativeServerClockTolerance() {
+        assertThatIllegalArgumentException()
+                .isThrownBy(
+                        () ->
+                                new InputValidationProperties(
+                                        "envelope", Duration.ofMinutes(5), Duration.ofSeconds(-1)))
+                .withMessageContaining("max-server-clock-ahead");
     }
 
     @Test

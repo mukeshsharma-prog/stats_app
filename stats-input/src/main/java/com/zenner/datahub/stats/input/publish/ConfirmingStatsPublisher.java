@@ -68,6 +68,9 @@ public final class ConfirmingStatsPublisher implements StatsPublisher {
 
     private static final Logger log = LoggerFactory.getLogger(ConfirmingStatsPublisher.class);
 
+    /** The AMQP 0-9-1 short-string limit, which {@code messageId} is bound by. */
+    static final int MAX_SHORT_STRING_BYTES = 255;
+
     private final RabbitTemplate rabbitTemplate;
     private final AmqpPublisherProperties properties;
     private final IngestMetrics metrics;
@@ -172,6 +175,23 @@ public final class ConfirmingStatsPublisher implements StatsPublisher {
      * <p>{@code PERSISTENT} is rule 10 / STA-13A: durable queues hold transient
      * messages exactly as long as the broker process lives.</p>
      */
+    /**
+     * The {@code uid} as the AMQP {@code messageId}, or none when it cannot be one.
+     *
+     * <p>{@code messageId} is an AMQP short string: at most {@value #MAX_SHORT_STRING_BYTES}
+     * bytes. A longer value fails the publish on the client, which answered 503 to a record
+     * Heimdal then resent forever (DL-168). The envelope caps {@code uid} at 128
+     * characters, but 128 non-ASCII characters are still up to 512 bytes, so the bound is
+     * checked in bytes here. Omitting the property is safe: the Writer reads it only to
+     * seed its log scope, and binds the {@code uid} from the record itself.</p>
+     */
+    static String messageId(String uid) {
+        if (uid == null || uid.getBytes(StandardCharsets.UTF_8).length > MAX_SHORT_STRING_BYTES) {
+            return null;
+        }
+        return uid;
+    }
+
     private static Message message(byte[] body) {
         MessageProperties messageProperties = new MessageProperties();
         messageProperties.setContentType(MessageProperties.CONTENT_TYPE_JSON);
@@ -181,7 +201,7 @@ public final class ConfirmingStatsPublisher implements StatsPublisher {
         // before it parses the body, and retries can preserve them without changing the
         // byte-identical record body (T-005, ADR-004).
         messageProperties.setCorrelationId(IngestLogContext.traceId());
-        messageProperties.setMessageId(IngestLogContext.uid());
+        messageProperties.setMessageId(messageId(IngestLogContext.uid()));
         // The publish time, as the standard AMQP `timestamp` property (whole seconds).
         // The Writer reads it at delivery to compute queue_oldest_message_age_seconds
         // (T-050, DL-147); a property, not a header, so it rides with the retry and

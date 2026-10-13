@@ -1,6 +1,7 @@
 package com.zenner.datahub.stats.writer.retry;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import java.sql.SQLException;
 import com.zenner.datahub.stats.writer.log.SafeFailure;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
@@ -31,6 +32,14 @@ import org.springframework.stereotype.Component;
  *       {@code clsbox} CHECK, a NOT NULL, a type overflow. Note that a duplicate is
  *       <em>not</em> in this class: {@code ON CONFLICT (ts_device, uid) DO NOTHING}
  *       absorbs it and meters it long before an exception exists (ADR-005).</li>
+ *   <li>An {@link SQLException} whose SQLSTATE is class {@code 22} (data exception) or
+ *       {@code 54} (program limit exceeded) — DL-168. Both describe the row, not the
+ *       database's health: U+0000 in {@code text} (22021) or {@code jsonb} (22P05), an
+ *       index row past 2,704 bytes (54000). Spring translates some of these to
+ *       {@link DataIntegrityViolationException} and others to transient-looking types —
+ *       54000 arrived as {@code DataAccessResourceFailureException} and was retried for
+ *       35½ minutes — so the SQLSTATE is read directly rather than through the
+ *       translation.</li>
  * </ul>
  */
 @Component
@@ -44,11 +53,21 @@ public class FailureClassifier {
                     || current instanceof DataIntegrityViolationException) {
                 return true;
             }
+            if (current instanceof SQLException sql && isRowDeterminedSqlState(sql.getSQLState())) {
+                return true;
+            }
             if (current.getCause() == current) {
                 break;
             }
         }
         return false;
+    }
+
+    /** SQLSTATE classes whose verdict depends only on the row being written (DL-168). */
+    static boolean isRowDeterminedSqlState(String sqlState) {
+        return sqlState != null
+                && sqlState.length() == 5
+                && (sqlState.startsWith("22") || sqlState.startsWith("54"));
     }
 
     /**

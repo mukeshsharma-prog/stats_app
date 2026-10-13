@@ -1,17 +1,25 @@
 # Fixture catalogue
 
 Built 18 August 2026 in answer to Q11a. **Rebuilt on the production wire format 29 August 2026
-(ADR-007).** 93 fixture files — 91 individual fixtures plus the two combined bundles
+(ADR-007).** 100 fixture files — 98 individual fixtures plus the two combined bundles
 (`valid/approved-types.json` and `invalid/validation-failures.json`), which are kept so nothing that
 already references them breaks.
 
-Run `python3 ../validate-fixtures.py` from `docs/schemas/` to assert the whole set. It checks 117
+Run `python3 ../validate-fixtures.py` from `docs/schemas/` to assert the whole set. It checks 124
 assertions and exits non-zero on any mismatch, so CI can gate on it.
 
-Those 117 are **98 schema cases plus 19 `$expect` markers** — 5 `input-reject`, 3 `writer-dlq`,
+Those 124 are **103 schema cases plus 21 `$expect` markers** — 7 `input-reject`, 3 `writer-dlq`,
 6 `writer-range-reject` and 5 `writer-skip`. The Java parity test (`SchemaFixtureParityTest`)
-mirrors the 98 schema cases only, so the two numbers differing is correct and deliberate — do not
+mirrors the 103 schema cases only, so the two numbers differing is correct and deliberate — do not
 "fix" one to match the other.
+
+**+7 on 13 October 2026 — nothing answered 2xx that cannot be stored (DL-168).** Three envelope
+bounds in `invalid/` (`envelope-uid-too-long.json`, `envelope-tenant-blank.json`,
+`envelope-version-too-large.json`), two `input-reject` edges (`edge/envelope-unstorable-character.json`,
+`edge/envelope-server-clock-ahead.json`) and two parser inputs (`malformed/invalid-utf8.json`,
+`malformed/trailing-content.json`). Each one used to be answered 200 and then dead-lettered permanently
+— or, for a long `uid`, answered 503 forever. Files **93 → 100**, schema cases **98 → 103**, markers
+**19 → 21**, assertions **117 → 124**.
 
 **+2 on 9 October 2026 — supplied LTE/netstats exports.**
 `valid/ltestats-live-2026-10-09.json` preserves the full measured LTE key set without
@@ -178,6 +186,9 @@ envelope and must **not** be 400'd.
 | `envelope-clsbox-too-short.json`, `envelope-clsbox-not-hex.json` | The 12-hex-character `clsbox` rule. Renamed with the field on 29 Aug 2026 (ADR-007 §1) |
 | `envelope-ts-in-milliseconds.json` | A millisecond timestamp is a *valid integer* — nothing fails loudly, the row just lands ~53,000 years out where retention never reaches it. The envelope's 2000–2100 bound is what makes this a 400 |
 | `envelope-unknown-type.json` | `unknown_stat_type`, and no publish — there is no queue to route it to |
+| `envelope-uid-too-long.json` | 129 characters, one over the bound the read contract already had. A `uid` over 255 UTF-8 bytes used to make Input answer **503 on every resend** — it rides as the AMQP `messageId`, a short string (DL-168) |
+| `envelope-tenant-blank.json` | A single space: present, `minLength` 1, and blank. Used to be a 200 the Writer then retried for 35½ minutes as a *transient* error (DL-168) |
+| `envelope-version-too-large.json` | 40000, past the `smallint` `record_version` column. Same history as the row above (DL-168) |
 | ~~`envelope-oms-ts-converter.json`~~ | **Moved to `valid/omsstats-ts-converter-present.json` on 29 Aug 2026** — the assertion inverted (ADR-007 §2) |
 | `netstats-missing-wwan.json` | Q4a: `eth0` and `wwan` are mandatory |
 | `netstats-counter-not-numeric.json` | Counters are strings but digits-only, so this fails at ingest instead of failing a cast at query time |
@@ -191,11 +202,13 @@ envelope and must **not** be 400'd.
 | `<type>-late-arrival.json` | `ts.device` 95 days old, `ts.server` current — a gateway back from a long outage. No live partition exists, and none ever will: the record only gets older. `$expect: "writer-skip"`, `$expectCode: "expired_on_arrival"` — the Writer **skips** the write, meters `records_expired_on_arrival{type}`, logs at `WARN` and **ACKs**. **Never dead-lettered:** the record is valid, the DLQ never expires anything (ADR-002 §12), and a redrive would re-derive the same verdict forever. **SIGNED 4 Sep 2026 (D5b → DL-112), BUILT 10 Sep 2026 (T-026, DL-133)** |
 | `<type>-retention-boundary-inside.json` | 89 days old — one day inside the window. **Must be stored.** Pairs with the above to test both sides |
 | `<type>-replay-duplicate.json` | Byte-identical `uid` and `ts.device` to the valid fixture. Models a Heimdal replay or a crash between commit and ACK. `ON CONFLICT DO NOTHING` makes it a no-op that increments `duplicates_total` |
+| `envelope-unstorable-character.json` | A U+0000 inside an unknown `data` member — valid JSON, accepted by every schema, and impossible for PostgreSQL to store (`text` 22021, `jsonb` 22P05). **`$expect: "input-reject"`, `$expectCode: "unstorable_character"`** (DL-168). Unpaired surrogates are the same case and are covered in `EnvelopeGateTest` |
+| `envelope-server-clock-ahead.json` | `ts.server` = `ts.device` in December 2099: inside the 2000–2100 bound, and passes Q14a because the two clocks agree. **`$expect: "input-reject"`, `$expectCode: "server_clock_ahead"`** — `ts.server` is checked against Input's own clock, tolerance `stats.input.validation.max-server-clock-ahead` (`PT1H`). Used to be a 200 that found no partition (DL-168) |
 | `<type>-clock-skew-future.json` | `ts.device` an hour ahead of `ts.server`. **Decided 29 Aug 2026 (Q14a, ADR-003 D9): rejected at Input with 400 `clock_skew_exceeded`**, metered as `records_clock_skew_rejected`. Tolerance is `stats.input.validation.max-clock-skew`, default `PT5M`. The files stay here and stay **schema-valid** — the check compares two fields, which JSON Schema cannot do — and carry `$expect: "input-reject"` + `$expectCode`, which `validate-fixtures.py` asserts |
 
 ## `malformed/` — the parser layer, before validation runs
 
-Eight inputs that are not valid JSON documents, and two that are not `.json` at all. See
+Ten inputs that are not valid JSON documents, and two that are not `.json` at all. See
 [`malformed/README.md`](malformed/README.md) for the expected status code of each.
 
 ## 8 October 2026 — LTE/netstats implementation

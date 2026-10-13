@@ -61,6 +61,10 @@ public sealed interface GateResult {
         /** The envelope schema rejected it, or the stat type is unknown. */
         INVALID_ENVELOPE,
         /** {@code ts.device} is beyond the configured tolerance (Q14a). */
-        CLOCK_SKEW_EXCEEDED
+        CLOCK_SKEW_EXCEEDED,
+        /** U+0000 or an unpaired surrogate: valid JSON PostgreSQL cannot store (DL-168). */
+        UNSTORABLE_CHARACTER,
+        /** {@code ts.server} is ahead of real time beyond the tolerance (DL-168). */
+        SERVER_CLOCK_AHEAD
     }
 }

@@ -261,6 +261,37 @@ tests:
         alertname: StatsAppLateArrival
         exp_alerts: []
 
+  # ---- Unconfirmed failure hand-off (DL-168) ------------------------------------
+  - name: an unconfirmed hand-off pages within the window and clears after it
+    interval: 1m
+    input_series:
+      - series: 'records_handoff_unconfirmed_total{type="sysstats",instance="writer-a"}'
+        values: '0x10 1x30'
+    alert_rule_test:
+      - eval_time: 9m
+        alertname: StatsAppFailureHandoffUnconfirmed
+        exp_alerts: []
+      - eval_time: 12m
+        alertname: StatsAppFailureHandoffUnconfirmed
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              type: sysstats
+            exp_annotations:
+              summary: "Stats App sysstats: 1 failed record(s) could not be handed to a retry tier or the DLQ in 5 minutes"
+              description: >-
+                The broker did not confirm the retry or dead-letter copy of a failed
+                sysstats record, so the original was returned to its main queue
+                instead. Nothing is lost, but nothing that needs the failure arm progresses,
+                and the requeue pause slows this type's consumption. Check that
+                app_statsstore.sysstats.retry.1-3 and .dlq exist and are bound to
+                app_stats_dlx, and the broker's memory and disk alarms. Restarting the
+                Writer redeclares missing queues.
+              runbook: claude/SKILLS.md#skill-4--diagnose-a-stuck-or-growing-queue
+      - eval_time: 25m
+        alertname: StatsAppFailureHandoffUnconfirmed
+        exp_alerts: []
+
   # ---- Upstream status ---------------------------------------------------------
   - name: five percent not-OK for a sustained hour breaches the provisional one percent
     interval: 1m

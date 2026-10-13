@@ -76,7 +76,7 @@ class LtestatsConsumerTest {
     }
 
     @Test
-    void leavesTheDeliveryUnacknowledgedWhenTheHandOffCannotBeConfirmed() throws Exception {
+    void returnsTheDeliveryToItsQueueWhenTheHandOffCannotBeConfirmed() throws Exception {
         Channel channel = mock(Channel.class);
         Message message = delivery(73L);
         IllegalStateException failure = new IllegalStateException("database transaction failed");
@@ -86,9 +86,17 @@ class LtestatsConsumerTest {
                 new UnconfirmedHandoffException("retry copy was not confirmed");
         doThrow(unconfirmed).when(router).route(StatType.LTESTATS, message, failure);
 
-        assertThatThrownBy(() -> consumer.consume(message, channel)).isSameAs(unconfirmed);
+        consumer.consume(message, channel);
 
-        verifyNoInteractions(channel);
+        // Never ACKed — the onward copy may not exist. And not left unacknowledged on the
+        // open channel either: in MANUAL mode the container never returns it, so it was
+        // not redelivered at all and held a prefetch slot for good (DL-168). The router
+        // returns it to its queue after a pause.
+        InOrder order = inOrder(router);
+        order.verify(router).route(StatType.LTESTATS, message, failure);
+        order.verify(router).requeueUnconfirmed(StatType.LTESTATS, message, channel);
+        org.mockito.Mockito.verify(channel, org.mockito.Mockito.never())
+                .basicAck(org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.anyBoolean());
         assertAttemptMetered();
     }
 

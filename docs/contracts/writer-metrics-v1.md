@@ -21,6 +21,7 @@ from the untrusted payload. Prometheus counters add `_total`; timer exports use 
 | `records_processing_duration` | Time from listener entry through processing, failure hand-off if needed, and the ACK attempt. Recorded on every exit, including unconfirmed hand-offs. Excludes time waiting on the queue and retry-tier TTL. |
 | `records_postgres_errors` | One failed record write with a SQL, Spring data-access or transaction exception in its bounded cause chain. Includes connection and commit failures; excludes mapping and validation failures, which are `records_payload_rejected{reason="unmappable"}` (DL-126). |
 | `records_write_failed` | All failed INSERT attempts. Database errors also increment this aggregate — do not sum the two as disjoint. |
+| `records_handoff_unconfirmed` | One failed delivery whose retry or DLQ copy the broker did not confirm (nack, timeout, returned as unroutable, connection lost), so the original was nacked **with requeue** after `stats.amqp.unconfirmed-handoff-requeue-delay` instead of being ACKed. Registered at zero for every type at startup. Any increase means the failure arm itself is broken; `StatsAppFailureHandoffUnconfirmed` pages on it (DL-168). |
 
 No payload, `uid`, `tenant`, `clsbox`, exception message or SQL text is a metric label.
 Database failures are counted per failed record attempt, not per nested exception.

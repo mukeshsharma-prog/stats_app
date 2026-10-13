@@ -107,8 +107,11 @@ public class StatsIngestController {
 
         if (result instanceof GateResult.Rejected rejected) {
             switch (rejected.reason()) {
-                case CLOCK_SKEW_EXCEEDED -> metrics.clockSkewRejected(rejected.statType(), source);
-                case MALFORMED_JSON, INVALID_ENVELOPE ->
+                // A sending clock ahead of real time is a clock fault like Q14a's, so it
+                // shares that counter; the field code tells the two apart (DL-168).
+                case CLOCK_SKEW_EXCEEDED, SERVER_CLOCK_AHEAD ->
+                        metrics.clockSkewRejected(rejected.statType(), source);
+                case MALFORMED_JSON, INVALID_ENVELOPE, UNSTORABLE_CHARACTER ->
                         metrics.validationFailed(rejected.statType(), source);
             }
             return problem(rejected.problem());

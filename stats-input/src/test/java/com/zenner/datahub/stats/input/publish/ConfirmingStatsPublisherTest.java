@@ -63,6 +63,19 @@ class ConfirmingStatsPublisherTest {
      * copies the way {@code correlationId} does, and the body stays byte-identical.
      */
     @Test
+    @DisplayName("a uid that cannot be an AMQP short string is not sent as messageId — DL-168")
+    void omitsAMessageIdTheBrokerCannotCarry() {
+        // 255 ASCII bytes fit; 256 do not; 128 two-byte characters are 256 bytes. Before
+        // DL-168 the oversize value failed the publish and Input answered 503 on every
+        // resend of a record that could never succeed.
+        String fits = "a".repeat(ConfirmingStatsPublisher.MAX_SHORT_STRING_BYTES);
+        assertThat(ConfirmingStatsPublisher.messageId(fits)).isEqualTo(fits);
+        assertThat(ConfirmingStatsPublisher.messageId(fits + "a")).isNull();
+        assertThat(ConfirmingStatsPublisher.messageId("é".repeat(128))).isNull();
+        assertThat(ConfirmingStatsPublisher.messageId("CLSCON-1")).isEqualTo("CLSCON-1");
+    }
+
+    @Test
     @DisplayName("every published message carries its publish time as the AMQP timestamp")
     void stampsThePublishTimeOnTheMessage() {
         java.util.concurrent.atomic.AtomicReference<Message> sent = new java.util.concurrent.atomic.AtomicReference<>();

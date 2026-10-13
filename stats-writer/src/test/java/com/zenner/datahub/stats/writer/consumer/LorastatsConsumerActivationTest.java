@@ -43,6 +43,7 @@ class LorastatsConsumerActivationTest {
                                             Duration.ofMinutes(5),
                                             Duration.ofMinutes(30)),
                                     3,
+                                    Duration.ofSeconds(5),
                                     Duration.ofSeconds(5)))
             .withBean(FailedDeliveryRouter.class, () -> mock(FailedDeliveryRouter.class))
             .withPropertyValues(

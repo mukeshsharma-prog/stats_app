@@ -1,0 +1,23 @@
+{
+  "uid": "a1a1a1a1-a1001-4a101-8a101-a1a1a1a1a1a1",
+  "tenant": "tenant-alpha",
+  "maintenant": "management-parent",
+  "clsbox": "A1B2C3D4E5F6",
+  "type": "sysstats",
+  "ts": {
+    "server": 4102444000,
+    "device": 4102444000
+  },
+  "data": {
+    "memfree": 56812,
+    "uptime": 955641.36,
+    "idletime": 3632478.13,
+    "load1": 0.41,
+    "load5": 0.42,
+    "load15": 0.38,
+    "runable": "2/139"
+  },
+  "$expect": "input-reject",
+  "$expectCode": "server_clock_ahead",
+  "$comment": "Schema-VALID (both timestamps are inside the 2000..2100 epochSeconds bound, and ts.device is not ahead of ts.server, so the Q14a skew rule passes) and REJECTED by stats-input with 400 server_clock_ahead, because ts.server is further ahead of Input's own clock than stats.input.validation.max-server-clock-ahead allows (DL-168). Q14a compares the two record clocks and nothing compared ts.server with real time: a record stamped decades ahead was answered 200, found no partition (SQLSTATE 23514) and was dead-lettered as permanent."
+}

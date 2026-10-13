@@ -5837,3 +5837,141 @@ bodies) print payloads at levels our own code never uses.
 * V8's column comment still reads "policy remains D-12"; the decision lives here.
 * Q15g's "zero netstats records" in `claude/CLAUDE.md` §7 is contradicted by DL-165's
   1,000-record export and is not reconciled by this entry.
+
+### DL-168 — Nothing is answered 2xx that PostgreSQL cannot store, and the failure arm cannot strand a delivery
+
+**13 Oct 2026** · `CORRECTNESS` · `OPERATIONS` · STA-03A, STA-04A, STA-12, STA-25A, ADR-002 §9/§12, ADR-005, ADR-007 §5, DL-133, DL-138, DL-154 · T-013, T-024, T-052, T-062
+
+**Trigger.** A whole-codebase probe: the full suite uncached (1,173 green), every CI gate,
+and crafted records posted to the running dev stack and to the then-current jars against
+scratch infrastructure. Nine defects survived a green build; every one was reproduced end
+to end before it was fixed.
+
+1. **A `uid` over 255 UTF-8 bytes was answered 503 forever.** Input copies the `uid` into
+   the AMQP `messageId`, a short string; the publish failed on the client, every resend
+   failed the same way, and Heimdal retries every non-2xx (255 bytes → 200, 256 → 503).
+2. **An unconfirmed retry/DLQ hand-off stranded the delivery.** The consumer rethrew; in
+   `MANUAL` ack mode Spring AMQP neither acks nor nacks a delivery whose listener threw
+   (`BlockingQueueConsumer.rollbackOnExceptionIfNecessary`), so it stayed unacknowledged on
+   the open channel: never redelivered, one prefetch slot gone. Reproduced by deleting a
+   DLQ: two records sat unacked indefinitely while good ones flowed — until `prefetch`
+   of them, when the consumer receives nothing. On a confirm *timeout* (broker resource
+   alarm) every gauge reads normally. The consumer tests asserted this behaviour, with a
+   comment expecting "a hot redelivery loop" that never happened.
+3. **Permanent failures were retried 35½ minutes.** `version` > 32767 and a whitespace-only
+   `uid`/`tenant`/`maintenant` passed the schema and threw `IllegalArgumentException` in all
+   five writers — transient by the classifier's default. A random 5,000-character `tenant`
+   overflowed the 2,704-byte btree row (SQLSTATE 54000), which Spring translates to
+   `DataAccessResourceFailureException` — also transient. All three dead-lettered as
+   `permanent=false` after the full tier walk. DL-154's class of bug, in three new places.
+4. **Records answered 200 that no redrive can ever store:** U+0000 anywhere (text 22021,
+   jsonb 22P05 — including unknown `data` members and `meta`); invalid UTF-8 (Input decoded
+   with `new String(body, UTF_8)`, replacing the byte with U+FFFD, while the Writer parsed
+   the raw bytes and refused them); and `ts.server` in the future — Q14a compares the
+   record's two clocks with each other, so both 30 days ahead passed, found no partition
+   (23514) and dead-lettered.
+5. **One record at the head of a DLQ blocked redrive for the whole type.** The command
+   aborted on the first record it refused and nacked it back to the head, so every later
+   run aborted on it. The DLQ is FIFO and never expires anything (ADR-002 §12), so its
+   oldest record is exactly the one that ages out of the window first.
+6. A `uid` of 129–255 characters was stored and never readable — the read contract caps it
+   at 128.
+7. Input's parse was lenient: content after the record was ignored and a duplicated member
+   resolved to whichever copy Jackson kept (a second `tenant` was stored). `malformed/
+   README.md` already said duplicates should be rejected "where the parser can detect it".
+8. No statement timeout on any API read.
+9. The redrive command computed its own cutoff (`now − days`), a second definition beside
+   `RetentionWindow` — conservative by up to a day, but against DL-133.
+
+**Decision — the approver's (Naman Vashishtha, 13 Oct 2026).** U+0000 is refused **at
+Input with 400**, not stripped by the Writer (which would store something other than what
+Heimdal sent, against ADR-004) and not left to the DLQ. Unpaired surrogates are the same
+case and get the same answer.
+
+**Decision — engineering.**
+* **The envelope bounds what the Writer can store, so Input says 400 where it can.**
+  `uid`, `tenant`, `maintenant`: `maxLength` 128 and `pattern` `\S` (ECMAScript via Joni,
+  so Java and the Python gate agree); `version`: `maximum` 32767. `openapi.yaml`'s envelope
+  carries the same bounds. 128 is the read contract's existing bound, and far above every
+  real value (production `uid`s are 43 characters).
+* **`EnvelopeGate`** parses the **bytes** through a strict reader
+  (`FAIL_ON_TRAILING_TOKENS`, `STRICT_DUPLICATE_DETECTION`) — only for this parse; the
+  shared mapper and the Writer stay lenient so nothing already queued starts failing. After
+  the schema it walks every member name and string value: U+0000 or an unpaired surrogate is
+  `unstorable_character`, reported at the value's pointer or, for a bad member name, its
+  parent's, so the pointer never carries the offending text. Then `ts.server` beyond
+  `stats.input.validation.max-server-clock-ahead` (`PT1H`, no default in code) of an
+  injected `Clock` is `server_clock_ahead`, metered with the skew rejections. A UTF-8 BOM is
+  now accepted (Jackson skips it on bytes, as the Writer does) where it used to be a 400.
+* **`messageId` is omitted when the `uid` exceeds 255 UTF-8 bytes** — 128 non-ASCII
+  characters still can. The Writer only seeds its log scope from it and binds the `uid`
+  from the record.
+* **An unconfirmed hand-off is nacked with requeue, after a pause.**
+  `FailedDeliveryRouter.requeueUnconfirmed`: count `records_handoff_unconfirmed{type}`
+  (registered at zero for every type), log `handoff_unconfirmed` at ERROR, sleep
+  `stats.amqp.unconfirmed-handoff-requeue-delay` (`PT5S`, must be positive — rule 5), then
+  `basicNack(requeue=true)`. Interrupted during the pause it leaves the delivery for the
+  closing channel. Sleeping on the listener thread is deliberate: it slows a type whose
+  failure arm is broken. `StatsAppFailureHandoffUnconfirmed` (critical) pages on any
+  increase in 5 minutes; promtool-tested.
+* **Permanent means permanent.** The writers' `version` and blank-identifier refusals throw
+  `PermanentFailureException`. `FailureClassifier` treats SQLSTATE class `22` (data
+  exception) and `54` (program limit exceeded) as permanent, read from the `SQLException`
+  itself rather than through Spring's translation. The default stays *retry*.
+* **Redrive skips and continues.** A record it will not move (`outside_retention_window`,
+  `type_mismatch`, `no_ts_device`, `not_json`) is held unacknowledged for the rest of the
+  run, printed as `record_skipped` with a constant reason and the body hash, and nacked
+  back to the DLQ at its original position at the end; `redrive_completed` reports `moved`
+  and `skipped`. A failed publish still aborts. The cutoff is
+  `RetentionWindow.cutoffFor(clock, days)`, which the guard's `cutoff(type)` now also uses.
+* **API reads: `statement_timeout = 10s`** via the pgjdbc `options` property; a cancelled
+  statement is a transient data-access failure, already 503. **Not on the Writer**, whose
+  pool runs `DETACH … CONCURRENTLY` — an interrupted detach wedges retention (§6).
+
+**Why.** Heimdal retries only a non-2xx. A record that can never be stored is better
+refused where the sender is still listening than accepted into a queue that never expires
+and that no redrive can drain. ADR-007 §5 still holds: a *payload-schema* failure is still
+accepted and dead-lettered, because there the mistake may be ours and a redrive can fix
+it. None of this DL's 400s can be fixed on our side — PostgreSQL's limits are not a schema
+we got wrong.
+
+**Rejected.** *Stripping U+0000 at the Writer* — the approver chose 400. *Defaulting the
+classifier to permanent*, or *every `IllegalArgumentException` permanent* — the first
+dead-letters what a 30-second wait would have stored; the second is too broad, since
+library code throws it for transient reasons. *Leaving the delivery unacked and closing
+the channel* — returns every in-flight delivery on that channel, not the one that failed.
+*An immediate requeue* — a hot loop on a failure that usually persists (rule 5).
+*Restricting `uid` to ASCII* — "ZC guarantees uniqueness, not a shape"; the byte guard
+costs nothing. *A Writer statement timeout* — see above. *A tool that deletes single DLQ
+messages* — disposition stays an approved, separate act.
+
+**Verification.** Full build `--rerun-tasks`: **1,213 tests, 0 failures, 0 skipped**
+(common 278, input 95, writer 557, api 267, testsupport 16; was 1,173). Fixtures **124**
+assertions, 0 failed (was 117); Java parity 98 → **103**. `redocly lint` 2.51.2 clean on
+both contracts; drift gate OK; promtool `check` and `test` green on all three rule files;
+dashboards check sees 39 application series; startup-script tests OK. **End to end on the
+rebuilt jars against scratch RabbitMQ/PostgreSQL:** every probe that used to be a 200 then
+a DLQ (or a 503) is now a 400; a BOM body, an emoji tenant and a 128-character / 256-byte
+`uid` are stored; no record reached a retry tier or a DLQ. With the DLQ deleted, poison
+records cycled every 5 s (`records_handoff_unconfirmed` 5 after 22 s) while good records
+were stored, and drained to the DLQ on restart. Redrive with an expired record ahead of a
+fresh one: `moved 1, skipped 1`, the fresh record stored, the expired one back on the DLQ.
+
+**Quiz (DL-005).** Three questions. *What happens to the original when the hand-off is not
+confirmed?* — answered correctly (nack with requeue). *Why is a payload-schema failure
+dead-lettered rather than 400'd?* — answered correctly (a 400 is unrecoverable; a DLQ copy
+can be redriven after the schema is fixed). *What is the right fix for `version: 40000`
+being retried?* — the approver answered "do what is the best approach": **waived, not
+passed.** The answer: throw `PermanentFailureException` where the specific value is
+refused, and keep the classifier's default as retry.
+
+**Residuals.**
+* `requiredText` in the writers uses Java's `isBlank`, which counts U+001C–U+001F as
+  whitespace while ECMAScript's `\s` does not; a `tenant` made only of those passes Input
+  and dead-letters permanently at the Writer. Exotic, and now permanent rather than retried.
+* While a type's failure arm is broken, its consumer pauses 5 s per failing record; with
+  many failing records good ones slow down too. Deliberate, and paged.
+* `unstorable_character` and `server_clock_ahead` are field-level codes, like
+  `clock_skew_exceeded`; the problem `type` stays `invalid_parameter`.
+* Data already on the dev stack from the probe (≈10 `PROBE-` rows, DLQ copies) is left for
+  the owner to dispose of.

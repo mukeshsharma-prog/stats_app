@@ -55,6 +55,62 @@ class FailedDeliveryRouterTest {
     private MeterRegistry meterRegistry;
     private FailedDeliveryRouter router;
 
+    @Test
+    @DisplayName("an unconfirmed hand-off is counted, paused on, then nacked WITH requeue — DL-168")
+    void requeuesAnUnconfirmedHandOffAfterThePause() throws Exception {
+        com.rabbitmq.client.Channel channel = mock(com.rabbitmq.client.Channel.class);
+        MessageProperties properties = new MessageProperties();
+        properties.setDeliveryTag(77L);
+        Message message = new Message(BODY, properties);
+
+        long started = System.nanoTime();
+        router.requeueUnconfirmed(StatType.SYSSTATS, message, channel);
+
+        // Requeue = true: the broker keeps the only copy and redelivers it. Before DL-168
+        // the delivery was left unacknowledged on the open channel instead, which in
+        // MANUAL mode is never returned — one prefetch slot lost per occurrence.
+        verify(channel).basicNack(77L, false, true);
+        verify(channel, never()).basicAck(org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.anyBoolean());
+        assertThat(Duration.ofNanos(System.nanoTime() - started))
+                .as("rule 5: never an immediate requeue")
+                .isGreaterThanOrEqualTo(Duration.ofMillis(10));
+        assertThat(meterRegistry.get(WriterFailureMetrics.HANDOFF_UNCONFIRMED)
+                        .tag("type", "sysstats").counter().count())
+                .isEqualTo(1.0);
+    }
+
+    @Test
+    @DisplayName("interrupted during the pause, the delivery is left for the closing channel")
+    void leavesTheDeliveryUnacknowledgedWhenInterruptedDuringThePause() throws Exception {
+        com.rabbitmq.client.Channel channel = mock(com.rabbitmq.client.Channel.class);
+        MessageProperties properties = new MessageProperties();
+        properties.setDeliveryTag(78L);
+        Thread.currentThread().interrupt();
+        try {
+            assertThatExceptionOfType(InterruptedException.class)
+                    .isThrownBy(
+                            () ->
+                                    router.requeueUnconfirmed(
+                                            StatType.SYSSTATS, new Message(BODY, properties), channel));
+            assertThat(Thread.currentThread().isInterrupted())
+                    .as("the interrupt is restored for the container's shutdown")
+                    .isTrue();
+        } finally {
+            Thread.interrupted();
+        }
+        org.mockito.Mockito.verifyNoInteractions(channel);
+    }
+
+    @Test
+    @DisplayName("the hand-off counter exports at zero for every type from construction")
+    void registersTheHandOffCounterUpFront() {
+        for (StatType type : StatType.values()) {
+            assertThat(meterRegistry.get(WriterFailureMetrics.HANDOFF_UNCONFIRMED)
+                            .tag("type", type.wireName()).counter().count())
+                    .isZero();
+        }
+    }
+
     @BeforeEach
     void setUp() {
         rabbitTemplate = mock(RabbitTemplate.class);
@@ -73,7 +129,8 @@ class FailedDeliveryRouterTest {
                 new WriterAmqpProperties.Retry(
                         Duration.ofSeconds(30), Duration.ofMinutes(5), Duration.ofMinutes(30)),
                 3,
-                confirmTimeout);
+                confirmTimeout,
+                Duration.ofMillis(10));
     }
 
     @ParameterizedTest

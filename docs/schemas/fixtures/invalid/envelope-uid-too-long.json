@@ -1,0 +1,21 @@
+{
+  "uid": "CLSCON-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+  "tenant": "tenant-alpha",
+  "maintenant": "management-parent",
+  "clsbox": "A1B2C3D4E5F6",
+  "type": "sysstats",
+  "ts": {
+    "server": 1787054120,
+    "device": 1787054100
+  },
+  "data": {
+    "memfree": 56812,
+    "uptime": 955641.36,
+    "idletime": 3632478.13,
+    "load1": 0.41,
+    "load5": 0.42,
+    "load15": 0.38,
+    "runable": "2/139"
+  },
+  "$comment": "uid is 129 characters, one over the envelope's maxLength of 128 (DL-168). Production uids are CLSCON-<uuid>, 43 characters. Before DL-168 a uid over 255 UTF-8 bytes was accepted by the schema and then could not ride as the AMQP messageId, so Input answered 503 on every resend; 128 is also the read contract's bound, so a longer uid was stored and could never be fetched by GET /v1/stats/{type}/{uid}."
+}

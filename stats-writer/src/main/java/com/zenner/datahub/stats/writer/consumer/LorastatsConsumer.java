@@ -3,6 +3,7 @@ package com.zenner.datahub.stats.writer.consumer;
 import com.rabbitmq.client.Channel;
 import com.zenner.datahub.stats.writer.metrics.QueueAgeMetrics;
 import com.zenner.datahub.stats.writer.retry.FailedDeliveryRouter;
+import com.zenner.datahub.stats.writer.retry.UnconfirmedHandoffException;
 import com.zenner.datahub.stats.writer.log.WriterLogContext;
 import java.util.Objects;
 import io.micrometer.core.instrument.Counter;
@@ -89,7 +90,15 @@ public final class LorastatsConsumer {
                 Thread.currentThread().interrupt();
                 throw shutdown;
             } catch (Exception failure) {
-                failedDeliveryRouter.route(LorastatsConsumerDescriptor.TYPE, message, failure);
+                try {
+                    failedDeliveryRouter.route(LorastatsConsumerDescriptor.TYPE, message, failure);
+                } catch (UnconfirmedHandoffException unconfirmed) {
+                    // The onward copy may not exist, so the original must not be ACKed —
+                    // and must not be stranded unacknowledged either (DL-168).
+                    failedDeliveryRouter.requeueUnconfirmed(
+                            LorastatsConsumerDescriptor.TYPE, message, channel);
+                    return;
+                }
                 channel.basicAck(message.getMessageProperties().getDeliveryTag(), false);
                 return;
             }

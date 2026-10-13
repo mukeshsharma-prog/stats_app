@@ -21,6 +21,7 @@ public class WriterFailureMetrics {
 
     public static final String RETRIED = "records_retried";
     public static final String DEAD_LETTERED = "records_dead_lettered";
+    public static final String HANDOFF_UNCONFIRMED = "records_handoff_unconfirmed";
 
     private final MeterRegistry meterRegistry;
 
@@ -39,6 +40,33 @@ public class WriterFailureMetrics {
     }
 
     /** A delivery retired to the type's DLQ — retries exhausted, or permanent. */
+    /**
+     * Registers {@link #HANDOFF_UNCONFIRMED} for {@code statType} at zero, so the alert
+     * that reads it has a series from the first scrape (DL-158).
+     */
+    public void registerFor(StatType statType) {
+        handoffUnconfirmedCounter(statType);
+    }
+
+    /**
+     * A failed delivery whose retry or DLQ copy the broker did not confirm, so the
+     * original was returned to its main queue (DL-168). Non-zero means the failure arm
+     * itself is broken — a missing queue, a broker refusing publishes — and every record
+     * that needs it is cycling instead of progressing.
+     */
+    public void handoffUnconfirmed(StatType statType) {
+        handoffUnconfirmedCounter(statType).increment();
+    }
+
+    private Counter handoffUnconfirmedCounter(StatType statType) {
+        return Counter.builder(HANDOFF_UNCONFIRMED)
+                .description(
+                        "Failed deliveries returned to their main queue because the retry or "
+                                + "DLQ copy was not confirmed")
+                .tag("type", statType.wireName())
+                .register(meterRegistry);
+    }
+
     public void deadLettered(StatType statType, String reason) {
         Counter.builder(DEAD_LETTERED)
                 .description("Records routed to the per-type dead-letter queue")

@@ -16,15 +16,23 @@
     "uid": {
       "type": "string",
       "minLength": 1,
-      "$comment": "Production sends CLSCON-<uuid>, not a bare UUID. No format is enforced: ZC guarantees uniqueness, not a shape, and a UUID pattern would reject every record production actually sends. Uniqueness is enforced in PostgreSQL by PRIMARY KEY (ts_device, uid), scoped PER PARTITION - a global unique index is not creatable on a table partitioned by ts_device (ADR-003, G2)."
+      "maxLength": 128,
+      "pattern": "\\S",
+      "$comment": "Production sends CLSCON-<uuid>, not a bare UUID. No format is enforced: ZC guarantees uniqueness, not a shape, and a UUID pattern would reject every record production actually sends. Uniqueness is enforced in PostgreSQL by PRIMARY KEY (ts_device, uid), scoped PER PARTITION - a global unique index is not creatable on a table partitioned by ts_device (ADR-003, G2). 13 Oct 2026 (DL-168): at most 128 characters and at least one non-whitespace character. Before this a whitespace-only value passed the schema, Input answered 200, and the Writer refused it as a transient error - 35.5 minutes of retries, then the DLQ - while a long random value overflowed PostgreSQL's 2,704-byte btree row (SQLSTATE 54000) on the (tenant, clsbox, ts_device, uid) and (tenant, uid) indexes. 128 is the read contract's bound (openapi.yaml), so nothing is stored that the API cannot return. For uid specifically: a uid over 255 UTF-8 bytes could not ride as the AMQP messageId, and Input answered 503 on every resend - a record Heimdal retries forever."
     },
     "tenant": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "\\S",
+      "$comment": "13 Oct 2026 (DL-168): at most 128 characters and at least one non-whitespace character. Before this a whitespace-only value passed the schema, Input answered 200, and the Writer refused it as a transient error - 35.5 minutes of retries, then the DLQ - while a long random value overflowed PostgreSQL's 2,704-byte btree row (SQLSTATE 54000) on the (tenant, clsbox, ts_device, uid) and (tenant, uid) indexes. 128 is the read contract's bound (openapi.yaml), so nothing is stored that the API cannot return."
     },
     "maintenant": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "\\S",
+      "$comment": "13 Oct 2026 (DL-168): at most 128 characters and at least one non-whitespace character. Before this a whitespace-only value passed the schema, Input answered 200, and the Writer refused it as a transient error - 35.5 minutes of retries, then the DLQ - while a long random value overflowed PostgreSQL's 2,704-byte btree row (SQLSTATE 54000) on the (tenant, clsbox, ts_device, uid) and (tenant, uid) indexes. 128 is the read contract's bound (openapi.yaml), so nothing is stored that the API cannot return."
     },
     "clsbox": {
       "type": "string",
@@ -39,7 +47,8 @@
     "version": {
       "type": "integer",
       "minimum": 1,
-      "$comment": "Production sends version:1 on every record. It is accepted and stored, and it is NOT a payload discriminator: all three incompatible lorastats payload dialects observed on 29 Aug 2026 carry version:1. Never branch a parser on this field (ADR-007 §4)."
+      "maximum": 32767,
+      "$comment": "Production sends version:1 on every record. It is accepted and stored, and it is NOT a payload discriminator: all three incompatible lorastats payload dialects observed on 29 Aug 2026 carry version:1. Never branch a parser on this field (ADR-007 §4). 13 Oct 2026 (DL-168): maximum 32767, the smallint record_version column; a larger value used to pass Input and then fail the Writer's narrowing as a transient error."
     },
     "status": {
       "type": "array",

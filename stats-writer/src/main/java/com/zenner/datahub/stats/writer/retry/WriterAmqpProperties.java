@@ -28,11 +28,14 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * safe but stuck.</p>
  */
 @ConfigurationProperties(prefix = "stats.amqp")
-public record WriterAmqpProperties(Retry retry, int maxRetries, Duration confirmTimeout) {
+public record WriterAmqpProperties(
+        Retry retry, int maxRetries, Duration confirmTimeout, Duration unconfirmedHandoffRequeueDelay) {
 
     public WriterAmqpProperties {
         Objects.requireNonNull(retry, "stats.amqp.retry");
         Objects.requireNonNull(confirmTimeout, "stats.amqp.confirm-timeout");
+        Objects.requireNonNull(
+                unconfirmedHandoffRequeueDelay, "stats.amqp.unconfirmed-handoff-requeue-delay");
         if (maxRetries < 1 || maxRetries > AmqpTopology.RETRY_TIERS) {
             throw new IllegalArgumentException(
                     "stats.amqp.max-retries must be between 1 and "
@@ -45,6 +48,12 @@ public record WriterAmqpProperties(Retry retry, int maxRetries, Duration confirm
             throw new IllegalArgumentException(
                     "stats.amqp.confirm-timeout must be positive — the retry/DLQ hand-off is "
                             + "ACKed only after it is confirmed (ADR-005)");
+        }
+        if (unconfirmedHandoffRequeueDelay.isZero() || unconfirmedHandoffRequeueDelay.isNegative()) {
+            throw new IllegalArgumentException(
+                    "stats.amqp.unconfirmed-handoff-requeue-delay must be positive — an "
+                            + "unconfirmed hand-off is requeued, and an immediate requeue of a "
+                            + "failure that persists is a hot loop (G4, DL-168)");
         }
     }
 

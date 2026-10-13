@@ -62,8 +62,26 @@ class WriterAmqpPropertiesTest {
                                                 Duration.ofMinutes(5),
                                                 Duration.ofMinutes(30)),
                                         3,
-                                        Duration.ZERO))
+                                        Duration.ZERO,
+                                        Duration.ofSeconds(5)))
                 .withMessageContaining("stats.amqp.confirm-timeout");
+    }
+
+    @Test
+    @DisplayName("a zero unconfirmed-hand-off requeue delay refuses to start — rule 5, DL-168")
+    void unconfirmedHandoffRequeueDelayMustBePositive() {
+        assertThatIllegalArgumentException()
+                .isThrownBy(
+                        () ->
+                                new WriterAmqpProperties(
+                                        new WriterAmqpProperties.Retry(
+                                                Duration.ofSeconds(30),
+                                                Duration.ofMinutes(5),
+                                                Duration.ofMinutes(30)),
+                                        3,
+                                        Duration.ofSeconds(5),
+                                        Duration.ZERO))
+                .withMessageContaining("unconfirmed-handoff-requeue-delay");
     }
 
     private static WriterAmqpProperties properties(int maxRetries) {
@@ -71,6 +89,7 @@ class WriterAmqpPropertiesTest {
                 new WriterAmqpProperties.Retry(
                         Duration.ofSeconds(30), Duration.ofMinutes(5), Duration.ofMinutes(30)),
                 maxRetries,
+                Duration.ofSeconds(5),
                 Duration.ofSeconds(5));
     }
 }

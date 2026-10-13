@@ -77,7 +77,22 @@ public class RetentionWindow {
      * records before it have no live partition.
      */
     public Instant cutoff(StatType type) {
-        return cutoffDay(type).atStartOfDay(ZoneOffset.UTC).toInstant();
+        Objects.requireNonNull(type, "type");
+        return cutoffFor(clock, properties.retentionDaysFor(type));
+    }
+
+    /**
+     * The cutoff for a window of {@code retentionDays} on {@code clock}'s UTC day — the
+     * arithmetic above, for a caller with no Spring context. The DLQ redrive command reads
+     * it (DL-168): before that it computed {@code now − days}, a second definition that
+     * disagreed with the guard by up to a day.
+     */
+    public static Instant cutoffFor(Clock clock, int retentionDays) {
+        Objects.requireNonNull(clock, "clock");
+        return LocalDate.now(clock.withZone(ZoneOffset.UTC))
+                .minusDays(retentionDays)
+                .atStartOfDay(ZoneOffset.UTC)
+                .toInstant();
     }
 
     /**

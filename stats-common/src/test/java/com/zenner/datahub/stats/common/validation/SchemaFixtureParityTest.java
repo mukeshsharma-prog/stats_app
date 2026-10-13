@@ -47,8 +47,8 @@ class SchemaFixtureParityTest {
     }
 
     @Test
-    void expandsToTheSameNinetyEightOutcomesAsThePythonOracle() {
-        assertThat(fixtureCases()).hasSize(98);
+    void expandsToTheSameHundredAndThreeOutcomesAsThePythonOracle() {
+        assertThat(fixtureCases()).hasSize(103);
         assertThat(fixtureCases())
                 .extracting(arguments -> (String) arguments.get()[0])
                 .noneMatch(description -> description.contains("malformed/"));
@@ -98,6 +98,12 @@ class SchemaFixtureParityTest {
      * <em>integer</em> rather than a digit string — schema-valid because JSON Schema's
      * {@code integer} has no width, refused by the Writer before the narrowing conversion.
      * Fifteen markers; the Python gate reports 107.</p>
+     *
+     * <p>98 → 103 on 13 Oct 2026 (DL-168): three envelope bounds in {@code invalid/} — a
+     * 129-character {@code uid}, a blank {@code tenant}, a {@code version} past the
+     * {@code smallint} column — and two {@code input-reject} edges, a U+0000 character
+     * ({@code unstorable_character}) and a {@code ts.server} decades ahead of Input's clock
+     * ({@code server_clock_ahead}). The Python gate reports 124.</p>
      */
     static List<Arguments> fixtureCases() {
         List<Path> files = new ArrayList<>();

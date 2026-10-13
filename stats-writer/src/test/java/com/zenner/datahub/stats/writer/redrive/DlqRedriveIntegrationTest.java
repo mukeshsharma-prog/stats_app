@@ -83,7 +83,7 @@ class DlqRedriveIntegrationTest {
             client.setUsername(user);
             client.setPassword(password);
             try (var connection = client.newConnection(); var channel = connection.createChannel()) {
-                int moved = DlqRedriveCommand.redrive(
+                DlqRedriveCommand.Result result = DlqRedriveCommand.redrive(
                         channel,
                         new DlqRedriveCommand.Options(
                                 TYPE,
@@ -93,7 +93,8 @@ class DlqRedriveIntegrationTest {
                                 5_000,
                                 "INC-123",
                                 true));
-                assertThat(moved).isEqualTo(1);
+                assertThat(result.moved()).isEqualTo(1);
+                assertThat(result.skipped()).isZero();
             }
         } finally {
             assertThat(RabbitSupport.container().execInContainer("rabbitmqctl", "delete_user", user)

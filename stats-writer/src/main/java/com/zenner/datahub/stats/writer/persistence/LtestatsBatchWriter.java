@@ -331,14 +331,17 @@ public final class LtestatsBatchWriter implements StatsBatchWriter {
             return null;
         }
         if (version < Short.MIN_VALUE || version > Short.MAX_VALUE) {
-            throw new IllegalArgumentException("version does not fit the record_version column");
+            // Permanent: no redelivery changes the value (DL-168). The envelope refuses it at
+            // Input now; this is the backstop for anything already queued.
+            throw new PermanentFailureException("version does not fit the record_version column");
         }
         return version.shortValue();
     }
 
     private static String requiredText(String value, String field) {
         if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(field + " must be present");
+            // Permanent, as above (DL-168): the envelope requires a non-blank value now.
+            throw new PermanentFailureException(field + " must be present");
         }
         return value;
     }

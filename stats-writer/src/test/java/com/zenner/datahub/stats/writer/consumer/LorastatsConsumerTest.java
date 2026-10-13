@@ -81,7 +81,7 @@ class LorastatsConsumerTest {
     }
 
     @Test
-    void leavesTheDeliveryUnacknowledgedWhenTheHandOffCannotBeConfirmed() throws Exception {
+    void returnsTheDeliveryToItsQueueWhenTheHandOffCannotBeConfirmed() throws Exception {
         StatsMessageProcessor processor = mock(StatsMessageProcessor.class);
         StatsMessageProcessorAvailability availability =
                 mock(StatsMessageProcessorAvailability.class);
@@ -100,11 +100,17 @@ class LorastatsConsumerTest {
                 .route(StatType.LORASTATS, message, failure);
         LorastatsConsumer consumer = new LorastatsConsumer(availability, router, registry, queueAge);
 
-        assertThatThrownBy(() -> consumer.consume(message, channel)).isSameAs(unconfirmed);
+        consumer.consume(message, channel);
 
-        // Nothing was acknowledged, so the broker still holds the only copy. A hot
-        // redelivery loop is visible and recoverable; a lost record is neither.
-        verifyNoInteractions(channel);
+        // Never ACKed — the onward copy may not exist. And not left unacknowledged on the
+        // open channel either: in MANUAL mode the container never returns it, so it was
+        // not redelivered at all and held a prefetch slot for good (DL-168). The router
+        // returns it to its queue after a pause.
+        InOrder order = inOrder(router);
+        order.verify(router).route(StatType.LORASTATS, message, failure);
+        order.verify(router).requeueUnconfirmed(StatType.LORASTATS, message, channel);
+        org.mockito.Mockito.verify(channel, org.mockito.Mockito.never())
+                .basicAck(org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.anyBoolean());
         assertAttemptMetered();
     }
 
