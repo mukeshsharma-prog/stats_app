@@ -160,6 +160,16 @@ class BundleCarriesTheWalkthroughTest(unittest.TestCase):
             self.assertIn(f'!{path}', allow, path)
         self.assertNotIn('.env', [line.strip() for line in allow.splitlines()])
 
+    def test_pasted_blocks_carry_no_comments(self):
+        # An interactive zsh (macOS's default shell) without `setopt interactivecomments`
+        # passes a pasted "# ..." to the command as more arguments: curl then fetches "#".
+        # The pages are pasted, never run as scripts, so a comment is a broken command.
+        for page in ['MANUAL.md', 'BUNDLE.md']:
+            text = (SOURCE / page).read_text()
+            for block in re.findall(r'```(?:bash|sh)?\n(.*?)```', text, re.S):
+                for line in block.splitlines():
+                    self.assertIsNone(re.search(r'(^|\s)#', line), f'{page}: {line}')
+
     def test_every_fixture_the_demo_posts_exists(self):
         demo = (SOURCE / 'demo.sh').read_text()
         fixtures = set(re.findall(r'\$FX/([\w/.-]+\.json)', demo))

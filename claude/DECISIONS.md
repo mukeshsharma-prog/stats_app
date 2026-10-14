@@ -6262,3 +6262,17 @@ page now waits 6 s and says to re-run the queue command if the number lags.
   longer reads them. It is superseded by this bundle's `run-demo.sh`; whether to delete
   it is open.
 * `Stats_App_Tracker.xlsx` is not updated for this entry.
+
+**Amendment — 14 Oct 2026 (later the same day), after `93fcb98`.** A sandbox run that
+*pasted* every block into a fresh interactive zsh, instead of running the pages as
+scripts, found two defects the scripted verification could not have found:
+* **A pasted `#` comment is not a comment in zsh.** macOS's default shell does not set
+  `interactivecomments`, so `curl … "$API/…" # 401 no token` passes `#`, `401`, `no` and
+  `token` to curl as more URLs. Step 9 of `MANUAL.md` had a comment on every line, and
+  four other blocks in `MANUAL.md` and `README.md` had one. All are gone. Step 9 now prints
+  `no token -> 401 (expect 401)` per line. `test_pasted_blocks_carry_no_comments` fails the
+  build on the next one.
+* **Step 10 read the DLQ from the management API, which lags.** Even after 6 s it showed the
+  previous depth while both counters had moved. The step now reads the depth with
+  `docker exec stats-rabbitmq rabbitmqctl list_queues`, as `demo.sh` already did, and the
+  text says the web UI can lag.

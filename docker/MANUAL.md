@@ -16,9 +16,12 @@ The bundle uses fixed container names (`stats-postgres`, `stats-keycloak`, …) 
 8080–8083. If another Stats App stack is running on this machine, stop it first.
 
 ```bash
-./docker/start-stats-app.sh      # every container prints "healthy", then "Stats App is ready"
-./docker/run-postman.sh          # 40 requests, 100 assertions, 0 failed
+./docker/start-stats-app.sh
+./docker/run-postman.sh
 ```
+
+The first prints `healthy` for every container, then `Stats App is ready`. The second
+ends with a table: 40 requests, 100 assertions, 0 failed.
 
 Run the suite **before** the steps below, not after. Step 10 and the demo put a record
 in a dead-letter queue on purpose. After that, the suite's `DLQs stayed empty` check
@@ -38,8 +41,10 @@ fails, which is the suite correctly noticing it. To get a clean stack again, see
 helpers are already loaded there, and every command below works unchanged:
 
 ```bash
-./docker/shell.sh                # type `exit` to leave
+./docker/shell.sh
 ```
+
+Type `exit` to leave it.
 
 Either way you get:
 
@@ -56,7 +61,9 @@ For Postman desktop or a one-off curl, `./docker/token.sh alpha-reader` prints a
 (add `--claims` to see inside it). It works from any directory and needs only `curl`.
 
 > **zsh:** keep every URL that contains `?` inside quotes, or zsh answers
-> `no matches found`. The commands below are already quoted.
+> `no matches found`. The commands below are already quoted. They also contain no `#`
+> comments: an interactive zsh passes a pasted `# …` to the command as more arguments
+> unless you have run `setopt interactivecomments`.
 
 ## 1. All three services are up
 
@@ -148,22 +155,25 @@ server's). In each case nothing is published to RabbitMQ.
 ## 9. API security
 
 ```bash
-curl -s -o /dev/null -w '%{http_code}\n' "$API/v1/stats/lorastats?from=1&to=2"                                                       # 401 no token
-curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $(tok no-role)" "$API/v1/stats/lorastats?from=1&to=2"            # 403 no read role
-curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $(tok no-tenant)" "$API/v1/stats/lorastats?from=1&to=2"          # 403 no tenant claim
-curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $(tok empty-tenant)" "$API/v1/stats/lorastats?from=1&to=2"       # 403 blank tenant claim
-curl -s -o /dev/null -w '%{http_code}\n' -X POST "$API/v1/stats/lorastats"                                                          # 405 the API is read-only
-curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $A" "$API/v1/stats/lorastats?from=200&to=100"                    # 400 inverted range
+printf 'no token     -> %s (expect 401)\n' "$(curl -s -o /dev/null -w '%{http_code}' "$API/v1/stats/lorastats?from=1&to=2")"
+printf 'no read role -> %s (expect 403)\n' "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $(tok no-role)" "$API/v1/stats/lorastats?from=1&to=2")"
+printf 'no tenant    -> %s (expect 403)\n' "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $(tok no-tenant)" "$API/v1/stats/lorastats?from=1&to=2")"
+printf 'blank tenant -> %s (expect 403)\n' "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $(tok empty-tenant)" "$API/v1/stats/lorastats?from=1&to=2")"
+printf 'POST to API  -> %s (expect 405)\n' "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$API/v1/stats/lorastats")"
+printf 'from > to    -> %s (expect 400)\n' "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $A" "$API/v1/stats/lorastats?from=200&to=100")"
 ```
 
-Expect `401 403 403 403 405 400`. The 405 comes back before any authentication runs.
+Each line prints the status it got next to the one it should get: 401 with no token,
+403 for a token without the read role, without a `tenant` claim, or with a blank one,
+405 for any write (the API is read-only, and this answer comes before any
+authentication runs), and 400 for an inverted time range.
 
 ## 10. A bad payload is dead-lettered, not lost
 
 ```bash
 curl -s -o /dev/null -w '%{http_code}\n' -X POST "$INPUT/internal/stats" -H 'Content-Type: application/json' -d "{\"uid\":\"MANUAL-dlq-$NOW\",\"tenant\":\"tenant-alpha\",\"maintenant\":\"tenant-alpha\",\"clsbox\":\"04B64810652B\",\"type\":\"lorastats\",\"ts\":{\"server\":$NOW,\"device\":$NOW},\"data\":{\"rx_nr_pkts\":\"not-a-number\"}}"
 sleep 6
-curl -s -u "$(env_get RABBITMQ_USER):$(env_get RABBITMQ_PASSWORD)" "$RABBIT/api/queues/%2F" | jq -r '.[] | select(.name|test("^app_statsstore\\.lorastats")) | "\(.name)  \(.messages)"'
+docker exec stats-rabbitmq rabbitmqctl list_queues -q name messages | grep '^app_statsstore.lorastats' | sort
 curl -s "$WRITER/actuator/prometheus" | grep -E '^records_(payload_rejected|dead_lettered)_total.*lorastats'
 ```
 
@@ -172,8 +182,9 @@ Expect a `200`, because the envelope is fine and Input checks only the envelope.
 `records_payload_rejected_total{reason="payload_schema",type="lorastats"}` and
 `records_dead_lettered_total{reason="PermanentFailureException",type="lorastats"}`.
 The second counter appears after the first dead-letter.
-RabbitMQ's management API refreshes its queue counts every few seconds. If the DLQ
-still shows the old number while the counters have moved, run the queue command again. The three retry queues stay
+The queue depths come from `rabbitmqctl` inside the broker container, which reads the
+queue itself. The management UI and its API refresh their counts only every few seconds,
+so the UI can show the old number for a moment. The three retry queues stay
 at 0: a permanent failure skips the retries and goes straight to the dead-letter
 queue, which never expires anything.
 

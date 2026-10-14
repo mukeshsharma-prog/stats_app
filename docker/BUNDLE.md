@@ -20,8 +20,10 @@ machine if you have them; `./docker/shell.sh` gives you both in a container if n
 Check the download first; the `.sha256` file is delivered beside the archive:
 
 ```bash
-sha256sum -c stats-app-docker-bundle-<version>.tar.gz.sha256   # macOS: shasum -a 256 -c …
+sha256sum -c stats-app-docker-bundle-<version>.tar.gz.sha256
 ```
+
+On macOS the command is `shasum -a 256 -c` with the same file.
 
 ```bash
 tar -xzf stats-app-docker-bundle-<version>.tar.gz
@@ -121,11 +123,12 @@ directory's `.env`, which was generated on first start. Another copy of the Stat
 such as an older bundle or a developer checkout, has different passwords, and its
 Keycloak answers "Invalid user credentials" for these.
 
-```bash
-. docker/stats-helpers.sh        # bash/zsh helpers: tok, claims, env_get, pg (needs curl, jq)
-./docker/shell.sh                # or: the same helpers in a container, nothing installed but Docker
-./docker/run-demo.sh             # the ten-step scripted demo; step 10 stops RabbitMQ briefly
-```
+* `. docker/stats-helpers.sh` loads the bash/zsh helpers `tok`, `claims`, `env_get` and
+  `pg`. It needs `curl` and `jq`.
+* `./docker/shell.sh` gives the same helpers in a container, with nothing installed but
+  Docker.
+* `./docker/run-demo.sh` runs the ten-step scripted demo. Its step 10 stops RabbitMQ
+  briefly.
 
 ## Stop
 
