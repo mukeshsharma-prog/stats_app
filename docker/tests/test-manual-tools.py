@@ -88,6 +88,14 @@ class ManualToolsTest(unittest.TestCase):
         self.run_token('no-role')
         self.assertIn('password=other', self.calls()[0])
 
+    def test_a_user_renamed_in_env_finds_its_password_by_the_username_key(self):
+        with (self.root / '.env').open('a') as f:
+            f.write('STATS_ALPHA_READER_USERNAME=alice\n')
+        result = self.run_token('alice')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('password=right-one', self.calls()[0])
+        self.assertIn('username=alice', self.calls()[0])
+
     @unittest.skipUnless(shutil.which('jq'), 'jq not installed')
     def test_claims_restore_base64url_padding(self):
         result = self.run_token('alpha-reader', '--claims')
@@ -164,7 +172,7 @@ class BundleCarriesTheWalkthroughTest(unittest.TestCase):
         # An interactive zsh (macOS's default shell) without `setopt interactivecomments`
         # passes a pasted "# ..." to the command as more arguments: curl then fetches "#".
         # The pages are pasted, never run as scripts, so a comment is a broken command.
-        for page in ['MANUAL.md', 'BUNDLE.md']:
+        for page in ['MANUAL.md', 'BUNDLE.md', '../postman/README.md']:
             text = (SOURCE / page).read_text()
             for block in re.findall(r'```(?:bash|sh)?\n(.*?)```', text, re.S):
                 for line in block.splitlines():

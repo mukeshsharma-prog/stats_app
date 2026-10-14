@@ -47,12 +47,14 @@ NOW=$(date +%s)
 
 env_get() { grep -E "^$1=" "$STATS_ENV_FILE" | head -1 | cut -d= -f2-; }
 
-# alpha-reader -> STATS_ALPHA_READER_PASSWORD, and so on for the other four users.
-# A refusal is printed with Keycloak's reason instead of turning into the string "null",
+# The password key is the one beside the STATS_<USER>_USERNAME whose value is the name
+# given, so a user renamed in .env still works. A name no key holds falls back to
+# alpha-reader -> STATS_ALPHA_READER_PASSWORD. A refusal is printed with Keycloak's reason instead of turning into the string "null",
 # which is what made a wrong .env look like a broken token decoder.
 tok() {
   [ -n "${1:-}" ] || { echo "usage: tok alpha-reader|beta-reader|no-role|no-tenant|empty-tenant" >&2; return 2; }
-  _stats_var="STATS_$(printf %s "$1" | tr 'a-z-' 'A-Z_')_PASSWORD"
+  _stats_var=$(grep -E "^STATS_[A-Z_]+_USERNAME=" "$STATS_ENV_FILE" | awk -F= -v u="$1" '$2 == u { sub(/_USERNAME$/, "_PASSWORD", $1); print $1; exit }')
+  [ -n "$_stats_var" ] || _stats_var="STATS_$(printf %s "$1" | tr 'a-z-' 'A-Z_')_PASSWORD"
   _stats_resp=$(curl -s -X POST "$KC/realms/$(env_get STATS_REALM_NAME)/protocol/openid-connect/token" \
     -d "client_id=$(env_get STATS_DEV_CLI_CLIENT_ID)" -d grant_type=password \
     --data-urlencode "username=$1" --data-urlencode "password=$(env_get "$_stats_var")")

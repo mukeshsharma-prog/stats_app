@@ -5,7 +5,8 @@
 #   ./docker/token.sh alpha-reader             the token
 #   ./docker/token.sh beta-reader --claims     what is inside it: tenant, aud, roles
 #
-# Users: alpha-reader, beta-reader, no-role, no-tenant, empty-tenant.
+# Users: alpha-reader, beta-reader, no-role, no-tenant, empty-tenant, under whatever
+# names .env gives them, plus any user you add with a STATS_<USER>_USERNAME/_PASSWORD pair.
 # Reads the password from THIS bundle's .env, whatever directory you run it from.
 # Needs only curl; jq is used to pretty-print --claims when it is installed.
 set -eu
@@ -24,7 +25,10 @@ if [ ! -f "$ENV_FILE" ]; then
 fi
 env_get() { grep -E "^$1=" "$ENV_FILE" | head -1 | cut -d= -f2-; }
 
-var="STATS_$(printf %s "$user" | tr 'a-z-' 'A-Z_')_PASSWORD"
+# The key beside the STATS_<USER>_USERNAME holding this name, so a user renamed in .env
+# still works; otherwise alpha-reader -> STATS_ALPHA_READER_PASSWORD.
+var=$(grep -E "^STATS_[A-Z_]+_USERNAME=" "$ENV_FILE" | awk -F= -v u="$user" '$2 == u { sub(/_USERNAME$/, "_PASSWORD", $1); print $1; exit }')
+[ -n "$var" ] || var="STATS_$(printf %s "$user" | tr 'a-z-' 'A-Z_')_PASSWORD"
 password=$(env_get "$var")
 [ -n "$password" ] || { echo "No $var in $ENV_FILE — is '$user' one of the five test users?" >&2; usage; }
 

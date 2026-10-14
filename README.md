@@ -167,9 +167,12 @@ docker compose ps          # wait for every service to report healthy
 | Keycloak | 8080 | realm `statsapp`, imported at first start |
 
 `docker compose down` stops the stack and keeps the data. `docker compose down -v`
-also deletes the volumes — which you **must** do after editing
-`docker/postgres-init/` or `docs/setup/keycloak-realm-statsapp.json`, because
-both only run against an empty volume.
+also deletes the volumes, which you **must** do after editing `docker/postgres-init/`,
+because it runs only against an empty database volume. Keycloak is different. It has
+no volume and re-imports `docs/setup/keycloak-realm-statsapp.json` with the values in
+`.env` whenever its container is **recreated**: by `up -d` after a `.env` change, or by
+`up -d --force-recreate keycloak` after a change to the realm file alone. A plain
+restart, or `up -d` with nothing changed, keeps the old realm.
 
 ### 3. Run the modules
 
@@ -206,11 +209,16 @@ To run a packaged jar instead — which is what the Docker image does:
 java -jar stats-input/build/libs/stats-input-0.1.0-SNAPSHOT.jar
 ```
 
-Or run all three as containers, infrastructure included:
+Or run all three as containers, infrastructure included, as the **dev stack**:
 
 ```bash
-docker compose -p stats-app-bundle --env-file .env -f docker/docker-compose.yml --profile apps up -d --build
+docker compose -p stats-app --env-file .env -f docker/docker-compose.yml --profile apps up -d --build
 ```
+
+Use the project name `stats-app` for the dev stack. `stats-app-bundle` belongs to the
+shareable bundle: its scripts, its `.env` and its data volumes. Starting the dev stack
+under that name mixes the two stacks' credentials. *Run everything end to end* below is
+the complete developer loop.
 
 To produce a single offline archive for another Docker host, including the
 application, infrastructure and Postman/Newman images:
@@ -255,8 +263,133 @@ only broker-connected modules declare topology (ADR-002 §11).
 | A module cannot reach PostgreSQL or RabbitMQ | You sourced `.env` without the two `localhost` overrides above. Those values name compose hostnames. |
 | `stats-api` will not start | `KEYCLOAK_ISSUER`, `STATS_API_AUDIENCE`, `STATS_READ_ONLY_ROLE` and `STATS_TENANT_CLAIM` have **no defaults in code**, on purpose — the module refuses to start rather than guess a security posture (ADR-006). Source `.env`. |
 | Every token is rejected as an invalid issuer | The token's `iss` and `KEYCLOAK_ISSUER` disagree. Compose pins `KC_HOSTNAME` to `http://localhost:8080`, so `KEYCLOAK_ISSUER` must be `http://localhost:8080/realms/statsapp`. |
-| A realm or database change had no effect | Both init paths only run on an empty volume. `docker compose down -v`, then up again. |
+| A realm change had no effect | Keycloak was not recreated. `up -d` recreates it after a `.env` change; after a change to the realm file alone, add `--force-recreate keycloak`. |
+| A `docker/postgres-init/` change had no effect | It runs only against an empty volume: `docker compose down -v`, then up again. |
+| `Invalid user credentials` from a token request | The password came from a different `.env` than the one the running Keycloak was started with, typically the bundle's versus this checkout's. Run commands from the directory whose stack is running. `. docker/stats-helpers.sh` warns when they differ. |
+| `Bind for 0.0.0.0:8080 failed: port is already allocated` | The bundle stack (or another dev stack) is running. The two use the same container names and ports, so stop one first. |
 | `Port 8081 already in use` | An earlier `bootRun` is still alive: `lsof -ti:8081 \| xargs kill`. |
+
+---
+
+## Run everything end to end
+
+The developer loop, from this checkout. Every block was pasted into an interactive zsh
+and checked on 14 October 2026. The blocks carry no `#` comments on purpose, because
+an interactive zsh passes a pasted comment to the command as more arguments.
+
+**One stack at a time.** The dev stack (Compose project `stats-app`, this checkout's
+`.env`) and the shareable bundle (project `stats-app-bundle`, the bundle folder's `.env`)
+use the same container names and ports. Stop the bundle first:
+
+```bash
+docker compose -p stats-app-bundle -f docker/docker-compose.yml --profile apps --profile observability --profile tools down
+```
+
+**1. Build from source and start the dev stack.**
+
+```bash
+docker compose -p stats-app --env-file .env -f docker/docker-compose.yml --profile apps up -d --build
+for c in stats-postgres stats-rabbitmq stats-keycloak stats-input stats-writer stats-api stats-prometheus; do printf '%-18s' $c; until [ "$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' $c 2>/dev/null)" = healthy ]; do printf .; sleep 3; done; echo healthy; done
+./docker/check-monitoring.sh
+```
+
+Expect seven `healthy` lines and `UP (Input, Writer, API, PostgreSQL)`.
+
+**2. Call it by hand.** The helpers work against the dev stack from the repository
+root. They read this checkout's `.env`.
+
+```bash
+. docker/stats-helpers.sh
+claims "$(tok alpha-reader)"
+```
+
+Expect the helpers to load **with no WARNING**, then `tenant-alpha`, `stats-api`,
+`stats.readOnly`. Every step of `docker/MANUAL.md` (steps 1–13) then works unchanged:
+paste its blocks here.
+
+**3. The acceptance suite, the demo and the tools container.**
+
+```bash
+docker compose -p stats-app --env-file .env -f docker/docker-compose.yml --profile apps --profile test run --rm postman-tests
+./docker/demo.sh
+docker build -f docker/Dockerfile.tools -t stats-app/stats-tools:dev .
+docker compose -p stats-app --env-file .env -f docker/docker-compose.yml --profile apps --profile tools run --rm stats-tools
+```
+
+Expect 100 assertions, 0 failed. Run the suite **before** the demo: the demo dead-letters
+a record on purpose, and the suite's `DLQs stayed empty` then fails, correctly. The demo
+ends `Done.`, and its step 10 stops RabbitMQ for a few seconds. The last line opens a
+`stats-tools $` shell with the helpers loaded and curl, jq and docker inside, for working
+without them on the host. `./docker/run-postman.sh`, `./docker/shell.sh` and
+`./docker/run-demo.sh` are the **bundle's** commands: they target `stats-app-bundle`, not
+this stack.
+
+**4. The checks CI runs.**
+
+```bash
+python3 docs/schemas/validate-fixtures.py | tail -3
+python3 docs/contracts/test_schema_drift.py 2>&1 | tail -1
+python3 docs/contracts/check_schema_drift.py | tail -1
+python3 docker/tests/test-start-stats-app.py 2>&1 | tail -1
+python3 docker/tests/test-manual-tools.py 2>&1 | tail -1
+python3 ops/grafana/check-dashboards.py | tail -1
+docker run --rm --entrypoint promtool -v "$PWD/ops/prometheus:/work:ro" -w /work prom/prometheus:v3.5.0 test rules dlq-alerts.test.yml writer-alerts.test.yml postgres-alerts.test.yml | tail -2
+npx --yes @redocly/cli@2.51.2 lint 2>&1 | grep -E 'validated|valid\.|error'
+./gradlew build --rerun-tasks
+```
+
+Expect, in order:
+
+* `124 assertions checked, 0 failed`
+* `OK`
+* `OpenAPI schema drift check passed …`
+* `OK`
+* `OK`
+* `3 dashboards, 83 expressions, …`
+* `SUCCESS`
+* both contracts `validated` and `Woohoo! Your API descriptions are valid.`
+* `35 actionable tasks: 35 executed` and `BUILD SUCCESSFUL`. On 14 Oct 2026 this was
+  1,197 JUnit tests with 0 failures: stats-common 278, stats-input 95,
+  stats-writer 557, stats-api 267.
+
+`--rerun-tasks` is what makes the tests run. An unchanged checkout otherwise answers
+`35 up-to-date` in two seconds. Reports are at `<module>/build/reports/tests/test/index.html`.
+
+**5. Credentials, tenants and users on the dev stack.** The rules are the bundle's, applied
+to this checkout's files. Edit `.env` (or `docs/setup/keycloak-realm-statsapp.json`),
+then recreate. Test-user passwords, tenants (`STATS_TENANT_A_ID`, `STATS_TENANT_B_ID`),
+user names and client secrets can change at any time. `POSTGRES_*` and `RABBITMQ_*`
+passwords live in the data volumes and need `down -v`. A change made in the Keycloak
+admin console is lost at the next recreate. The realm file is committed, so a user added
+there is added for everyone. `docker/BUNDLE.md`, *Credentials* and *Changing a user's
+tenant…*, has the worked examples. The commands are the same with `-p stats-app`.
+
+```bash
+docker compose -p stats-app --env-file .env -f docker/docker-compose.yml --profile apps up -d
+docker compose -p stats-app --env-file .env -f docker/docker-compose.yml --profile apps up -d --force-recreate --wait keycloak
+```
+
+Use the first after a `.env` change and the second after a realm-file-only change.
+
+**6. Package a bundle to hand over.**
+
+```bash
+BUILDX_FLAGS='--add-host release-assets.githubusercontent.com:185.199.110.133' ./docker/package-bundle.sh
+```
+
+Expect `Bundle ready:` with the `.tar.gz` and its `.sha256` in `dist/` (about 2 GB, both
+architectures, 10–20 minutes). The archive is named after `HEAD`: commit first if the name
+must match the contents. `BUILDX_FLAGS` works around one unreachable GitHub download
+address on the office network (DL-170). Leave it out elsewhere. What the recipient does is
+in `docker/BUNDLE.md` (shipped as the bundle's `README.md`) and `docker/MANUAL.md`.
+
+**7. Stop.**
+
+```bash
+docker compose -p stats-app --env-file .env -f docker/docker-compose.yml --profile apps --profile observability --profile tools down
+```
+
+Data is kept. `down -v` deletes it.
 
 ---
 

@@ -1,17 +1,38 @@
 # Stats App Postman tests
 
-Import `stats-app.postman_collection.json` and
-`local.postman_environment.json` into Postman. Copy the blank password values
-from the generated `.env` file, select **Stats App — Local**, and run the
-collection in order.
+Two ways to run this collection.
 
-The preferred automated path needs no manual secret copying:
+**Automated (Newman, no secrets to copy).** From the bundle directory:
 
 ```bash
 ./docker/run-postman.sh
 ```
 
-Compose injects the generated credentials into the one-shot Newman container.
+Expect 40 requests and 100 assertions, 0 failed, on a freshly started stack. Compose
+injects the credentials from `.env` into a one-shot Newman container. On a developer
+checkout the same suite runs against the dev stack with
+`docker compose -p stats-app --env-file .env -f docker/docker-compose.yml --profile apps --profile test run --rm postman-tests`
+from the repository root.
+
+**By hand, in the Postman app.** `local.postman_environment.json` ships with **blank**
+passwords, because every installation generates its own into `.env`. Don't type them in:
+the bundle `README.md`, section *The Postman desktop app*, has one command that writes
+`filled.postman_environment.json` from `.env` (passwords, tenant and user names), plus
+the request-by-request walk and its troubleshooting. In short:
+
+1. Import `stats-app.postman_collection.json` and `filled.postman_environment.json`.
+2. Select **Stats App — Local (filled)** at the top right. Every `{{…}}` comes from it.
+3. **Authenticate alpha reader → Send.** Its script stores the token as `alphaToken`,
+   which every read request sends. Tokens last 15 minutes.
+4. Send the POST, then the matching GET (each POST stores the uid its GET reads), then
+   folder 4's security checks, or **Run collection** for all 100 assertions.
+
+Editing the environment file after importing it changes nothing in the app: re-import
+it, or edit the variable's **Current value** in Postman and **Save**. A password must be
+the one in `.env`. Postman cannot change it, Keycloak can only change it from `.env`
+(bundle `README.md` → *Credentials*), and anything else is `invalid_grant`.
+
+The collection runs in order.
 The collection uses unique IDs and current Unix timestamps on every run. Its
 read-by-UID requests retry briefly until the asynchronous Writer transaction is
 visible, then the remaining list and device queries verify all API route shapes.

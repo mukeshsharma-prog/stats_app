@@ -6276,3 +6276,47 @@ scripts, found two defects the scripted verification could not have found:
   previous depth while both counters had moved. The step now reads the depth with
   `docker exec stats-rabbitmq rabbitmqctl list_queues`, as `demo.sh` already did, and the
   text says the web UI can lag.
+* **The bundle README gains *Credentials — `.env`* and *The Postman desktop app*.** Tested on
+  a running bundle: editing `.env` changes nothing until `./docker/start-stats-app.sh`
+  runs again. That run recreates Keycloak, which has no data volume and re-imports the
+  realm from `.env`, so the old user password is refused and the new one works. The user
+  passwords, the Keycloak admin password and the client secrets may change after the
+  first start. The PostgreSQL and RabbitMQ passwords may not: both live in their data
+  volumes, so changing them needs `down -v`. A password changed in the Keycloak admin
+  console is reverted by the next start. The Postman section makes a filled environment
+  from `.env` (`jq`), then walks the folders request by request and maps
+  `invalid_grant`, a stale import, the 15-minute token lifetime and a stopped stack to
+  their fixes. The old instruction, "replace the blank password values", sent people to
+  type passwords in by hand, which is how the 14 Oct `invalid_grant` happened.
+* **The bundle README gains *Changing a user's tenant, renaming users, adding users*.**
+  Tested on a running bundle and then reverted, all three at once.
+  `STATS_TENANT_A_ID=acme-north` gave `alpha-reader` (and `no-role`) `"tenant":"acme-north"`;
+  a record sent as `acme-north` read `200` for alpha and `404` for the other tenant.
+  `STATS_BETA_READER_USERNAME=bob` made `bob` log in with beta's password, and the old
+  name was refused. A `gamma-reader` cloned from `beta-reader`'s realm entry onto
+  `STATS_TENANT_C_ID=tenant-gamma` saw only its own record. `run-postman.sh` with the
+  changed tenant: **100 assertions, 0 failed**. The page states that a record's tenant
+  is the one it was sent with and never moves (ADR-006, DL-142). That was not re-measured
+  here: the query I wrote for it asked for more than the API's page limit.
+  `tok` and `token.sh` now find a user's password through the `STATS_<USER>_USERNAME` key
+  holding that name, falling back to the old name mapping, so a renamed user works
+  (`test_a_user_renamed_in_env_finds_its_password_by_the_username_key`). The Postman
+  `jq` command also copies `tenantAlpha` and the three user names from `.env`.
+* **Everything asked in this session is written down where its reader looks.** The bundle
+  README gains *Three ways to use it*, the realm-only recreate command and one
+  *Troubleshooting* table covering every symptom met today: no `.env` in `~`, another
+  stack's Keycloak, `jq: parse error`, unquoted `?`, pasted comments, a port already
+  allocated, an expired token, an edit Keycloak never re-imported, Postgres credentials
+  that disagree with the volume, the DLQ check after the demo, and exit 3.
+  `postman/README.md` no longer says "copy the blank password values". It points to the
+  filled-environment command and summarises the token flow (and is now in the
+  paste-safety test). The root `README.md` gains *Run everything end to end*, the
+  developer loop from the sandbox run, and **two corrections**. Its container command
+  used `-p stats-app-bundle`, the bundle's project, for the dev stack, which mixes the
+  two stacks' credentials and volumes. It is `-p stats-app` now. And it said a realm
+  change needs `down -v`. Measured: Keycloak has no volume and re-imports whenever its
+  container is recreated, and **a realm-file-only change is ignored by
+  `start-stats-app.sh` / `up -d`**: the tenant stayed until
+  `up -d --force-recreate keycloak`, after which the API accepted the new Keycloak's
+  tokens (200, new signing keys fetched by themselves). `docker/postgres-init/` still
+  needs an empty volume.
