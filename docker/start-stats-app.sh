@@ -217,6 +217,13 @@ Use Postman for API requests:
 Run the complete Postman suite with:
   ./docker/run-postman.sh
 
+Then walk through it by hand — every command, and what to expect — in MANUAL.md:
+  . docker/stats-helpers.sh      helpers for this shell (needs curl and jq), or
+  ./docker/shell.sh              the same helpers in a container (needs only Docker)
+  ./docker/token.sh alpha-reader a token for Postman desktop or curl
+  ./docker/run-demo.sh           the ten-step scripted demo (stops RabbitMQ briefly)
+Run every command from this directory: its .env holds this stack's passwords.
+
 This bundle uses unauthenticated Input mode for local evaluation. Do not expose it
 on a shared or production network until inbound authentication is configured.
 EOF

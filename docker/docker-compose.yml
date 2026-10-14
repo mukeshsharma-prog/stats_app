@@ -291,6 +291,43 @@ services:
       rabbitmq:
         condition: service_healthy
 
+  # === Hand-run tools — ./docker/shell.sh and ./docker/run-demo.sh (DL-171) =====
+  # bash, curl, jq and a Docker CLI, plus docker/demo.sh and its fixtures, so the
+  # walkthrough in MANUAL.md and the demo need nothing on the host but Docker. The
+  # Docker socket is mounted because both are real: they read rows with
+  # `docker exec psql`, read service logs, and the demo's step 10 STOPS RabbitMQ.
+  stats-tools:
+    profiles: ["tools"]
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.tools
+    image: stats-app/stats-tools:dev
+    restart: "no"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ../.env:/bundle/.env:ro
+    environment:
+      STATS_TOOLS_CONTAINER: "true"
+      STATS_ENV_FILE: /bundle/.env
+      DEMO_ENV_FILE: /bundle/.env
+      INPUT_BASE_URL: http://stats-input:8081
+      WRITER_BASE_URL: http://stats-writer:8082
+      API_BASE_URL: http://stats-api:8083
+      # Tokens fetched here still carry iss=http://localhost:8080 — KC_HOSTNAME above
+      # fixes the issuer whichever address the request arrives on.
+      KEYCLOAK_BASE_URL: http://keycloak:8080
+      RABBITMQ_API_URL: http://rabbitmq:15672
+      DEMO_HOST_WRITER_METRICS_URL: http://localhost:8082/actuator/prometheus
+    depends_on:
+      stats-input:
+        condition: service_healthy
+      stats-writer:
+        condition: service_healthy
+      stats-api:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
   # === Monitoring — starts with applications =================================
   # The apps profile includes Prometheus and the PostgreSQL exporter. Dependencies
   # ensure all four scrape targets exist on this project's default network.

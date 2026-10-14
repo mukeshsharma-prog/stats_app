@@ -52,6 +52,11 @@ for module in $APP_MODULES; do
   docker buildx build ${BUILDX_FLAGS:-} --platform "$PLATFORMS" -f "$ROOT/docker/Dockerfile" \
     --build-arg MODULE="$module" -t "stats-app/$module:dev" --load "$ROOT"
 done
+# The hand-run tools image: bash, curl, jq, a Docker CLI, demo.sh and its fixtures, so
+# MANUAL.md and the demo need nothing on the receiving machine but Docker (DL-171).
+# shellcheck disable=SC2086
+docker buildx build ${BUILDX_FLAGS:-} --platform "$PLATFORMS" -f "$ROOT/docker/Dockerfile.tools" \
+  -t stats-app/stats-tools:dev --load "$ROOT"
 
 printf 'Pulling pinned infrastructure and test-runner images for %s...\n' "$PLATFORMS"
 for image in $INFRA_IMAGES; do
@@ -62,12 +67,14 @@ done
 
 cp "$ROOT/docker/docker-compose.yml" "$PAYLOAD/docker/"
 cp "$ROOT/docker/start-stats-app.sh" "$ROOT/docker/stop-stats-app.sh" "$ROOT/docker/run-postman.sh" "$ROOT/docker/check-monitoring.sh" "$PAYLOAD/docker/"
+cp "$ROOT/docker/stats-helpers.sh" "$ROOT/docker/shell.sh" "$ROOT/docker/token.sh" "$ROOT/docker/run-demo.sh" "$PAYLOAD/docker/"
 mkdir -p "$PAYLOAD/ops"
 cp -R "$ROOT/ops/prometheus" "$ROOT/ops/postgres-exporter" "$ROOT/ops/grafana" "$PAYLOAD/ops/"
 cp "$ROOT/docker/postgres-init/10-read-only-user.sql" "$PAYLOAD/docker/postgres-init/"
 cp "$ROOT/docs/setup/keycloak-realm-statsapp.json" "$PAYLOAD/docs/setup/"
 cp "$ROOT/postman/stats-app.postman_collection.json" "$ROOT/postman/local.postman_environment.json" "$ROOT/postman/README.md" "$PAYLOAD/postman/"
 cp "$ROOT/docker/BUNDLE.md" "$PAYLOAD/README.md"
+cp "$ROOT/docker/MANUAL.md" "$PAYLOAD/MANUAL.md"
 # Interpreter caches from running ops/ scripts locally are not part of the bundle.
 find "$PAYLOAD" -name __pycache__ -type d -prune -exec rm -rf {} +
 
@@ -77,7 +84,7 @@ for platform in $(printf '%s' "$PLATFORMS" | tr ',' ' '); do
   printf '  %s\n' "$platform"
   # shellcheck disable=SC2086 # word-splitting the image lists is intended
   docker save --platform "$platform" -o "$PAYLOAD/stats-app-images-$arch.tar" \
-    $(for module in $APP_MODULES; do printf 'stats-app/%s:dev ' "$module"; done) \
+    $(for module in $APP_MODULES; do printf 'stats-app/%s:dev ' "$module"; done) stats-app/stats-tools:dev \
     $INFRA_IMAGES
 done
 

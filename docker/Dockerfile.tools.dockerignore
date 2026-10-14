@@ -1,0 +1,9 @@
+# Build context for Dockerfile.tools ONLY — BuildKit reads <Dockerfile>.dockerignore in
+# place of the repository's .dockerignore, which excludes docs/ for the module images.
+# This image needs exactly these files, so it is an allow-list: nothing else, and never
+# a .env, can reach its layers.
+*
+!docs/schemas/fixtures
+!docker/demo.sh
+!docker/stats-helpers.sh
+!docker/tools-entrypoint.sh

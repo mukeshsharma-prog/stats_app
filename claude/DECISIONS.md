@@ -6141,3 +6141,124 @@ isolation rule changes. **Waived, not passed.**
   entry's changes on top of it. Rebuild after committing if the name must match exactly.
 * The dependency-warming layer's `|| true` can cache a failed download (above). Not fixed
   here: it changes the image build for every caller and the `bootJar` step still fails loudly.
+
+### DL-171 — The Docker bundle carries its own hand-run walkthrough, the helpers it needs, and the scripted demo
+
+**14 Oct 2026** · `OPERATIONS` · NFR-06, DL-162, DL-167, DL-168, DL-170
+
+**Trigger.** The approver walked through the bundle by hand, pasting token commands from
+`docker/demo.sh` / `DEVELOPMENT.md` into a shell in `~`. `env_get` found no `.env` and sent
+an empty password. From the repository root it sent the **checkout's** password to the
+**bundle's** Keycloak, which `start-stats-app.sh` had seeded with its own random
+passwords. Keycloak answered `invalid_grant`, `jq -r .access_token` printed `null`, and
+the decoder failed with `jq: parse error`, which named neither cause. The bundle shipped
+a way to start the stack and an automated suite, and no way to call the API by hand. The
+approver asked for "everything to be told in the bundle", demo included.
+
+**Decision.**
+* **`MANUAL.md` ships at the bundle root** (source `docker/MANUAL.md`): fourteen steps,
+  each with the command to paste and the output to expect. Health, token claims, ingest
+  with the confirm-backed 200, read back, the cross-tenant 404 and empty 200 on a record
+  whose `maintenant ≠ tenant`, list and device reads, the IMSI mask against the raw
+  column, the three envelope 400s, 401/403/403/403/405/400, a payload dead-letter with
+  no retry tier, duplicate suppression, the browser consoles, the logs (including the
+  IMSI's absence from all three), the scripted demo, and *start again*. It opens with
+  **every command runs from this directory**. A troubleshooting table maps each symptom
+  of the trigger to its cause.
+* **`docker/stats-helpers.sh`** is sourced in bash or zsh and gives `env_get`, `tok USER`
+  (the user name maps to its `STATS_<USER>_PASSWORD`), `claims` (restores the base64url
+  padding a JWT drops), `pg`, the service URLs and `$NOW`. It refuses to load without a
+  `.env` in the current directory. **A refused token is reported with Keycloak's reason,
+  never returned as `null`.** On the host it also warns when the running `stats-keycloak`
+  was started from another directory, read from the compose working-directory label.
+* **`stats-app/stats-tools:dev`** (`docker/Dockerfile.tools`, allow-list
+  `.dockerignore`; alpine 3.22, bash, curl, jq, docker-cli, `demo.sh`, the fixtures and the
+  helpers) is built for both platforms and saved into both image archives. It is the
+  compose service `stats-tools` (profile `tools`), which mounts the bundle's `.env`
+  read-only and the Docker socket. **`./docker/shell.sh`** opens a shell there with the
+  helpers loaded, so `MANUAL.md` needs nothing installed but Docker.
+  **`./docker/run-demo.sh`** runs `demo.sh` there. The URLs come from the environment
+  (the in-network service names), and Keycloak's `KC_HOSTNAME` keeps `iss` at
+  `localhost:8080`, so in-network tokens pass the API's issuer check.
+* **`./docker/token.sh USER [--claims]`** needs only curl and works from any directory,
+  because it reads the `.env` beside its own script. It is for Postman desktop and
+  one-off requests.
+* `start-stats-app.sh`'s banner and `README.md` point at all four. `README.md` now says to
+  run the Postman suite **first**: the walkthrough's step 10 and the demo dead-letter on
+  purpose, and the suite's `DLQs stayed empty` then fails, correctly.
+* `demo.sh`'s closing line prints a host URL when run in the container
+  (`DEMO_HOST_WRITER_METRICS_URL`).
+* `docker/tests/test-manual-tools.py` (in CI) runs `token.sh` and the helpers against a
+  fake curl. It covers the right `.env` from any directory, the user → variable mapping,
+  padding restored, **a refused password giving Keycloak's reason and no `null`**, an
+  unknown user never reaching Keycloak, and the helpers refusing without a `.env`.
+  Statically, it checks that every script `MANUAL.md` names is packaged, that the tools
+  image carries exactly its four inputs and never a `.env`, and that every fixture
+  `demo.sh` posts exists.
+
+**Found on the way.** `token.sh`'s first version matched only compact JSON
+(`"access_token":"…"`). The fake curl, which writes `": "`, failed it. Keycloak's output
+is compact today, so it worked against the real stack. It now tolerates whitespace.
+
+**Rejected.** *Host-only instructions (curl + jq).* They break the bundle's "nothing but
+Docker" promise. jq ships with macOS 15, but not with Windows or minimal Linux.
+*Reusing `docker/share/`'s demo image.* That path is the 30 Sep share bundle. Its compose
+passes `DEMO_*` variables that `demo.sh` no longer reads, so it has drifted. It is left
+untouched here and recorded as a residual. *Purging the DLQ in the walkthrough so the
+suite passes after it.* That would teach the reader to empty a dead-letter queue to
+make a check pass. ADR-002 §12 makes disposition a manual, authorised act. The page
+says to run the suite first, or start again.
+
+**Quiz (DL-005).** Asked before the change: *"If the bundle was started once, its `.env`
+deleted and `start-stats-app.sh` run again, what happens, and why must `token.sh` read the
+`.env` rather than generate credentials?"* Unanswered; the approver said to do all of it.
+**Waived, not passed.** Answer: the script finds the existing `postgres-data` /
+`rabbitmq-data` volumes, refuses to generate new credentials and changes no container,
+because new passwords cannot authenticate to an already-initialised database or broker.
+Keycloak, too, was seeded from the `.env` on first start, and its realm import never
+re-runs. The passwords live only in that file, so a tool that invented them, or read
+another stack's, would be refused. That is the trigger of this entry.
+`test_existing_volume_without_env_never_generates_credentials_or_changes_containers` and
+`test_refused_password_names_keycloaks_reason_and_the_likely_cause` hold the rule.
+
+**Verification.** `docker/tests/test-manual-tools.py`: **11 tests OK**;
+`test-start-stats-app.py` is still **10 OK**. Bundle `dist/stats-app-docker-bundle-1474028.tar.gz`,
+2.07 GB, `.sha256` checks. Both image archives carry `stats-app/stats-tools:dev`, and no
+`.env` is shipped. **From a fresh extract on arm64, volumes removed first:**
+`start-stats-app.sh` exit **0**, eight containers healthy, 4/4 targets UP, the new banner
+lines printed. `run-postman.sh` **40 requests, 100 assertions, 0 failed**. Then
+`MANUAL.md`'s code blocks were extracted *verbatim* and run, steps 1–11 and 13, twice:
+in **zsh on the host** with the helpers, and in **bash in the tools container** via
+`shell.sh`. Every "Expect" held both times: three UPs; `tenant-alpha` / `stats-api` /
+`stats.readOnly`; 200 with matching `X-Trace-Id` and acknowledgement; the record read
+back; beta's 404 and empty 200; `00101******6789` from the API against
+`001010123456789`, `00aB`, `61D93D` in the table; `malformed_json`, `missing`,
+`clock_skew_exceeded`; `401 403 403 403 405 400`; DLQ +1 with both counters +1 and no
+retry tier; the duplicate count stayed at 1 and the counter went +1; `0` IMSI hits in all
+three logs. The interactive `shell.sh` worked fed on stdin. Step 12's Grafana command came
+up with the three dashboards. `run-demo.sh` **exit 0**, all ten steps, three 503s while
+RabbitMQ was stopped, then 200s. Postman afterwards failed **only** `DLQs stayed empty`,
+as the page says it will. **On the amd64 archive under emulation**
+(`DOCKER_DEFAULT_PLATFORM=linux/amd64`, every application and infrastructure container
+`uname -m` = `x86_64`): the walkthrough in the container, the demo (exit 0, three 503s)
+and the IMSI mask all held. The first Postman run after a cold start failed 18
+assertions, all `401` from `Connection refused` to `keycloak:8080`. The emulated Keycloak
+JVM exited with no log line and no OOM flag 50 s after reporting healthy, and
+`restart: unless-stopped` brought it back 8 s later. A second run on the same stack
+failed only `DLQs stayed empty`. DL-170's emulated run had no such restart. Keycloak is
+untouched here. **Not proved on native amd64.**
+
+**Found while verifying.** In step 10, after `sleep 3`, the DLQ still read `0` while
+both counters read `1`. RabbitMQ's management API refreshes queue counts every ~5 s. The
+page now waits 6 s and says to re-run the queue command if the number lags.
+
+**Residuals.**
+* The archive name carries `1474028`, but its scripts and pages are this entry's
+  uncommitted changes on top of it. Rebuild after committing if the name must match.
+* The emulated-amd64 Keycloak restart is not explained. If it recurs on a native amd64
+  host, it is a real start-up defect (no restart gate on Keycloak's health); there it
+  needs investigating, not an emulation footnote.
+* `docker/share/` (the 30 Sep bundle) passes `DEMO_*` variables to `demo.sh`, which no
+  longer reads them. It is superseded by this bundle's `run-demo.sh`; whether to delete
+  it is open.
+* `Stats_App_Tracker.xlsx` is not updated for this entry.

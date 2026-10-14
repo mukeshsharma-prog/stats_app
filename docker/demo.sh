@@ -153,4 +153,5 @@ postnow "$FX/valid/sysstats-production-minimal.json"
 postnow "$FX/valid/ltestats-live-2026-10-09.json"
 postnow "$FX/valid/netstats-live-2026-10-09.json"
 
-echo; echo "Done.  RabbitMQ UI http://localhost:15672   Keycloak http://localhost:8080   Writer metrics $WR"
+# Inside the bundle's tools container $WR is a compose-network name; say where to look from the host.
+echo; echo "Done.  RabbitMQ UI http://localhost:15672   Keycloak http://localhost:8080   Writer metrics ${DEMO_HOST_WRITER_METRICS_URL:-$WR}"

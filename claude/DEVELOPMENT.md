@@ -200,6 +200,19 @@ going down and coming back — printing the live response, counters and rows for
 naming the rule every step proves. Run it after any change to the consume path; it is the
 one place all of §5's rules are exercised together against real infrastructure.
 
+**The Docker bundle carries all of this for people without the source (DL-171).**
+`docker/MANUAL.md` (shipped as the bundle's `MANUAL.md`) is the hand-run walkthrough,
+with the expected output of every command. `docker/stats-helpers.sh` holds its helpers
+(`tok`, `claims`, `env_get`, `pg`). `docker/shell.sh` loads them in the `stats-tools`
+container (bash, curl, jq, Docker CLI). `docker/token.sh` prints a token, and
+`docker/run-demo.sh` runs this demo from that container. **The bundle's `.env` is not
+this checkout's `.env`:** `start-stats-app.sh` generates its own passwords, so a token
+request using one stack's `.env` against the other stack's Keycloak gets "Invalid user
+credentials". Both use the same container names and ports, so run one stack at a time.
+If you edit the walkthrough, re-run its steps against a bundle stack and keep the
+"Expect" lines true. `docker/tests/test-manual-tools.py` checks that everything it names
+is packaged.
+
 The manual version of its first step:
 
 ```bash

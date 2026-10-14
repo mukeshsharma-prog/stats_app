@@ -3,11 +3,18 @@
 This archive contains every image and configuration file needed to run the local
 Stats App stack without source code or registry access after download.
 
+| File | For |
+|---|---|
+| `README.md` (this file) | Start, verify with the automated suite, stop |
+| **`MANUAL.md`** | **The walkthrough by hand.** Every command and what it should print: log in, send a record, read it back, check that another tenant can't see it, the IMSI mask, rejections, the dead-letter queue, duplicates, logs |
+| `docker/stats-helpers.sh` · `docker/shell.sh` · `docker/token.sh` · `docker/run-demo.sh` | The helpers `MANUAL.md` uses, a shell with them loaded, a token printer, the ten-step scripted demo |
+
 ## Start
 
 Prerequisite: Docker Engine or Docker Desktop with Compose v2, on an Intel/AMD
 (`amd64`) or ARM (`arm64`, e.g. Apple Silicon) machine. Nothing else — no Java,
-Gradle, Postman or registry access. Ports 8080–8083, 5432, 5672, 15672, 9090, 9187
+Gradle, Postman or registry access. (`MANUAL.md` can use `curl` and `jq` on your
+machine if you have them; `./docker/shell.sh` gives you both in a container if not.) Ports 8080–8083, 5432, 5672, 15672, 9090, 9187
 (and 3000 for Grafana) must be free on the machine.
 
 Check the download first; the `.sha256` file is delivered beside the archive:
@@ -99,6 +106,26 @@ Postman collection from this bundle — older copies lack the newer checks.
 
 For the Postman desktop application, import both files in `postman/`. Replace the
 environment's blank password values with the corresponding values from `.env`.
+`./docker/token.sh alpha-reader` prints a ready-made bearer token if you only want one
+request.
+
+Run the suite **first**, on a freshly started stack. The walkthrough's step 10 and the
+scripted demo dead-letter a record on purpose, and the suite's `DLQs stayed empty` check
+then fails, correctly. `MANUAL.md` → *Start again* resets the stack.
+
+## Walk through it by hand
+
+Open **`MANUAL.md`**. It has fourteen steps, each with the command to paste and the
+output to expect. **Run every command from this directory.** The passwords are in this
+directory's `.env`, which was generated on first start. Another copy of the Stats App,
+such as an older bundle or a developer checkout, has different passwords, and its
+Keycloak answers "Invalid user credentials" for these.
+
+```bash
+. docker/stats-helpers.sh        # bash/zsh helpers: tok, claims, env_get, pg (needs curl, jq)
+./docker/shell.sh                # or: the same helpers in a container, nothing installed but Docker
+./docker/run-demo.sh             # the ten-step scripted demo; step 10 stops RabbitMQ briefly
+```
 
 ## Stop
 
