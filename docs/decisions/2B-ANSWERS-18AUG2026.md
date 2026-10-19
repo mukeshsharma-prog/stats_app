@@ -1,7 +1,7 @@
 # §2b answers — 18 August 2026
 
 **Answered by:** Naman Vashishtha · **Status:** DECIDED, implement as written · **Supersedes:** the
-`Needs ZC / Hasan` table in `claude/CLAUDE.md` §7 and rows O-02, O-04, O-12 in ARD v1.1 §18.
+`Needs ZC / Hasan` table in `docs/development/PROJECT_CONTEXT.md` §7 and rows O-02, O-04, O-12 in ARD v1.1 §18.
 
 Seven items were open against ZC. All seven now have a working answer. Three were answered
 outright, two were delegated to engineering ("you suggest"), one is a build instruction ("make it"),

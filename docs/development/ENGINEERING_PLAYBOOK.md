@@ -1,4 +1,4 @@
-# SKILLS.md
+# Engineering playbook
 
 Reusable, repeatable procedures for the Stats App. Each skill is a checklist
 for a task that will be done more than once — the point is that the *second*
@@ -164,7 +164,7 @@ an existing stat type's code, **stop** — that violates STA-14/STA-22.
 7. **Test** — see Skill 3
 
 8. **Document**
-   - Add the type to `CLAUDE.md` §4
+   - Add the type to `docs/development/PROJECT_CONTEXT.md` §4
    - Record its retention period if it differs from the default
 
 Two things the copy **inherits from shared code** since 20 Sep 2026 and must not re-add:
@@ -283,151 +283,11 @@ config. Tenant isolation is a security control, not a feature.
 
 ## Skill 4 — Diagnose a stuck or growing queue
 
-The pipeline's defining failure mode: it fails **silently**. The endpoint
-keeps returning 200 and RabbitMQ keeps accepting messages while nothing is
-being written.
-
-### Triage order
-
-1. **Which queue?** Per-type queues mean the affected type localises the fault.
-2. **Is the consumer alive?** Check process health and consumer count on the queue.
-   Zero consumers on a growing queue is the answer. **Since T-027 (DL-137) the Writer
-   exports this:** `consumer_availability{type}`, `queue_depth{type}` and
-   `dlq_depth{type}` on `/actuator/prometheus`, polled every 30 s and cached. **Read
-   `broker_metrics_collection_success` first** — a failed poll writes NaN, not zero,
-   and an alert that treats a stale zero as "empty" is the outage that looks quiet.
-3. **Is the Writer logging at all?** Counters moving with no `WARN` lines beside them
-   is not "quiet" — since DL-150 it is the signature of a log line the ECS encoder
-   refused. Look for `Appender [CONSOLE] failed to append … Duplicate nested pairs` in
-   the *first* lines of the process's output: logback reports four such failures and
-   then drops silently. The build-failing guard covers `stats-writer`; if the symptom
-   appears in `stats-input`, the guard's `MODULE` is the one-line fix.
-4. **Is the database reachable?** Connection pool exhaustion looks like a slow
-   consumer, not an outage.
-5. **Is the DLQ growing too?** DLQ growth means messages are being processed
-   and *rejected* — a data or schema problem, not a capacity problem.
-6. **Is ingestion abnormally high?** Compare against the expected rate — 267/sec
-   per type, 1,333/sec across five types. Since DL-151 every Input series carries `source="internal"|"external"` — a burst on `external` is a different incident from a Heimdal replay. A Heimdal replay after an outage
-   produces a legitimate burst; Heimdal owns dead-lettering and retries anything
-   we answered with a non-2xx.
-7. **Is one message poisoning the consumer?** Same message repeatedly
-   retried and failing. Check the retry counter.
-8. **Is retention the real problem?** A bloated table or a long-running deletion
-   job slows writes and looks exactly like a slow consumer.
-9. **Is the DLQ full of `23514`?** SQLSTATE `23514` — *no partition of relation found
-   for row* — dead-letters as permanent on the first attempt. Since DL-149 every pass
-   pre-creates the whole window, so this now means the maintenance pass itself is not
-   running (advisory lock held by a dead replica? `retention_oldest_partition_age_days`
-   climbing?), not that a record was "too old" — that record would have been skipped by
-   `RetentionGuard`, not dead-lettered.
-10. **Is a failure hand-off going unconfirmed?** `records_handoff_unconfirmed{type}`
-    moving (alert `StatsAppFailureHandoffUnconfirmed`) means the retry or DLQ publish for
-    that type is not being confirmed — a deleted DLQ, a broker resource alarm. Since
-    DL-168 each such delivery is nacked with requeue after a 5 s pause, so the type's
-    consumer slows by 5 s per failing record and good records slow with it. Fix the
-    failure arm (redeclare the queue, clear the alarm); the requeued records drain on
-    their own. Before DL-168 the same fault left the delivery unacknowledged and
-    silently ate one prefetch slot per record until the consumer stopped.
-
-### After resolution
-- [ ] Redrive DLQ messages once the root cause is fixed — an authorised operations
-      role only, explicit, traceable, scoped per type, and rate-limited to 2× nominal
-      (2,667/s). Blind automatic replay is not permitted. *(ADR-002 §12)*
-      **The command exists since T-052 (DL-138):** `./gradlew :stats-writer:redriveDlq`
-      with `--type`, `--max-messages`, `--rate-per-second`, `--retention-days`,
-      `--change-id` and `--root-cause-resolved=true`, under dedicated per-type broker
-      credentials. It **skips** a record past the window (or of the wrong type, without
-      `ts.device`, or not JSON) — reported as `record_skipped` and returned to the DLQ in
-      place at the end of the run, so one old record at the head no longer blocks the type
-      (DL-168) — confirms the copy before ACKing
-      the original, and marks the copy `x-stats-manual-redrive=true` so a repeat failure
-      goes straight back to the DLQ. **Follow `docs/runbooks/dlq-redrive.md`** — one-record
-      pilot first, evidence file, stop conditions — rather than running it from memory.
-- [ ] Check the age of what you are about to redrive. **A message that has sat in the
-      DLQ for ~90 days is past the retention window: redriving it produces
-      `expired_on_arrival`, not a recovery.** The counter goes up and the row never
-      lands. Confirm the `ts.device` range before you replay anything old.
-      **Since T-026 (10 Sep 2026, DL-133) this is observable rather than theoretical:**
-      the redriven message reaches `RetentionGuard`, increments
-      `records_expired_on_arrival{type}`, logs a `WARN` naming the `uid`, `clsbox` and
-      the record's age in days, and is ACKed. Watch that counter while you redrive — if
-      it moves in step with the redrive, you are not recovering anything.
-- [ ] Confirm no data was lost
-- [ ] If the alert did not fire, fix the alert threshold. **Alert on DLQ depth > 0 and
-      on oldest-message age — never on main-queue depth**, which spikes every cycle by
-      design *(Q13a)*. The DLQ has no TTL, so nothing disappears while you decide.
-      **Both exist since T-060/T-050 (DL-144, DL-147):** `ops/prometheus/dlq-alerts.yml`
-      and `ops/prometheus/writer-alerts.yml`. Read the three main-queue rules as one
-      alert — `StatsAppMainQueueAging` is sampled at delivery and cannot move when nothing
-      is delivered, which is what `StatsAppMainQueueNoConsumer` and
-      `StatsAppConsumerStalled` are for. If `StatsAppLateArrival` fires *during* a
-      redrive, stop: that is the ~90-day trap above, observed.
-
----
+The maintained procedure is in [Diagnose a stuck or growing queue](../runbooks/queue-troubleshooting.md).
 
 ## Skill 5 — Add or change a retention policy
 
-Retention keys on **`ts.device`** — the device's own timestamp, not the time we
-received the record *(STA-23B, answered D9)*. Default 90 days.
-
-**The mechanism is detach-and-drop, not deletion** *(ADR-003 D1; built by T-025,
-DL-132)*. Nothing here ever issues a `DELETE`. Once a day, per stat type, behind
-`pg_try_advisory_lock`, `stats-writer` pre-creates the partitions ahead and then, for
-each daily partition wholly past the window, runs `ALTER TABLE … DETACH PARTITION …
-CONCURRENTLY` followed by `DROP TABLE`.
-
-### Steps
-1. Confirm the intended period with the requester — it affects storage cost
-2. Set it in `application.properties`, never in code *(STA-23A)*:
-   `stats.retention.default-days`, or `stats.retention.days-by-type.<wire-name>` for
-   one type. A per-type key that does not name a known stat type **fails the context
-   at startup**; it does not silently fall back to the default
-3. Restart the writer; confirm the new value is reported in the `Applied retention`
-   log line and that the context came up at all
-4. Confirm partitions past the boundary are **gone from `pg_inherits`** and their
-   tables dropped — not that their rows were deleted
-5. Confirm the partition **on** the cutoff day is still attached. The boundary belongs
-   to the retained side on purpose
-5a. Confirm a partition exists for **every** day from the cutoff to `pre-create-days`
-   ahead — lengthening the window must *create* the older days, not only stop dropping
-   them (DL-149). `SELECT count(*) FROM pg_inherits WHERE inhparent = '<type>'::regclass`
-   should read `retention-days + pre-create-days + 1`
-6. Watch `retention_oldest_partition_age_days{type}`. In a healthy deployment it sits
-   just under the configured window; climbing past it means the sweep has stopped.
-   **It is `NaN` until the first sweep** (DL-156) — a `NaN` a day after deployment means
-   the sweep has never run, and `StatsAppRetentionSweepMissing` will say so; check
-   `retention_last_sweep_timestamp_seconds{type}` (`max by (type)`) and `pg_locks` for an
-   advisory lock held by a session that is not running maintenance
-7. Record the value and the reason for it
-
-### Cautions
-- Shortening retention **drops partitions on the next sweep** — a catalogue operation,
-  so the data is gone in milliseconds and only a per-partition restore brings it back
-  *(ADR-003 D5)*. Confirm nobody depends on it first.
-- Lengthening retention increases storage. Check the projection against the
-  volume figures — up to 115.2M records/day across five types.
-- **Late-arriving records expire early, by design.** A gateway offline for weeks
-  delivers records already deep into their window. That is the accepted business
-  rule, not a defect. Do not "fix" it by switching to `ts.server`. Since T-026 those
-  records are skipped, metered as `records_expired_on_arrival{type}` and ACKed — and
-  the guard reads the **same cutoff** as the sweep, so changing the window moves both
-  together. Two separate calculations would admit a record into a partition the sweep
-  had just dropped.
-- **Unbounded `DELETE` is the trap at this volume**, and it is why the mechanism above
-  exists. It creates table and index bloat, long transactions, and lock contention that
-  slows the writer *(STA-23C, ADR-003)*. If you find yourself writing one, the design
-  has been misread.
-- **A retention run killed mid-detach wedges retention silently.** An interrupted
-  `DETACH … CONCURRENTLY` leaves the partition *pending detach*, after which every
-  later detach on that table fails — while `INSERT` and pre-creation keep working, so
-  ingestion looks perfectly healthy and the only symptom is disk. Every run now begins
-  with `DETACH … FINALIZE`, so this self-heals on the next cron; if you are diagnosing
-  it by hand, `pg_inherits.inhdetachpending` is the flag to look at. A non-zero
-  `retention_orphans_dropped{type}` means an earlier run died between the detach and
-  the drop.
-- Retention lives behind its own abstraction, separate from the write path.
-
----
+The maintained procedure is in [Add or change a retention policy](../runbooks/retention-policy.md).
 
 ## Skill 6 — Extend the API safely
 
@@ -522,12 +382,12 @@ instrumented.
 
 Order matters — the domain before the code.
 
-1. **Read** `CLAUDE.md` end to end, especially §5 (rules) and §6 (traps)
-2. **Read** `PROJECT_STATUS_AND_PLAN.md` for where the project actually is
+1. **Read** `docs/development/PROJECT_CONTEXT.md` end to end, especially §5 (rules) and §6 (traps)
+2. **Read** `docs/development/PROJECT_STATUS_AND_PLAN.md` for where the project actually is
 3. **Read** `docs/requirements/BRD-v1.2-amendment.md` for the business workflow
 4. **Skim** `docs/requirements/SRS-v1.2-amendment.md` — you will cite `STA-nn` IDs
-5. **Read** `CLAUDE.md` §7 so you know what is still unsettled and what is closed
-6. **Run** the local stack per `DEVELOPMENT.md`
+5. **Read** `docs/development/PROJECT_CONTEXT.md` §7 so you know what is still unsettled and what is closed
+6. **Run** the local stack per `docs/development/DEVELOPMENT.md`
 7. **Trace one record** end to end: POST → exchange → queue → table → GET
 8. **Break it deliberately:** send an invalid payload, stop the consumer, stop
    RabbitMQ (expect a 503, not a 200), stop PostgreSQL. Watch where each failure

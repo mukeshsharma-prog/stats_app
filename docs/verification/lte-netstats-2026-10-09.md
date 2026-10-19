@@ -117,8 +117,8 @@ six drift-detector mutation tests passed.
 
 Sanitized aggregate evidence:
 
-- [Live deployment results](verification/2026-10-09/live-results.json)
-- [Complete sample replay and fresh initialization results](verification/2026-10-09/sample-results.json)
+- [Live deployment results](2026-10-09/live-results.json)
+- [Complete sample replay and fresh initialization results](2026-10-09/sample-results.json)
 
 These artifacts contain no raw sample payloads, device/subscriber identifiers,
 tokens or credentials. The disposable project and its volumes were removed after

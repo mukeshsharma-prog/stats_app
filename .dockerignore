@@ -22,5 +22,4 @@ build
 # and without it every module that validates fails at startup.
 docs
 !docs/schemas/*.schema.json
-claude
 *.md

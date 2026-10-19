@@ -1,0 +1,35 @@
+{
+  "uid": "ZRA-44a36ce0c455-A",
+  "tenant": "zra_test",
+  "maintenant": "zra_test",
+  "clsbox": "808A47270048",
+  "type": "lorastats",
+  "version": 1,
+  "ts": {
+    "server": 1792383691,
+    "device": 1792383691,
+    "datastore": 1792383691,
+    "converter": 1792383691
+  },
+  "data": {
+    "rx_nr_pkts": 219,
+    "fsk_received": 0,
+    "rx_crc_missing": 0,
+    "rx_crc_bad": 48,
+    "tx_peek_index_zero": 0,
+    "tx_success": 0,
+    "rx_short_pkt": 166,
+    "timespan": 1800,
+    "chip_comm_error": 0,
+    "tx_failed": 0,
+    "tx_override": 0,
+    "util_fopen_failed": 0,
+    "tx_peek": 0,
+    "tx_type_beacon": 0,
+    "tx_busy": 0,
+    "tx_dequeue_error": 0
+  },
+  "status": [
+    "conversion ok"
+  ]
+}

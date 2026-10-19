@@ -98,6 +98,7 @@ services:
     ports:
       - "127.0.0.1:${PORT_KEYCLOAK:-8080}:8080"
     volumes:
+      - keycloak-data:/opt/keycloak/data
       - ./config/keycloak-realm-statsapp.json:/opt/keycloak/data/import/realm.json:ro
     healthcheck:
       test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && echo -e 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q '\"status\": \"UP\"' <&3"]
@@ -276,6 +277,7 @@ services:
       - "127.0.0.1:${PORT_GRAFANA:-3000}:3000"
 
 volumes:
+  keycloak-data:
   postgres-data:
   postgres-wal-archive:
   rabbitmq-data:

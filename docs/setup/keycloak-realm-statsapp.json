@@ -37,7 +37,7 @@
           "protocolMapper": "oidc-usermodel-attribute-mapper",
           "consentRequired": false,
           "config": {
-            "user.attribute": "${STATS_TENANT_CLAIM:tenant}",
+            "user.attribute": "tenant",
             "claim.name": "${STATS_TENANT_CLAIM:tenant}",
             "jsonType.label": "String",
             "id.token.claim": "true",
@@ -83,7 +83,7 @@
       "protocol": "openid-connect",
       "publicClient": true,
       "bearerOnly": false,
-      "standardFlowEnabled": false,
+      "standardFlowEnabled": true,
       "directAccessGrantsEnabled": true,
       "serviceAccountsEnabled": false,
       "protocolMappers": [
@@ -93,7 +93,7 @@
           "protocolMapper": "oidc-usermodel-attribute-mapper",
           "consentRequired": false,
           "config": {
-            "user.attribute": "${STATS_TENANT_CLAIM:tenant}",
+            "user.attribute": "tenant",
             "claim.name": "${STATS_TENANT_CLAIM:tenant}",
             "jsonType.label": "String",
             "id.token.claim": "true",
@@ -113,7 +113,13 @@
             "access.token.claim": "true"
           }
         }
-      ]
+      ],
+      "redirectUris": [
+        "${STATS_LOGIN_REDIRECT_URI:http://localhost:8085/callback}"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      }
     }
   ],
   "users": [
@@ -224,6 +230,42 @@
       "realmRoles": [
         "${STATS_READ_ONLY_ROLE:stats.readOnly}"
       ]
+    },
+    {
+      "username": "${STATS_ZRA_READER_USERNAME:zra-reader}",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "${STATS_ZRA_READER_USERNAME:zra-reader}",
+      "lastName": "dev",
+      "email": "${STATS_ZRA_READER_USERNAME:zra-reader}@${STATS_USER_EMAIL_DOMAIN:stats.local}",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${STATS_ZRA_READER_PASSWORD:zra-dev-only}",
+          "temporary": false
+        }
+      ],
+      "attributes": {
+        "tenant": [
+          "${STATS_ZRA_TENANT_ID:zra_test}"
+        ]
+      },
+      "realmRoles": [
+        "${STATS_READ_ONLY_ROLE:stats.readOnly}"
+      ]
     }
-  ]
+  ],
+  "components": {
+    "org.keycloak.userprofile.UserProfileProvider": [
+      {
+        "name": "declarative-user-profile",
+        "providerId": "declarative-user-profile",
+        "config": {
+          "kc.user.profile.config": [
+            "{\"attributes\":[{\"name\":\"username\",\"displayName\":\"Username\",\"validations\":{\"length\":{\"min\":3,\"max\":255},\"username-prohibited-characters\":{},\"up-username-not-idn-homograph\":{}},\"permissions\":{\"view\":[\"admin\",\"user\"],\"edit\":[\"admin\",\"user\"]},\"multivalued\":false},{\"name\":\"email\",\"displayName\":\"Email\",\"validations\":{\"email\":{},\"length\":{\"max\":255}},\"required\":{\"roles\":[\"user\"]},\"permissions\":{\"view\":[\"admin\",\"user\"],\"edit\":[\"admin\",\"user\"]},\"multivalued\":false},{\"name\":\"firstName\",\"displayName\":\"First name\",\"validations\":{\"length\":{\"max\":255},\"person-name-prohibited-characters\":{}},\"required\":{\"roles\":[\"user\"]},\"permissions\":{\"view\":[\"admin\",\"user\"],\"edit\":[\"admin\",\"user\"]},\"multivalued\":false},{\"name\":\"lastName\",\"displayName\":\"Last name\",\"validations\":{\"length\":{\"max\":255},\"person-name-prohibited-characters\":{}},\"required\":{\"roles\":[\"user\"]},\"permissions\":{\"view\":[\"admin\",\"user\"],\"edit\":[\"admin\",\"user\"]},\"multivalued\":false},{\"name\":\"tenant\",\"displayName\":\"Tenant\",\"validations\":{\"length\":{\"max\":128}},\"permissions\":{\"view\":[\"admin\"],\"edit\":[\"admin\"]},\"multivalued\":false}]}"
+          ]
+        }
+      }
+    ]
+  }
 }

@@ -35,7 +35,7 @@ groups:
             consuming but not keeping up: check records_processing_duration,
             records_postgres_errors and the retry counters before touching capacity.
             Depth is a diagnostic here, not the alert (Q13b).
-          runbook: claude/SKILLS.md#skill-4--diagnose-a-stuck-or-growing-queue
+          runbook: docs/runbooks/queue-troubleshooting.md
 
       # 1,800 s: longer than the longest retry tier. A record this old on a MAIN queue
       # has never been attempted; at 267/s that is ~480k records waiting per type.
@@ -51,7 +51,7 @@ groups:
             than thirty minutes. Records are not being lost — the queue is durable — but
             the backlog is now longer than the retry arm, and a Heimdal replay on top of it
             will be held at the 503 backpressure channel.
-          runbook: claude/SKILLS.md#skill-4--diagnose-a-stuck-or-growing-queue
+          runbook: docs/runbooks/queue-troubleshooting.md
 
       # The gauge's first blind spot: nothing is consuming, so nothing is sampled.
       # Only when the poll SUCCEEDED — a NaN from a failed poll never compares equal to
@@ -72,7 +72,7 @@ groups:
             queue_oldest_message_age_seconds cannot say so because it is sampled at
             delivery. Check that a Writer for this type is deployed and its listener
             started (stats.writer.stat-type, StatTypeDeploymentGuard).
-          runbook: claude/SKILLS.md#skill-4--diagnose-a-stuck-or-growing-queue
+          runbook: docs/runbooks/queue-troubleshooting.md
 
       # The second blind spot: a consumer is registered but has taken nothing for ten
       # minutes while messages are ready. A listener blocked in a hung database call
@@ -92,7 +92,7 @@ groups:
             not consuming — a wedged listener, a hung connection, or a prefetch window
             held unacknowledged. Restart the Writer for this type; nothing is lost while
             the deliveries stay unacknowledged.
-          runbook: claude/SKILLS.md#skill-4--diagnose-a-stuck-or-growing-queue
+          runbook: docs/runbooks/queue-troubleshooting.md
 
       # A failed broker poll writes NaN, not zero (DL-137). NaN compares false to
       # everything, so the rules above go quiet rather than wrong — this is what says
@@ -109,7 +109,7 @@ groups:
             every poll for five minutes. queue_depth, dlq_depth and consumer_availability
             are NaN and the queue alerts cannot fire. Check the broker and the Writer's
             AMQP connection; do not read the quiet as healthy.
-          runbook: claude/SKILLS.md#skill-4--diagnose-a-stuck-or-growing-queue
+          runbook: docs/runbooks/queue-troubleshooting.md
 
       # ---- Late arrival: D5b's signed obligation (DL-112, DL-133) ------------------
       # "Alert when non-zero." A counter is non-zero forever once it has moved, so the
@@ -154,7 +154,7 @@ groups:
             app_statsstore.{{ $labels.type }}.retry.1-3 and .dlq exist and are bound to
             app_stats_dlx, and the broker's memory and disk alarms. Restarting the
             Writer redeclares missing queues.
-          runbook: claude/SKILLS.md#skill-4--diagnose-a-stuck-or-growing-queue
+          runbook: docs/runbooks/queue-troubleshooting.md
 
       # ---- Upstream conversion status (DL-108, DL-128) ---------------------------
       # A ratio of not-OK to consumed over an hour. THE THRESHOLD IS PROVISIONAL: DL-139
@@ -177,7 +177,7 @@ groups:
             stored regardless (DL-108); this is Heimdal's converter reporting trouble, not
             ours. The 1% threshold is PROVISIONAL until the first 24 h of ingest set it —
             see ops/prometheus/README.md.
-          runbook: claude/SKILLS.md#skill-4--diagnose-a-stuck-or-growing-queue
+          runbook: docs/runbooks/queue-troubleshooting.md
 
       # ---- Retention sweep not running (T-054, DL-156) ---------------------------
       # The sweep runs once a day per type behind a SESSION-level advisory lock. Two
@@ -211,4 +211,4 @@ groups:
             down. Check pg_locks for an advisory lock held by a session that is not
             running maintenance (a leaked lock starves every replica — trap 27's sibling),
             pg_inherits.inhdetachpending, and that the scheduler thread is alive.
-          runbook: claude/SKILLS.md#skill-5--change-a-retention-window
+          runbook: docs/runbooks/retention-policy.md

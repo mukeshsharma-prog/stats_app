@@ -1,5 +1,12 @@
 # Stats App — Decision Log
 
+> **Documentation layout update — 19 October 2026:** this complete decision log
+> moved from `claude/DECISIONS.md`. Dated entries retain their original wording and
+> historical paths. Use [the documentation index](../README.md) for current locations
+> and [the cleanup record](../development/DOCUMENTATION_CLEANUP.md) for retired files.
+> The relocation does not change the architectural or product decisions below.
+
+
 Every meaningful decision taken on this project, with the reasoning that
 produced it. One entry per decision. If you cannot say *why*, it is not a
 decision yet — it is a habit.

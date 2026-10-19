@@ -138,7 +138,7 @@ the day appears atomically.
 * **A corrupt parent.** If the parent itself is damaged, detaching a healthy child does not
   help; that is the full-cluster case.
 * **Rows that never reached PostgreSQL.** A record lost between Heimdal and the INSERT is
-  in one of `FLOW.md` §8's fifteen windows, not in a backup — look at the DLQ and the
+  in one of `docs/architecture/FLOW.md` §8's fifteen windows, not in a backup — look at the DLQ and the
   counters, not here.
 
 ## The drill

@@ -12,8 +12,8 @@
 # it one key at a time.
 #
 #   env_get KEY        a value from .env
-#   tok USER           an access token for one of the five realm users
-#                      (alpha-reader, beta-reader, no-role, no-tenant, empty-tenant)
+#   tok USER [--prompt]  an access token for any Keycloak user; optional fixture
+#                        credentials are read from .env
 #   claims TOKEN       the claims every read is filtered on: tenant, aud, roles
 #   pg SQL             run SQL in the bundle's PostgreSQL (docker exec, as the writer role)
 #   NOW                Unix seconds, captured when this file is sourced
@@ -47,31 +47,12 @@ NOW=$(date +%s)
 
 env_get() { grep -E "^$1=" "$STATS_ENV_FILE" | head -1 | cut -d= -f2-; }
 
-# The password key is the one beside the STATS_<USER>_USERNAME whose value is the name
-# given, so a user renamed in .env still works. A name no key holds falls back to
-# alpha-reader -> STATS_ALPHA_READER_PASSWORD. A refusal is printed with Keycloak's reason instead of turning into the string "null",
-# which is what made a wrong .env look like a broken token decoder.
+# Use the same token flow in the host shell and the bundled tools container.
 tok() {
-  [ -n "${1:-}" ] || { echo "usage: tok alpha-reader|beta-reader|no-role|no-tenant|empty-tenant" >&2; return 2; }
-  _stats_var=$(grep -E "^STATS_[A-Z_]+_USERNAME=" "$STATS_ENV_FILE" | awk -F= -v u="$1" '$2 == u { sub(/_USERNAME$/, "_PASSWORD", $1); print $1; exit }')
-  [ -n "$_stats_var" ] || _stats_var="STATS_$(printf %s "$1" | tr 'a-z-' 'A-Z_')_PASSWORD"
-  _stats_resp=$(curl -s -X POST "$KC/realms/$(env_get STATS_REALM_NAME)/protocol/openid-connect/token" \
-    -d "client_id=$(env_get STATS_DEV_CLI_CLIENT_ID)" -d grant_type=password \
-    --data-urlencode "username=$1" --data-urlencode "password=$(env_get "$_stats_var")")
-  _stats_token=$(printf %s "$_stats_resp" | jq -r '.access_token // empty' 2>/dev/null)
-  if [ -z "$_stats_token" ]; then
-    echo "tok: Keycloak did not issue a token for $1: $(printf %s "$_stats_resp" | jq -r '.error_description // .error // .' 2>/dev/null || printf %s "$_stats_resp")" >&2
-    echo "  'Invalid user credentials' means the Keycloak on $KC was started from a different" >&2
-    echo "  bundle directory, whose .env holds different passwords. Use that directory." >&2
-    unset _stats_var _stats_resp _stats_token
-    return 1
-  fi
-  printf '%s\n' "$_stats_token"
-  unset _stats_var _stats_resp _stats_token
+  STATS_ENV_FILE="$STATS_ENV_FILE" KEYCLOAK_BASE_URL="$KC" \
+    "${STATS_TOKEN_SCRIPT:-${STATS_ENV_FILE%/*}/docker/token.sh}" "$@"
 }
 
-# A JWT is base64url WITHOUT padding; base64 -d needs the padding back or it fails or
-# truncates, depending on the platform.
 claims() {
   _stats_p=$(printf %s "$1" | cut -d. -f2 | tr '_-' '/+')
   while [ $(( ${#_stats_p} % 4 )) -ne 0 ]; do _stats_p="$_stats_p="; done

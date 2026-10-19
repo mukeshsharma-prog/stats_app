@@ -1,4 +1,4 @@
-# DEVELOPMENT.md
+# Development guide
 
 How to build, run, test, and contribute to the Stats App.
 
@@ -6,7 +6,7 @@ How to build, run, test, and contribute to the Stats App.
 > of this file documented a MongoDB stack and said retention keys on
 > `ts.server`; both are wrong. Retention keys on **`ts.device`**.
 >
-> **Status:** the remaining `TBC` items are listed in §11 and in `CLAUDE.md` §7.
+> **Status:** the remaining `TBC` items are listed in §11 and in `docs/development/PROJECT_CONTEXT.md` §7.
 > Where a section says TBC, do not guess; raise it.
 
 ---
@@ -31,81 +31,37 @@ outstanding; see §11.
 
 ## 2. Repository layout
 
-Documentation is already in place. The `build.gradle` / module directories below
-are created in Phase 1 — see `PROJECT_STATUS_AND_PLAN.md`.
+The application modules are implemented. The current project layout is:
 
-```
-stats_app/                          # repository root — everything lives here
-├── README.md                       # index — start here
-├── CLAUDE.md                       # pointer only — imports claude/CLAUDE.md so it auto-loads
-│
-├── claude/                         # working documents — all of them live here
-│   ├── CLAUDE.md                   # project context, non-negotiable rules, traps
-│   ├── IMPLEMENTATION_RULES.md     # detailed rules + required working sequence
-│   ├── PROJECT_STATUS_AND_PLAN.md  # status, open items by owner, phased plan
-│   ├── DEVELOPMENT.md              # this file
-│   ├── SKILLS.md                   # repeatable procedures
-│   └── CODE_START_CHECKLIST.md     # stop/go decision register
-│
+```text
+stats_app/
+├── README.md
 ├── docs/
-│   ├── requirements/               # SRS / BRD / ARB v1.2 amendments
-│   ├── decisions/                  # answer reconciliation, PostgreSQL baseline
-│   ├── architecture/
-│   │   ├── adr/                    # ADR-001 … ADR-006
-│   │   └── Stats_App_Flow.png
-│   ├── contracts/                  # Heimdal input, AMQP topology, OpenAPI design
-│   ├── schemas/                    # JSON Schema catalogue + fixtures
-│   ├── prompts/                    # prompt templates for this repo
-│   ├── setup/                      # IDE setup
-│   └── source/                     # historical .docx — provenance only
-│
-│   ── created in Phase 1 ─────────────────────────────────────────
-├── build.gradle(.kts)              # root build, shared plugin + version config
-├── settings.gradle(.kts)           # module registration
-├── gradle/libs.versions.toml       # version catalog — single source of dep versions
-│
-├── stats-common/                   # shared domain types, DTOs, envelope model,
-│                                   # stat-type enum, AMQP topology constants
-├── stats-input/                    # Module 1 — HTTP POST → AMQP
-│   └── src/main/resources/application.properties
-├── stats-writer/                   # Module 2 — AMQP → PostgreSQL
-│   ├── src/main/resources/db/migration/   # versioned migrations
-│   └── src/main/resources/application.properties
-├── stats-api/                      # Module 3 — read-only REST
-│   └── src/main/resources/application.properties
-│
-└── docker/
-    └── docker-compose.yml          # PostgreSQL, RabbitMQ, Keycloak for local dev
+│   ├── README.md              # current documentation index
+│   ├── development/           # context, active plan, engineering guidance
+│   ├── decisions/             # complete decision log and ratified answers
+│   ├── architecture/          # ADR 001–007, execution flow and current ARD
+│   ├── requirements/          # normative amendments and baseline sources
+│   ├── contracts/             # OpenAPI, AMQP and metrics contracts
+│   ├── schemas/               # runtime schemas, original sample and fixtures
+│   ├── runbooks/              # operational and manual verification procedures
+│   ├── setup/                 # IDE and Keycloak configuration
+│   ├── verification/          # retained acceptance evidence
+│   └── handover/              # setup guide and historical decision narrative
+├── docker/                    # images, Compose, bundle scripts and walkthrough
+├── ops/                       # monitoring, dashboards, drills and load tools
+├── postman/
+├── gradle/libs.versions.toml
+├── stats-common/
+├── stats-testsupport/
+├── stats-input/
+├── stats-writer/
+└── stats-api/
 ```
 
-The `openapi.yaml` we owe ZC goes in `docs/contracts/` alongside its design input.
-
-Each application module builds its own Docker image — three images, answered (Q2).
-
-### Why `stats-common`
-The envelope (`uid`, `tenant`, `maintenant`, `clsbox`, `type`, `ts`, and the
-passthrough members Heimdal adds — `status`, `version`, `meta`) is identical
-across all three modules, as are the exchange/queue/routing-key names. Defining
-them once prevents drift, and — for the topology constants specifically — prevents
-the `RESOURCE_LOCKED` failure that happens when two modules declare the same
-RabbitMQ resource with different arguments. Put **only** genuinely shared things
-here — resist making it a dumping ground.
-
-### Module dependency rules
-
-```
-stats-input  → stats-common
-stats-writer → stats-common
-stats-api    → stats-common
-```
-
-**Never** module-to-module. `stats-api` must not depend on `stats-writer`. They
-communicate only through the database and the broker. If you find yourself wanting
-a direct dependency, the boundary is wrong.
-
-`stats-api` has **no RabbitMQ dependency at all** — it is a read-only PostgreSQL
-consumer. Q3a closed on 29 Aug 2026: only **broker-connected** modules declare topology,
-and the API is not one of them (ADR-002 §11).
+Start with [the active plan](PROJECT_STATUS_AND_PLAN.md) and
+[the documentation index](../README.md). The complete decision log is at
+[docs/decisions/DECISIONS.md](../decisions/DECISIONS.md).
 
 ---
 
@@ -513,26 +469,41 @@ Not a percentage target. These specifically must be covered:
 - Every non-GET verb rejected on every endpoint *(STA-32A)*
 - Deterministic pagination under concurrent writes *(STA-36A)*
 
-Full checklist: `SKILLS.md` Skill 3.
+Full checklist: `docs/development/ENGINEERING_PLAYBOOK.md` Skill 3.
 
 ---
 
 ## 6. Local Keycloak
 
-```bash
-# Get a token for local testing
-curl -X POST http://localhost:8080/realms/statsapp/protocol/openid-connect/token \
-  -d "client_id=stats-api" \
-  -d "username=testuser" \
-  -d "password=testpass" \
-  -d "grant_type=password" | jq -r .access_token
+Manage users in the `statsapp` realm through the Keycloak admin console. Set the
+administrator-only Tenant profile field and assign the realm role `stats.readOnly`.
+In the role picker select **Filter by realm roles**. `stats_ro` is the API's internal
+PostgreSQL account, not a role to assign to human users.
+
+```sh
+./docker/token.sh your-user --prompt --claims
 ```
 
-The dev realm ships five users, and each one is a test rather than filler:
+The development helper uses the public `stats-dev-cli` client; `stats-api` is the
+resource-server audience and does not accept the password grant. No per-user `.env`
+entry is required for console-managed users. The existing fixture passwords remain
+optional defaults for automated local demos.
+
+Keycloak keeps its development H2 database in the `keycloak-data` Docker volume.
+Users survive restart and container recreation. A missing realm is seeded from the
+realm JSON; editing that seed does not overwrite an existing realm. Before replacing
+an older container without a volume, follow the migration steps in `docker/BUNDLE.md`.
+A fresh token is required after changing a user's tenant or role.
+
+See [realm setup](../setup/keycloak-realm-statsapp.md) for profile configuration,
+interactive login, persistence and the current fixture users.
+
+The dev realm ships six fixture users:
 
 | User | Proves |
 |---|---|
 | `alpha-reader` | Reads tenant-alpha, and only tenant-alpha |
+| `zra-reader` | Reads zra_test; proves the tenant/maintenant exclusion case |
 | `beta-reader` | The other half of the cross-tenant isolation pair |
 | `no-role` | An authenticated caller without `stats.readOnly` gets **403** |
 | `no-tenant` | A token with **no** `tenant` claim gets 403 — absent never means "all tenants" |
@@ -722,7 +693,7 @@ uid          — correlation ID across all three modules
 statType     — lorastats | ltestats | sysstats | netstats | omsstats
 tenant       — for filtering; never the full payload
 clsbox       — source device. NOT `gateway`: ADR-007 §1 is one vocabulary end to
-               end, and a log field is a field (CLAUDE.md §4)
+               end, and a log field is a field (docs/development/PROJECT_CONTEXT.md §4)
 module       — input | writer | api
 event        — validation_failed | published | persisted | retried | dead_lettered
 ```
@@ -744,7 +715,7 @@ retention and access must be configured explicitly, not inherited by accident.
 **This section is the authoritative logging rule** for the whole repository, and the
 control is the **level, not the path**: full payloads at `DEBUG` only, never at `INFO`
 or above on *any* path, and never a token or secret at *any* level. DL-080 and
-`IMPLEMENTATION_RULES.md` §8 were reconciled to it on 4 Sep 2026 (DL-102) — an earlier
+`docs/development/IMPLEMENTATION_RULES.md` §8 were reconciled to it on 4 Sep 2026 (DL-102) — an earlier
 revision of §8 permitted payload logging with no level qualification at all.
 
 **A stack trace is not a payload and this rule does not cover it.** A PostgreSQL
@@ -936,4 +907,4 @@ slice end to end; the Input endpoint including its auth *filter seam*; the Write
 with partitioning, retention and metered duplicate suppression; and the API
 against the drafted `docs/contracts/openapi.yaml`.
 
-See `PROJECT_STATUS_AND_PLAN.md` for the phased plan and delegation split.
+See `docs/development/PROJECT_STATUS_AND_PLAN.md` for the phased plan and delegation split.

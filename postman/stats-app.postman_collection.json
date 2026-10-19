@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "d261dd99-4be8-458c-b5c1-a4d207a30598",
     "name": "Stats App — Complete Local Acceptance",
-    "description": "End-to-end verification of health, Keycloak authentication, both ingest doors, lorastats/sysstats/omsstats persistence and reads, RabbitMQ topology/consumers, and API failure contracts.",
+    "description": "End-to-end verification of health, Keycloak authentication, both ingest doors, all five types (lorastats/sysstats/omsstats/ltestats/netstats), UID and per-type tenant/device history reads, RabbitMQ topology/consumers, and API failure contracts.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "event": [
@@ -919,7 +919,191 @@
           ]
         },
         {
-          "name": "GET tenant-wide list",
+          "name": "GET lorastats tenant-wide list",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{alphaToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": "{{apiBaseUrl}}/stats/lorastats?from={{fromEpoch}}&to={{toEpoch}}&limit=100"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const page = pm.response.json();",
+                  "pm.test(\"lorastats appears in tenant list\", () => pm.expect(page.items.map(x => x.uid)).to.include(pm.environment.get(\"uidLora\")));",
+                  "pm.test(\"page contract\", () => { pm.expect(page.items).to.be.an(\"array\"); pm.expect(page.limit).to.eql(100); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET lorastats device history from",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{alphaToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": "{{apiBaseUrl}}/stats/lorastats/{{clsboxLora}}/{{fromEpoch}}?limit=100"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"lorastats appears in device history\", () => pm.expect(pm.response.json().items.map(x => x.uid)).to.include(pm.environment.get(\"uidLora\")));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET lorastats bounded device history",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{alphaToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": "{{apiBaseUrl}}/stats/lorastats/{{clsboxLora}}/{{fromEpoch}}/{{toEpoch}}?limit=100"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"lorastats appears in bounded history\", () => pm.expect(pm.response.json().items.map(x => x.uid)).to.include(pm.environment.get(\"uidLora\")));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET sysstats tenant-wide list",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{alphaToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": "{{apiBaseUrl}}/stats/sysstats?from={{fromEpoch}}&to={{toEpoch}}&limit=100"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const page = pm.response.json();",
+                  "pm.test(\"sysstats appears in tenant list\", () => pm.expect(page.items.map(x => x.uid)).to.include(pm.environment.get(\"uidSys\")));",
+                  "pm.test(\"page contract\", () => { pm.expect(page.items).to.be.an(\"array\"); pm.expect(page.limit).to.eql(100); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET sysstats device history from",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{alphaToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": "{{apiBaseUrl}}/stats/sysstats/{{clsboxSys}}/{{fromEpoch}}?limit=100"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"sysstats appears in device history\", () => pm.expect(pm.response.json().items.map(x => x.uid)).to.include(pm.environment.get(\"uidSys\")));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET sysstats bounded device history",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{alphaToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": "{{apiBaseUrl}}/stats/sysstats/{{clsboxSys}}/{{fromEpoch}}/{{toEpoch}}?limit=100"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"sysstats appears in bounded history\", () => pm.expect(pm.response.json().items.map(x => x.uid)).to.include(pm.environment.get(\"uidSys\")));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET omsstats tenant-wide list",
           "request": {
             "method": "GET",
             "header": [],
@@ -951,7 +1135,7 @@
           ]
         },
         {
-          "name": "GET device history from",
+          "name": "GET omsstats device history from",
           "request": {
             "method": "GET",
             "header": [],
@@ -965,7 +1149,7 @@
                 }
               ]
             },
-            "url": "{{apiBaseUrl}}/stats/lorastats/{{clsboxLora}}/{{fromEpoch}}?limit=100"
+            "url": "{{apiBaseUrl}}/stats/omsstats/{{clsboxOms}}/{{fromEpoch}}?limit=100"
           },
           "event": [
             {
@@ -974,14 +1158,14 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
-                  "pm.test(\"lorastats appears in device history\", () => pm.expect(pm.response.json().items.map(x => x.uid)).to.include(pm.environment.get(\"uidLora\")));"
+                  "pm.test(\"omsstats appears in device history\", () => pm.expect(pm.response.json().items.map(x => x.uid)).to.include(pm.environment.get(\"uidOms\")));"
                 ]
               }
             }
           ]
         },
         {
-          "name": "GET bounded device history",
+          "name": "GET omsstats bounded device history",
           "request": {
             "method": "GET",
             "header": [],
@@ -995,7 +1179,7 @@
                 }
               ]
             },
-            "url": "{{apiBaseUrl}}/stats/sysstats/{{clsboxSys}}/{{fromEpoch}}/{{toEpoch}}?limit=100"
+            "url": "{{apiBaseUrl}}/stats/omsstats/{{clsboxOms}}/{{fromEpoch}}/{{toEpoch}}?limit=100"
           },
           "event": [
             {
@@ -1004,7 +1188,7 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
-                  "pm.test(\"sysstats appears in bounded history\", () => pm.expect(pm.response.json().items.map(x => x.uid)).to.include(pm.environment.get(\"uidSys\")));"
+                  "pm.test(\"omsstats appears in bounded history\", () => pm.expect(pm.response.json().items.map(x => x.uid)).to.include(pm.environment.get(\"uidOms\")));"
                 ]
               }
             }

@@ -58,7 +58,7 @@ tests:
                 consuming but not keeping up: check records_processing_duration,
                 records_postgres_errors and the retry counters before touching capacity.
                 Depth is a diagnostic here, not the alert (Q13b).
-              runbook: claude/SKILLS.md#skill-4--diagnose-a-stuck-or-growing-queue
+              runbook: docs/runbooks/queue-troubleshooting.md
       - eval_time: 10m
         alertname: StatsAppMainQueueAgingCritical
         exp_alerts: []
@@ -82,7 +82,7 @@ tests:
                 than thirty minutes. Records are not being lost — the queue is durable — but
                 the backlog is now longer than the retry arm, and a Heimdal replay on top of it
                 will be held at the 503 backpressure channel.
-              runbook: claude/SKILLS.md#skill-4--diagnose-a-stuck-or-growing-queue
+              runbook: docs/runbooks/queue-troubleshooting.md
       - eval_time: 5m
         alertname: StatsAppMainQueueAging
         exp_alerts:
@@ -97,7 +97,7 @@ tests:
                 consuming but not keeping up: check records_processing_duration,
                 records_postgres_errors and the retry counters before touching capacity.
                 Depth is a diagnostic here, not the alert (Q13b).
-              runbook: claude/SKILLS.md#skill-4--diagnose-a-stuck-or-growing-queue
+              runbook: docs/runbooks/queue-troubleshooting.md
 
   - name: replicas aggregate with max and types are independent
     interval: 1m
@@ -123,7 +123,7 @@ tests:
                 consuming but not keeping up: check records_processing_duration,
                 records_postgres_errors and the retry counters before touching capacity.
                 Depth is a diagnostic here, not the alert (Q13b).
-              runbook: claude/SKILLS.md#skill-4--diagnose-a-stuck-or-growing-queue
+              runbook: docs/runbooks/queue-troubleshooting.md
 
   - name: a NaN from a failed poll never reads as a healthy zero or as no consumer
     interval: 1m
@@ -162,7 +162,7 @@ tests:
                 every poll for five minutes. queue_depth, dlq_depth and consumer_availability
                 are NaN and the queue alerts cannot fire. Check the broker and the Writer's
                 AMQP connection; do not read the quiet as healthy.
-              runbook: claude/SKILLS.md#skill-4--diagnose-a-stuck-or-growing-queue
+              runbook: docs/runbooks/queue-troubleshooting.md
 
   - name: zero consumers on a successful poll is critical after two minutes
     interval: 1m
@@ -189,7 +189,7 @@ tests:
                 queue_oldest_message_age_seconds cannot say so because it is sampled at
                 delivery. Check that a Writer for this type is deployed and its listener
                 started (stats.writer.stat-type, StatTypeDeploymentGuard).
-              runbook: claude/SKILLS.md#skill-4--diagnose-a-stuck-or-growing-queue
+              runbook: docs/runbooks/queue-troubleshooting.md
 
   - name: a registered consumer that takes nothing for ten minutes while messages wait is stalled
     interval: 1m
@@ -217,7 +217,7 @@ tests:
                 not consuming — a wedged listener, a hung connection, or a prefetch window
                 held unacknowledged. Restart the Writer for this type; nothing is lost while
                 the deliveries stay unacknowledged.
-              runbook: claude/SKILLS.md#skill-4--diagnose-a-stuck-or-growing-queue
+              runbook: docs/runbooks/queue-troubleshooting.md
 
   - name: an empty queue with a quiet consumer is not a stall
     interval: 1m
@@ -287,7 +287,7 @@ tests:
                 app_statsstore.sysstats.retry.1-3 and .dlq exist and are bound to
                 app_stats_dlx, and the broker's memory and disk alarms. Restarting the
                 Writer redeclares missing queues.
-              runbook: claude/SKILLS.md#skill-4--diagnose-a-stuck-or-growing-queue
+              runbook: docs/runbooks/queue-troubleshooting.md
       - eval_time: 25m
         alertname: StatsAppFailureHandoffUnconfirmed
         exp_alerts: []
@@ -320,7 +320,7 @@ tests:
                 stored regardless (DL-108); this is Heimdal's converter reporting trouble, not
                 ours. The 1% threshold is PROVISIONAL until the first 24 h of ingest set it —
                 see ops/prometheus/README.md.
-              runbook: claude/SKILLS.md#skill-4--diagnose-a-stuck-or-growing-queue
+              runbook: docs/runbooks/queue-troubleshooting.md
 
   - name: a baseline below the provisional threshold is quiet, and no traffic is not a breach
     interval: 1m
@@ -387,7 +387,7 @@ tests:
                 down. Check pg_locks for an advisory lock held by a session that is not
                 running maintenance (a leaked lock starves every replica — trap 27's sibling),
                 pg_inherits.inhdetachpending, and that the scheduler thread is alive.
-              runbook: claude/SKILLS.md#skill-5--change-a-retention-window
+              runbook: docs/runbooks/retention-policy.md
 
   - name: a sweep that has NEVER run on any replica is critical once the process has been up long enough, and quiet before
     interval: 1m
@@ -415,4 +415,4 @@ tests:
                 down. Check pg_locks for an advisory lock held by a session that is not
                 running maintenance (a leaked lock starves every replica — trap 27's sibling),
                 pg_inherits.inhdetachpending, and that the scheduler thread is alive.
-              runbook: claude/SKILLS.md#skill-5--change-a-retention-window
+              runbook: docs/runbooks/retention-policy.md

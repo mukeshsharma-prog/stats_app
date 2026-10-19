@@ -14,7 +14,7 @@ from open-ended policy to a one-page review with five specific questions (§6).
 
 Derived from `docs/schemas/*.schema.json`, `docs/contracts/openapi.yaml`,
 `stats-writer/src/main/resources/db/migration/`, and the logging rules in
-`claude/DEVELOPMENT.md` §7. Those files are the source of truth; if this drifts from
+`docs/development/DEVELOPMENT.md` §7. Those files are the source of truth; if this drifts from
 them, they win.
 
 ---
@@ -224,7 +224,7 @@ everything reversible is proposed for adoption now; everything irreversible wait
 signature.
 
 > **UPDATED 4 September 2026 (DL-114).** The three that need no signature are **ADOPTED**:
-> **P1** and **P2** are now written into `claude/DEVELOPMENT.md` §7, which is the
+> **P1** and **P2** are now written into `docs/development/DEVELOPMENT.md` §7, which is the
 > authoritative logging rule for the repository, and **P3** is recorded on **T-034** in the
 > tracker as a blocking dependency rather than living only in this table. **P4 and P5 are
 > unchanged and still need security's signature** — they are irreversible, and nothing in
@@ -249,8 +249,8 @@ signature.
 | What the API returns | `docs/contracts/openapi.yaml` — `Envelope`, `LtestatsData`, `NetworkInterface` |
 | Columns that exist today | `stats-writer/src/main/resources/db/migration/V1..V4` — `lorastats` only |
 | `passthrough` / `data_extra` semantics | DL-094, DL-095, ADR-003 D2, D14b |
-| Logging rules | `claude/DEVELOPMENT.md` §7; DL-080, DL-102 |
+| Logging rules | `docs/development/DEVELOPMENT.md` §7; DL-080, DL-102 |
 | DLQ has no TTL, ever | ADR-002 §12 |
 | Retention is 90 days on `ts_device` | STA-23, STA-23B, ADR-003 |
 | Database roles | ADR-006 |
-| D-12's decided half and pending half | `claude/CODE_START_CHECKLIST.md` §A row D-12; `claude/OPEN_QUESTIONS_STATUS_29AUG2026.md` §5.2 |
+| D-12's decided half and pending half | `docs/development/CODE_START_CHECKLIST.md` §A row D-12; `docs/decisions/OPEN_QUESTIONS_STATUS_29AUG2026.md` §5.2 |

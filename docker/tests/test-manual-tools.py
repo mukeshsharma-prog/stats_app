@@ -29,10 +29,14 @@ def jwt(claims):
 
 CURL = r'''#!/usr/bin/env python3
 import json, os, sys
+from urllib.parse import parse_qs
 args = sys.argv[1:]
 with open(os.environ['FAKE_CALLS'], 'a') as f:
     f.write(json.dumps(args) + '\n')
-password = next(a.split('=', 1)[1] for a in args if a.startswith('password='))
+form = parse_qs(sys.stdin.read())
+with open(os.environ['FAKE_FORMS'], 'a') as f:
+    f.write(json.dumps(form) + '\n')
+password = form['password'][0]
 if password == os.environ['FAKE_GOOD_PASSWORD']:
     print(json.dumps({'access_token': os.environ['FAKE_TOKEN'], 'token_type': 'Bearer'}))
 else:
@@ -59,7 +63,7 @@ class ManualToolsTest(unittest.TestCase):
             claims['pad'] = claims.get('pad', '') + 'x'
         self.token = jwt(claims)
         self.env = dict(os.environ, PATH=f"{fake.parent}:{os.environ['PATH']}",
-                        FAKE_CALLS=str(self.root / 'calls.jsonl'), FAKE_TOKEN=self.token,
+                        FAKE_CALLS=str(self.root / 'calls.jsonl'), FAKE_FORMS=str(self.root / 'forms.jsonl'), FAKE_TOKEN=self.token,
                         FAKE_GOOD_PASSWORD='right-one')
         self.env.pop('STATS_ENV_FILE', None)
         self.write_env('right-one')
@@ -76,25 +80,28 @@ class ManualToolsTest(unittest.TestCase):
     def calls(self):
         return [json.loads(line) for line in (self.root / 'calls.jsonl').read_text().splitlines()]
 
+    def forms(self):
+        return [json.loads(line) for line in (self.root / 'forms.jsonl').read_text().splitlines()]
+
     def test_token_reads_this_bundles_env_from_any_directory(self):
         result = self.run_token('alpha-reader')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), self.token)
-        self.assertIn('password=right-one', self.calls()[0])
-        self.assertIn('client_id=stats-dev-cli', self.calls()[0])
+        self.assertEqual(self.forms()[0]['password'], ['right-one'])
+        self.assertEqual(self.forms()[0]['client_id'], ['stats-dev-cli'])
         self.assertTrue(any(a.endswith('/realms/statsapp/protocol/openid-connect/token') for a in self.calls()[0]))
 
     def test_user_name_maps_to_its_password_variable(self):
         self.run_token('no-role')
-        self.assertIn('password=other', self.calls()[0])
+        self.assertEqual(self.forms()[0]['password'], ['other'])
 
     def test_a_user_renamed_in_env_finds_its_password_by_the_username_key(self):
         with (self.root / '.env').open('a') as f:
             f.write('STATS_ALPHA_READER_USERNAME=alice\n')
         result = self.run_token('alice')
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn('password=right-one', self.calls()[0])
-        self.assertIn('username=alice', self.calls()[0])
+        self.assertEqual(self.forms()[0]['password'], ['right-one'])
+        self.assertEqual(self.forms()[0]['username'], ['alice'])
 
     @unittest.skipUnless(shutil.which('jq'), 'jq not installed')
     def test_claims_restore_base64url_padding(self):
@@ -111,9 +118,9 @@ class ManualToolsTest(unittest.TestCase):
         self.assertIn('Invalid user credentials', result.stderr)
         self.assertIn('different', result.stderr)
 
-    def test_unknown_user_is_a_usage_error_without_calling_keycloak(self):
+    def test_unknown_user_without_terminal_fails_without_calling_keycloak(self):
         result = self.run_token('nobody')
-        self.assertEqual(result.returncode, 2)
+        self.assertEqual(result.returncode, 1)
         self.assertFalse((self.root / 'calls.jsonl').exists())
 
     def helpers(self, script, cwd):
@@ -163,7 +170,7 @@ class BundleCarriesTheWalkthroughTest(unittest.TestCase):
         dockerfile = (SOURCE / 'Dockerfile.tools').read_text()
         allow = (SOURCE / 'Dockerfile.tools.dockerignore').read_text()
         for path in ['docs/schemas/fixtures', 'docker/demo.sh', 'docker/stats-helpers.sh',
-                     'docker/tools-entrypoint.sh']:
+                     'docker/tools-entrypoint.sh', 'docker/token.sh']:
             self.assertIn(f'COPY {path}', dockerfile, path)
             self.assertIn(f'!{path}', allow, path)
         self.assertNotIn('.env', [line.strip() for line in allow.splitlines()])
@@ -174,7 +181,9 @@ class BundleCarriesTheWalkthroughTest(unittest.TestCase):
         # The pages are pasted, never run as scripts, so a comment is a broken command.
         for page in ['MANUAL.md', 'BUNDLE.md', '../postman/README.md']:
             text = (SOURCE / page).read_text()
-            for block in re.findall(r'```(?:bash|sh)?\n(.*?)```', text, re.S):
+            for language, block in re.findall(r'```([^\n]*)\n(.*?)```', text, re.S):
+                if language not in ('', 'bash', 'sh'):
+                    continue
                 for line in block.splitlines():
                     self.assertIsNone(re.search(r'(^|\s)#', line), f'{page}: {line}')
 

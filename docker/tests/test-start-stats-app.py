@@ -22,6 +22,12 @@ elif a[:2] == ['volume', 'ls']:
     if os.environ['FAKE_VOLUMES'] == '1' and any(x.endswith('=postgres-data') for x in a):
         print('stats-app-bundle_postgres-data')
 elif a[0] == 'inspect':
+    if a[3] == 'stats-keycloak' and ('com.docker.compose.project' in a[2] or '.Mounts' in a[2]):
+        if os.environ.get('FAKE_LEGACY_KEYCLOAK') == '1':
+            if 'com.docker.compose.project' in a[2]:
+                print('stats-app-bundle')
+            sys.exit(0)
+        sys.exit(1)
     if not exists:
         sys.exit(1)
     template = a[2]
@@ -49,7 +55,7 @@ elif a[0] not in ['load', 'logs']:
 
 class StartupCredentialsTest(unittest.TestCase):
     def exercise(self, volumes=False, postgres=False, auth_failure=False, env_exists=False,
-                 unhealthy='', monitoring_down=False, arch='arm64',
+                 unhealthy='', monitoring_down=False, arch='arm64', legacy_keycloak=False,
                  archives=('stats-app-images-amd64.tar', 'stats-app-images-arm64.tar')):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
@@ -70,7 +76,7 @@ class StartupCredentialsTest(unittest.TestCase):
                    FAKE_ROOT=str(root), FAKE_VOLUMES=str(int(volumes)),
                    FAKE_POSTGRES=str(int(postgres)), FAKE_AUTH_FAILURE=str(int(auth_failure)),
                    FAKE_UNHEALTHY=unhealthy, FAKE_MONITORING_DOWN=str(int(monitoring_down)),
-                   FAKE_ARCH=arch,
+                   FAKE_ARCH=arch, FAKE_LEGACY_KEYCLOAK=str(int(legacy_keycloak)),
                    MONITORING_TIMEOUT_SECONDS='1')
         result = subprocess.run(['sh', str(root / 'docker/start-stats-app.sh')],
                                 env=env, text=True, capture_output=True, timeout=15)
@@ -107,6 +113,12 @@ class StartupCredentialsTest(unittest.TestCase):
         self.assertEqual((root / '.env').stat().st_mode & 0o777, 0o600)
         self.assertIn('POSTGRES_RO_PASSWORD=', (root / '.env').read_text())
         self.assertTrue(any(c[0] == 'compose' for c in calls))
+
+    def test_legacy_keycloak_is_not_replaced_before_migration(self):
+        _, result, calls = self.exercise(postgres=True, env_exists=True, legacy_keycloak=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('migrate-keycloak-data.sh', result.stderr)
+        self.assertFalse(any(c[0] == 'compose' for c in calls))
 
     def test_degraded_monitoring_reports_ready_and_exits_three(self):
         # DL-167: every application is healthy, so the stack is usable and says so;

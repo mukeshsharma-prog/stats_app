@@ -319,4 +319,4 @@ do not equate complete partition creation with successful cleanup. Inspect Write
 maintenance logs for failures if expired partitions remain after the pass.
 
 The completed automated audit and sanitized aggregate evidence are linked from
-[the verification report](LTE_NETSTATS_VERIFICATION_REPORT_2026-10-09.md).
+[the verification report](../verification/lte-netstats-2026-10-09.md).

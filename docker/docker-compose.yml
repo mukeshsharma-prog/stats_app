@@ -13,9 +13,9 @@
 # deployables (CLAUDE.md §1). Only the three services under the `apps` profile are
 # ours to ship.
 #
-# All values come from the repository-root .env. This file contains no ${...}
-# interpolation on purpose: env_file paths resolve relative to this file, so the
-# stack behaves identically no matter which directory you run compose from.
+# Credentials come from the repository-root .env through env_file. The optional
+# RABBITMQ_NODE_HOSTNAME interpolation pins the persisted broker node identity.
+# env_file paths resolve relative to this file.
 
 name: stats-app
 
@@ -78,6 +78,8 @@ services:
   rabbitmq:
     image: rabbitmq:4-management-alpine
     container_name: stats-rabbitmq
+    # Keep the node identity stable so recreation reuses the same persisted queues.
+    hostname: "${RABBITMQ_NODE_HOSTNAME:-stats-rabbitmq}"
     restart: unless-stopped
     env_file: ../.env
     ports:
@@ -97,9 +99,8 @@ services:
     image: quay.io/keycloak/keycloak:26.0
     container_name: stats-keycloak
     restart: unless-stopped
-    # --import-realm reads /opt/keycloak/data/import at startup, and ONLY when the
-    # realm does not already exist. Edit the realm JSON and restarting changes
-    # nothing — you need `docker compose down -v` to drop Keycloak's H2 state.
+    # Import bootstraps a missing realm only. Manage existing users in Keycloak;
+    # keycloak-data preserves users, credentials, roles and signing keys on recreation.
     command: ["start-dev", "--import-realm"]
     # env_file supplies KC_BOOTSTRAP_ADMIN_* for the admin account and every
     # STATS_* value the realm JSON resolves as ${NAME:default}.
@@ -123,6 +124,7 @@ services:
     ports:
       - "8080:8080"
     volumes:
+      - keycloak-data:/opt/keycloak/data
       - ../docs/setup/keycloak-realm-statsapp.json:/opt/keycloak/data/import/realm.json:ro
     healthcheck:
       # The Keycloak image ships no curl or wget. bash's /dev/tcp is the portable
@@ -428,6 +430,7 @@ services:
       - "3000:3000"
 
 volumes:
+  keycloak-data:
   postgres-data:
   postgres-wal-archive:
   rabbitmq-data:

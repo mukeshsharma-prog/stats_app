@@ -1,5 +1,10 @@
 # LTE and network stats — end-to-end implementation plan
 
+> Both software slices are implemented. This detailed plan and its verification
+> record are retained for traceability; current release/feed gates are tracked in
+> [PROJECT_STATUS_AND_PLAN.md](PROJECT_STATUS_AND_PLAN.md).
+
+
 **Prepared:** 8 October 2026.
 
 **Scope:** complete `ltestats` (T-034) and `netstats` (T-037), from HTTP acceptance through RabbitMQ, Writer validation, PostgreSQL, secured reads, operational verification and packaged delivery.
@@ -49,7 +54,7 @@ If LTE uses a keyed hash, record the key source, stability across replicas, rota
 
 1. **LTE mixed shape:** the documentation calls `measured` and `unknown-technology` mutually exclusive, but the measured schema allows unknown properties. A complete measured payload plus `etxt` currently validates; the existing mixed fixture covers a partial measurement only. Add the complete mixed negative case and align the schema with ADR-007 B1, preserving other unknown members on measured records. Mirror the change in OpenAPI and both validator suites.
 2. **Net overflow:** `invalid/netstats-counter-overflow.json` contains a 20-digit value rejected by the schema. Add a **schema-valid 19-digit** counter such as `9223372036854775808` to prove Writer range rejection, and accept `9223372036854775807`. Keep schema rejection and mapping rejection as separate expectations.
-3. **Stale checklist wording:** `claude/SKILLS.md` still says payload errors return HTTP 400 in parts of its add-type procedure. ADR-007 §5 and the implemented validator govern: Input rejects envelope errors; the Writer dead-letters payload errors after confirmed acceptance. Correct that wording with the implementation documentation.
+3. **Stale checklist wording:** `docs/development/ENGINEERING_PLAYBOOK.md` still says payload errors return HTTP 400 in parts of its add-type procedure. ADR-007 §5 and the implemented validator govern: Input rejects envelope errors; the Writer dead-letters payload errors after confirmed acceptance. Correct that wording with the implementation documentation.
 
 ## 3. Shared behavior both types must inherit
 
@@ -187,7 +192,7 @@ Run mixed traffic across all five types, then a focused LTE/net load check with 
 | API tests | Reader/table guard, read integration, tenant isolation and pagination; real migration/grant support already exists |
 | Operational tests | Existing retry/redrive/retention/management suites and any type assumptions; focused all-five failure isolation and new-type load evidence |
 | Demonstration/delivery | `docker/demo.sh`, Postman collection/environment/README, relevant Compose configuration, packaging smoke checks and handover guide |
-| Working records | `claude/DECISIONS.md`, `PROJECT_STATUS_AND_PLAN.md`, `FLOW.md`, `CLAUDE.md`, stale checklist wording and README. Update T-034/T-037 in the external task tracker when implementing; this plan does not edit the workbook |
+| Working records | `docs/decisions/DECISIONS.md`, `docs/development/PROJECT_STATUS_AND_PLAN.md`, `docs/architecture/FLOW.md`, `docs/development/PROJECT_CONTEXT.md`, stale checklist wording and README. Update T-034/T-037 in the external task tracker when implementing; this plan does not edit the workbook |
 
 Use the current working tree as the baseline; it already contains Input acknowledgement, packaging and handover changes. Preserve those changes. Do not modify existing LoRa/sys/OMS implementations to dispatch the new types.
 
@@ -432,7 +437,7 @@ indexes, grants and sample device-date routing.
 The live LoRa/sys/OMS tables retain 10 older partitions each; no retention sweep
 has been observed since the current Writer started after its scheduled daily run.
 Creation is verified; live scheduled cleanup remains a follow-up observation.
-See [the verification report](LTE_NETSTATS_VERIFICATION_REPORT_2026-10-09.md) for
+See [the verification report](../verification/lte-netstats-2026-10-09.md) for
 scope, sample variants, aggregate evidence and the next scheduled sweep time.
 
 ## 15. Existing-volume startup repair — 9 October 2026

@@ -22,6 +22,8 @@ RUN apk add --no-cache bash curl jq docker-cli
 WORKDIR /tools
 COPY docs/schemas/fixtures         ./docs/schemas/fixtures
 COPY docker/demo.sh                ./docker/demo.sh
+COPY docker/token.sh               ./docker/token.sh
+ENV STATS_TOKEN_SCRIPT=/tools/docker/token.sh
 COPY docker/stats-helpers.sh       ./docker/stats-helpers.sh
 COPY docker/tools-entrypoint.sh    ./docker/tools-entrypoint.sh
 

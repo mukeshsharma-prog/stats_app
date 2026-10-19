@@ -20,21 +20,15 @@ __pycache__/
 *.py[cod]
 
 # Secrets never belong in the repository — they come from the environment.
-# (claude/DEVELOPMENT.md §4)
+# See docs/development/DEVELOPMENT.md §4.
 *.env
 .env
 .env.bak*
+postman/*.private.postman_environment.json
 
-# Internal working documents and AI context — kept local, not published to the repository.
-# docs/
-# claude/
-# CLAUDE.md
-# .claude/
+# Local task tracker; maintained outside the source repository.
 Stats_App_Tracker.xlsx
 ~$Stats_App_Tracker.xlsx
-
-# Claude Code local machine state (the shared .claude/settings.json is tracked)
-.claude/settings.local.json
 
 # Generated OpenAPI documentation bundle — BOTH contracts on one page since DL-145.
 # Regenerate from the YAML, never edit or commit it — a checked-in bundle is stale the

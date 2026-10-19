@@ -8,7 +8,7 @@
 > order of authority:
 >
 > 1. `docs/architecture/adr/` — the ADR file is the record of decision.
-> 2. `claude/CODE_START_CHECKLIST.md` §A2 — gate decisions **G1–G6**, 18 Aug 2026.
+> 2. `docs/development/CODE_START_CHECKLIST.md` §A2 — gate decisions **G1–G6**, 18 Aug 2026.
 > 3. `docs/decisions/2B-ANSWERS-18AUG2026.md` — the seven §2b answers, 18 Aug 2026.
 > 4. This file.
 >
@@ -42,7 +42,7 @@
 | D5 | RabbitMQ unavailable => non-2xx | Use 503 for transient broker unavailability unless platform convention requires another non-2xx status. |
 | D9 | Retention uses `ts.device` | PostgreSQL retention must be based on device timestamp. Late-arriving records may be near expiry on arrival; this is an accepted business rule that must be documented/tested. |
 | D3 | RFC 9457 response shape confirmed | Use the approved Problem Details shape. |
-| D6 | Published message is identical to received | No OMS or other transformation in Input; validate and publish the received record **byte-identically**. This is load-bearing for ADR-003: a redelivered record keeps its `ts_device`, lands in the same partition, and hits the same key. **Do not confuse this with the unknown-field policy, which is `D14`** — see `claude/CLAUDE.md` §8. |
+| D6 | Published message is identical to received | No OMS or other transformation in Input; validate and publish the received record **byte-identically**. This is load-bearing for ADR-003: a redelivered record keeps its `ts_device`, lands in the same partition, and hits the same key. **Do not confuse this with the unknown-field policy, which is `D14`** — see `docs/development/PROJECT_CONTEXT.md` §8. |
 | D8 | `uid` is its own PostgreSQL column | Do not use a Mongo `_id`; use a PostgreSQL `uid` column. **Amended 24 Aug 2026:** uniqueness is `PRIMARY KEY (ts_device, uid)` per partition, not a unique index on `uid` — see Q6 above and ADR-003. A suppressed `ON CONFLICT DO NOTHING` insert MUST increment `records_duplicate_suppressed{type}`. |
 | D10 | `omsstats` is in scope | Include it in every type list. |
 

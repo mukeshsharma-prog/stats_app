@@ -30,7 +30,7 @@ test still PASSES**, because A's raw string still differs from B's. After the
 first import, check the realm name and one user's tenant attribute in the admin
 console before trusting any test result.
 
-## The five users exist for specific tests
+## The six fixture users exist for specific tests
 
 Their usernames, emails and tenant ids are all variables, so every name in this
 realm is ours to change from `.env` — but the SRS,
@@ -39,6 +39,7 @@ the default names, so rename in `.env` and in those tests together.
 
 | User | Proves |
 |---|---|
+| `zra-reader` | Reads `zra_test`; A/B/C isolation demonstration, including mismatched `maintenant` |
 | `alpha-reader` / `beta-reader` | The cross-tenant isolation pair |
 | `no-role` | An authenticated caller without the read role gets 403 |
 | `no-tenant` | A token with **no** tenant claim fails CLOSED rather than returning everything |
@@ -51,3 +52,29 @@ nothing — or worse, is treated as unset somewhere downstream. One user cannot
 exercise both, and ADR-006 release-gates each of them. `empty-tenant`'s empty
 tenant attribute is deliberately **not** a variable — the empty string is the
 thing under test.
+
+## Persistent users and profile configuration
+
+The Compose stack mounts `keycloak-data:/opt/keycloak/data`. Seed import runs only
+for a missing realm. Existing users, credentials and signing keys survive restarts
+and recreation; `down -v` deletes the volume. Before replacing an older container,
+run `docker/migrate-keycloak-data.sh` to preserve its stopped H2 database.
+
+The realm embeds the profile configuration from `keycloak-user-profile.json`,
+including the single `tenant` attribute with administrator-only view/edit permissions.
+Keep the embedded configuration and readable JSON synchronized. This declaration is
+necessary for newly created users: an undeclared attribute may be discarded by
+Keycloak's user-profile handling. For existing realms, add the attribute through
+Realm settings → User profile, preserving existing profile configuration.
+
+Users can be created through the admin console or Admin REST API. Assign
+`stats.readOnly`, set `tenant`, configure their credentials and obtain a fresh token.
+No PostgreSQL user or grants are created for them. `docker/token.sh USER --prompt`
+or `--password-stdin` works without fixture credentials in `.env`.
+
+The public development login client also enables Authorization Code with mandatory
+PKCE S256 and a configurable explicit callback. The password grant remains enabled
+for development scripts; it cannot complete interactive required actions or MFA.
+
+Keycloak references: [startup import behavior](https://www.keycloak.org/server/importExport)
+and [user-profile permissions](https://www.keycloak.org/docs/26.0.8/server_admin/#user-profile).

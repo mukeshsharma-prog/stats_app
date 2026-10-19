@@ -181,7 +181,7 @@ The response is 400 with a `ts.device` field-level error carrying the reason cod
 
 The `ts.server` bound complements Q14a rather than replacing it: Q14a compares the record's two clocks with each other, so a record whose clocks agreed and were both far ahead passed it and then found no partition at the Writer.
 
-Invalid responses use the approved RFC 9457-compatible Problem Details shape. The response may identify field names, reason codes, stat type, and `uid`, but must not echo sensitive offending values or access credentials. The business answer permits payload logging in the Java logger/Docker logs **at `DEBUG` only, which is off in production** — never at `INFO` or above, on any path (DL-102; `claude/DEVELOPMENT.md` §7 is authoritative). Production data-classification and access policy still governs what is retained and who can see it, and neither is decided: see **D-12** and the field-level catalogue in `docs/decisions/DATA-SENSITIVITY-INVENTORY.md`.
+Invalid responses use the approved RFC 9457-compatible Problem Details shape. The response may identify field names, reason codes, stat type, and `uid`, but must not echo sensitive offending values or access credentials. The business answer permits payload logging in the Java logger/Docker logs **at `DEBUG` only, which is off in production** — never at `INFO` or above, on any path (DL-102; `docs/development/DEVELOPMENT.md` §7 is authoritative). Production data-classification and access policy still governs what is retained and who can see it, and neither is decided: see **D-12** and the field-level catalogue in `docs/decisions/DATA-SENSITIVITY-INVENTORY.md`.
 
 ## 5. Delivery/replay behavior
 
