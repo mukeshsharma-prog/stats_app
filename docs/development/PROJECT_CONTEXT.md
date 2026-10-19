@@ -422,6 +422,15 @@ scope logs the identifiers — you log the event.** The guard covers `stats-writ
 Input's one `addKeyValue("uid")` runs on the confirm-callback thread outside any request
 scope and does not collide today.
 
+**A security property that is set to nothing.**
+"No default in code" protects against an *unset* variable: `${STATS_API_AUDIENCE}` with no
+value stops the context. An *empty* one does not — `STATS_API_AUDIENCE=` in an `.env` binds
+Boot's `audiences` to an empty list, and Boot then validates **no** audience, so a token
+minted for any client of the realm reads data and every test written with the real value
+stays green. Found by the T-028 review (DL-172); `ResourceServerSettings` now refuses a
+blank issuer or audience at startup. When you add a security property, refuse blank as
+well as absent, and test the blank case through the real binder, not a hand-built record.
+
 **A second ingest door that authenticates the caller and binds nothing to the tenant.**
 `/external/stats` shares the internal door's filter chain (DL-151), so any credential that
 opens it — today none, `mode=none` — can submit a record under **any** tenant's name; the
@@ -579,6 +588,7 @@ plan is not written against a repository that no longer exists. Full reasoning:
 | DL-168 | **Nothing answered 2xx that cannot be stored; the failure arm cannot strand a delivery.** Envelope bounds (`uid`/`tenant`/`maintenant` ≤ 128 and non-blank, `version` ≤ 32767), `unstorable_character`, `server_clock_ahead`, strict byte-level parse; `messageId` omitted past 255 bytes. Unconfirmed hand-off → pause, nack-requeue, `records_handoff_unconfirmed`, alert. Writer refusals permanent; SQLSTATE 22/54 permanent. Redrive skips and continues on one cutoff. API `statement_timeout=10s` | T-013, T-024, T-052, T-062 |
 | DL-170 | **The share bundle runs on amd64 and arm64.** `package-bundle.sh` builds both with buildx and ships one single-platform archive per architecture; `start-stats-app.sh` loads the one matching the engine and stops before any change if none matches. Build stage `--platform=$BUILDPLATFORM`. Verified end to end on both: 100 Postman assertions, 0 failed | — |
 | DL-171 | **The bundle carries its own walkthrough.** `MANUAL.md` (fourteen steps, each with its expected output), `docker/stats-helpers.sh` (`tok`/`claims`/`env_get`/`pg`; a refused token prints Keycloak's reason, never `null`), `docker/shell.sh` (the same helpers in the `stats-tools` container: nothing needed but Docker), `docker/token.sh`, `docker/run-demo.sh` (`demo.sh` in that container). **Every command runs from the bundle directory: its `.env` is not the checkout's.** Run the Postman suite before the walkthrough, because step 10 and the demo dead-letter on purpose | — |
+| DL-172 | **T-028 reviewed (by Claude — not independent; Mukesh signs off).** Four findings fixed: an **empty** `STATS_API_AUDIENCE` switched the `aud` check off (200 for a `stats-input` token) — `ResourceServerSettings` now stops startup on a blank issuer or audience; `StatsQueryBuilderTest` covers all five readers and fails on a missing one; every `WHERE` condition must be `AND`-joined, and the isolation suite walks every page; `ReadAccessTest` pins the role-and-tenant layer alone. Nine mutations, all killed after the fix. **Unset and empty are different values: a security property must refuse both** | T-028, T-045 |
 
 > **What to do next lives in `Stats_App_Tracker.xlsx` → the `Next Up` sheet**, ranked
 > across both owners with the gate on each row. T-063, T-057 and T-064 were done on

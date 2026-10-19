@@ -6327,3 +6327,99 @@ scripts, found two defects the scripted verification could not have found:
   `up -d --force-recreate keycloak`, after which the API accepted the new Keycloak's
   tokens (200, new signing keys fetched by themselves). `docker/postgres-init/` still
   needs an empty volume.
+
+### DL-172 — The T-028 review of the isolation and security suites: four findings fixed, nine mutations, and an empty audience no longer switches the `aud` check off
+
+**19 October 2026** · `SECURITY` · `API` · STA-31A, STA-34A, STA-35, STA-35A, STA-35B · ADR-006, DL-162, DL-164, DL-167 · T-028, T-045 · **approver:** Naman Vashishtha (requested "do task t028 complete it")
+
+**Trigger.** T-028 has been PARTIAL since DL-162: the isolation and security suites were
+written in the same change, by the same author, as the code they constrain — the one
+thing T-028 forbids for a security control. The `Next Up` row asked for a review of
+`TenantIsolationIntegrationTest`, `ApiSecurityIntegrationTest` and `StatsQueryBuilderTest`
+against ADR-006 and `openapi.yaml`, DL-162's four mutations re-run, and the scope DL-169
+added: `LtestatsReader`/`NetstatsReader` (DL-164), `ImsiMask` (DL-167) and the read
+statement timeout (DL-168).
+
+**Who reviewed — and why this does not close T-028 by itself.** The review was done by
+Claude. Phase 4 was written with Claude (DL-162), so this review is **not independent of
+the author's tooling**, which is the separation of duties T-028 exists to enforce. Asked
+to decide, the assistant declined to approve its own review: T-028 stays PARTIAL and closes
+on **Mukesh's sign-off of this entry and its diff** — a reading of four findings and
+their tests, not a fresh review.
+
+**What held.** Every statement's first condition is `tenant = ?`, bound to the token's
+tenant, on every operation and reader; only the table name varies and it comes from a
+closed set. `maintenant` is selected and never filtered or sorted on. The cursor is an
+HMAC over the position and a length-prefixed binding (operation, type, tenant, `clsbox`,
+`from`, `to`), compared in constant time; a forged one still could not choose the tenant.
+Non-GET is 405 before authentication. A multi-valued, numeric, blank or absent tenant is
+403. `ImsiMask` cannot be defeated through the record's own `plmn` (the schema holds it to
+5–6 digits) and an IMSI too short to hide four digits after the prefix is masked whole.
+The ltestats/netstats routes have their own cross-tenant, moved-gateway, minol and
+cursor-binding tests (DL-164).
+
+**Findings, all four fixed here.**
+1. **An empty `STATS_API_AUDIENCE` silently disabled the audience check — a defect in
+   code.** `${STATS_API_AUDIENCE}` unset stops the context, as `application.properties`
+   said; set to the empty string (`STATS_API_AUDIENCE=` in an `.env`, which Compose passes
+   through `env_file`) Boot binds `audiences` to an empty list and adds **no** audience
+   validator. Measured with a throwaway test: a token with no `aud`, and one minted for
+   `stats-input`, both read data — **200**, where ADR-006 promises 401. An empty issuer
+   fails the other way (every token 401, `The iss claim is not valid`) — closed, but a
+   replica that refuses everyone still passed readiness. **Fix:** `ResourceServerSettings`
+   refuses a blank issuer or an empty/blank audience list by name, called before the
+   security chain is built, so the context does not start.
+2. **`StatsQueryBuilderTest` claimed "every reader" and listed three of five.** ltestats and
+   netstats (DL-164) were never added to the generated-SQL suite. Harmless today — the
+   builder is shared — and exactly the drift a guard exists to catch. **Fix:** all five
+   readers, and `everyStatTypeHasItsReaderInThisSuite` fails when a `StatType` has none.
+3. **The isolation assertion could not see an `OR`.** "The `WHERE` starts with
+   `tenant = ?`" is still true of `tenant = ? AND … OR (ts_device, uid) < (?, ?)`, which
+   leaves page one right and returns other tenants' rows from page two on. That mutation
+   was caught by six ordering/pagination tests and **none** in the isolation suite.
+   **Fix:** every condition is `AND`-joined and matches one of four allowed shapes; and
+   `everyPageOfAWalkIsTheCallersTenant` walks both tenants one row per page to the end.
+4. **`ReadAccess`'s tenant half had no test of its own.** Dropping it survived all 267
+   tests, because `CallerTenant.require` in the controller answers the same 403. Not
+   exploitable while both layers exist; nothing would notice the first one going.
+   **Fix:** `ReadAccessTest`.
+
+**Mutations (each applied to `main` code, the suite run, the file restored; `git diff`
+empty after each set).** Before the fixes: `maintenant` filter 70 failed; tenant out of the
+cursor MAC 4; non-GET let through 57; no `uid` tie-breaker 19; IMSI unmasked 5; keyset
+joined by `OR` 6 (none in the isolation suite); `ReadAccess` ignores the tenant **0 —
+survived**; multi-valued tenant read as its first value 1; device path ignores `clsbox` 4.
+After: `maintenant` 125; cursor MAC 4; IMSI 4; keyset `OR` **22** (isolation walk and the
+`AND`-only check among them); `ReadAccess` **1**; audience guard removed **1**.
+
+**Noted, not changed.**
+* A measured ltestats record keeps unknown `data` members (`additionalProperties: true`,
+  D14) and the API returns them raw. A subscriber identifier Heimdal sent under a new name
+  would bypass `ImsiMask`. A D-12 question, not a defect: the mask covers the field that
+  exists.
+* With `prometheus-public-access=false`, `/actuator/prometheus` and `/actuator/info` need
+  only an authenticated token — no read role, no tenant. The scrape carries no caller data
+  (`MetricsCarryNoCallerDataIntegrationTest`).
+
+**Rejected.** *Checking the audience per request* — the replica would pass readiness and
+take traffic in a state no request can repair; startup is where a configuration error
+belongs. *Defaulting the audience to `stats-api` in code* — ADR-006: no security value has a
+default in code. *Marking T-028 DONE on this review* — see above.
+
+**Quiz (DL-005).** Asked: *"If `.env` has `STATS_API_AUDIENCE=` with nothing after it, what
+does `stats-api` do today, and why should the fix stop the app at startup rather than refuse
+requests one at a time?"* The approver said "answer yourself". **Waived, not passed.**
+Answer: it starts, and validates no audience — any realm token carrying the read role and
+a tenant reads that tenant's data. A startup failure is visible in the deploy, names the key
+and never takes traffic; a per-request refusal would leave a replica that reports ready and
+fails every caller, or — had the check been written to "allow when unset" — the same hole.
+
+**Verification.** `stats-api` 267 → **353** tests, 0 failures, against the Writer's real
+migrations as `stats_ro` with real RS256 tokens; full build `--rerun-tasks` **1,299 tests, 0
+failures** (1,213 + 86). The startup test passes its arguments on
+the command line: `SpringApplicationBuilder.properties()` are defaults and lose to
+`api-test.properties`, so a first version started the app and proved nothing.
+
+**Residuals.**
+* **T-028 closes on Mukesh's sign-off of this entry** (tracker `Next Up` row 2).
+* The unknown-member note above goes to D-12 with the security+compliance rows.

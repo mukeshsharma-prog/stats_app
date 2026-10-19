@@ -7,6 +7,7 @@ import com.zenner.datahub.stats.api.web.TraceId;
 import com.zenner.datahub.stats.common.error.ErrorCode;
 import org.springframework.boot.actuate.autoconfigure.security.servlet.EndpointRequest;
 import org.springframework.boot.actuate.health.HealthEndpoint;
+import org.springframework.boot.autoconfigure.security.oauth2.resource.OAuth2ResourceServerProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
@@ -31,7 +32,9 @@ import org.springframework.security.web.access.AccessDeniedHandler;
  * — any failure is a 401. {@link ReadAccess} then requires the {@code stats.readOnly}
  * realm role and a usable {@code tenant} claim on every {@code GET /v1/**} — either
  * missing is a 403. Every value is a property with no default in code; an unset one
- * stops the context rather than starting with a guessed posture (Q8b-2).</p>
+ * stops the context rather than starting with a guessed posture (Q8b-2) — and so does a
+ * blank issuer or audience ({@link ResourceServerSettings}, DL-172), because an empty
+ * audience list would otherwise switch the {@code aud} check off.</p>
  *
  * <p>Health probes disclose only UP/DOWN without authentication (D13, D-10).
  * Prometheus also requires a token by default. The local Compose stack explicitly
@@ -51,8 +54,13 @@ public class ApiSecurityConfiguration {
 
     @Bean
     public SecurityFilterChain apiSecurityFilterChain(
-            HttpSecurity http, SecurityProperties properties, ProblemResponses problems)
+            HttpSecurity http,
+            SecurityProperties properties,
+            OAuth2ResourceServerProperties resourceServer,
+            ProblemResponses problems)
             throws Exception {
+        // Before the chain exists: an empty audience would otherwise disable the aud check.
+        ResourceServerSettings.require(resourceServer);
         AuthenticationEntryPoint unauthorized = unauthorized(problems);
         AccessDeniedHandler forbidden = forbidden(problems);
         http.authorizeHttpRequests(

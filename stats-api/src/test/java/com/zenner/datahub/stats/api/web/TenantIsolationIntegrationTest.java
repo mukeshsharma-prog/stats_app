@@ -36,8 +36,9 @@ import org.springframework.test.web.servlet.MvcResult;
  * </ul>
  *
  * <p>This suite and the code it tests were written by the same author, which T-028 asks
- * not to happen for a security control. DL-162 records it; the suite needs an independent
- * review before Phase 4 is released.</p>
+ * not to happen for a security control. DL-162 records it. DL-172 records a Claude review
+ * of it (four findings, all fixed, nine mutations); that review is not independent of the
+ * author's tooling, and T-028 closes on Mukesh's sign-off of it.</p>
  */
 class TenantIsolationIntegrationTest extends ApiIntegrationTest {
 
@@ -177,6 +178,28 @@ class TenantIsolationIntegrationTest extends ApiIntegrationTest {
                         .andReturn();
         assertThat(alpha.getResponse().getStatus()).isEqualTo(400);
         assertThat(json(alpha).get("type").asText()).endsWith("/invalid_cursor");
+    }
+
+    @Test
+    @DisplayName("a walk one row per page stays inside the caller's tenant on every page, not only the first")
+    void everyPageOfAWalkIsTheCallersTenant() throws Exception {
+        // The first page is the one every other test reads. A keyset predicate joined by OR
+        // instead of AND leaves page one correct and hands over the other tenants' rows from
+        // page two on (T-028 review, finding 3; DL-172).
+        assertThat(walk(TestJwks.reader(ALPHA))).containsExactly("ISO-A-moved", "ISO-SHARED", "ISO-A-2", "ISO-A-1");
+        assertThat(walk(TestJwks.reader(BETA))).containsExactly("ISO-SHARED", "ISO-B-premove", "ISO-B-2", "ISO-B-1");
+    }
+
+    private List<String> walk(String token) throws Exception {
+        List<String> seen = new ArrayList<>();
+        String cursor = null;
+        do {
+            String path = "/v1/stats/lorastats?from={f}&to={t}&limit=1" + (cursor == null ? "" : "&cursor=" + cursor);
+            JsonNode page = json(mvc.perform(get(token, path, FROM, TO)).andExpect(status().isOk()).andReturn());
+            seen.addAll(uids(page));
+            cursor = page.get("nextCursor").isNull() ? null : page.get("nextCursor").asText();
+        } while (cursor != null && seen.size() <= 10);
+        return seen;
     }
 
     private JsonNode list(String token) throws Exception {
