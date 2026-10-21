@@ -50,7 +50,7 @@ downstream. It produced a smaller diff, and it was rejected for two specific
 reasons. First, ADR-004 requires the published message to be byte-identical to what
 was received, and ADR-003's per-partition duplicate suppression depends on that —
 a rename breaks it. Second, a field-rename layer sitting directly beside
-`tenant`/`maintenant` is precisely the place `claude/CLAUDE.md` §6 identifies as
+`tenant`/`maintenant` is precisely the place `docs/development/PROJECT_CONTEXT.md` §6 identifies as
 where a field gets silently swapped, and that failure passes every test written
 against sample data where the two values are equal.
 

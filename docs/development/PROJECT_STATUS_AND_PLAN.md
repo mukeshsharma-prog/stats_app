@@ -1,5 +1,37 @@
 # Stats App — Status and Implementation Plan
 
+## Current update — 19 October 2026
+
+The following local development work is implemented and verified:
+
+- API users can be created in Keycloak and obtain tokens without individual `.env`
+  password entries. Assign the realm role `stats.readOnly` and the admin-only Tenant
+  field; `stats_ro` is internal to the API's database connection.
+- Keycloak data persists across restart and container recreation; existing dev-file
+  databases have a migration helper. This remains a development H2 deployment.
+- `zra-reader` reads only `zra_test`; the A/B/C test proves `maintenant` does not grant
+  access. Restart/recreation, arbitrary-user login and API reads have retained evidence
+  under [verification](../verification/).
+- AMD64 and ARM64 offline images and the 19 October bundle were built and verified.
+  The main bundle README is copied from `docker/BUNDLE.md` unless explicitly overridden.
+- A local installation without its previous `.env` was recovered by backing up its
+  volumes, rotating database/broker credentials, and verifying its 51 existing rows
+  and queue counts. RabbitMQ now supports a pinned node hostname so recreation reuses
+  the selected store. Private recovery files and deployed bundles remain local.
+- Documentation is organized under `docs/`; this plan, the full decision log, all ADRs,
+  requirements, contracts and verification evidence are retained.
+
+**Next work remains:** the independent isolation/security review (T-028/T-045), the
+input-auth branch decision (T-071) and associated T-068/T-070 work, external contract
+confirmation (D-09), netstats feed confirmation (Q15g), and the operational histogram
+review below. The Keycloak read-access changes do not close inbound authentication
+or release approval gates. Source documentation/layout changes after packaging need
+an explicitly rebuilt future archive; existing deployments are not altered by cleanup.
+
+The dated milestones below are retained as implementation history, not competing
+current task lists.
+
+
 **Implementation update — 13 October 2026 (DL-169):** every build row in phases 1–5 is
 DONE except three. **T-028** waits for an independent review of the isolation and security
 suites. **T-068** and **T-070** wait on the approver's 29 Sep basic-auth decision reaching
@@ -8,7 +40,7 @@ now **T-071**. T-034/T-037 were built 8 Oct (DL-164); D-12 P3 was answered 12 Oc
 (DL-167: IMSI masked at the API). Since 13 Oct nothing is answered 2xx that PostgreSQL
 cannot store (DL-168). The dated tables below are historical; the current one is
 *What to pick up next — 13 October 2026*. LTE/netstats delivery evidence lives in
-`LTE_NETSTATS_IMPLEMENTATION_PLAN.md`.
+`docs/development/LTE_NETSTATS_IMPLEMENTATION_PLAN.md`.
 
 **Owner:** Naman (SSE) · **Date:** 18 August 2026, last updated 13 October 2026 · **Status:** working document
 
@@ -26,10 +58,10 @@ AI — would have built the wrong thing. All four are now updated to v1.2.
 
 | File | What was wrong | Status |
 |---|---|---|
-| `CLAUDE.md` (root) | MongoDB primary; C1, Q17, Q21, Q39, D15 listed as unresolved — all answered | **Rewritten.** PostgreSQL, per-type queues, `ts.device` retention, open questions reduced to what is genuinely open and split by owner. |
-| `IMPLEMENTATION_RULES.md` (was `CLAUDE.md — Stats App Implementation Rules.md`) | §1 called MongoDB an infrastructure dependency; §3 said "collection"; §5 blocked on Mongo retention and on decisions since answered | **Updated and renamed.** Mongo residue removed; §5 split into *blocked*, *already decided*, and *ours to decide*. |
-| `DEVELOPMENT.md` | Mongo Compose stack, Mongo URIs, TTL-index guidance, and **retention keyed on `ts.server`** — the opposite of the answer | **Rewritten** for PostgreSQL, Flyway, Testcontainers, per-type queue naming, `ts.device` retention, answered behavioural defaults. |
-| `SKILLS.md` | TTL-index retention procedure, "collection", PyMongo, C1/Q10/Q23 treated as open | **Updated.** Skill 1 and Skill 5 rewritten for PostgreSQL; day-one trap briefing added to Skill 7. |
+| `docs/development/PROJECT_CONTEXT.md` (root) | MongoDB primary; C1, Q17, Q21, Q39, D15 listed as unresolved — all answered | **Rewritten.** PostgreSQL, per-type queues, `ts.device` retention, open questions reduced to what is genuinely open and split by owner. |
+| `docs/development/IMPLEMENTATION_RULES.md` (was `docs/development/PROJECT_CONTEXT.md — Stats App Implementation Rules.md`) | §1 called MongoDB an infrastructure dependency; §3 said "collection"; §5 blocked on Mongo retention and on decisions since answered | **Updated and renamed.** Mongo residue removed; §5 split into *blocked*, *already decided*, and *ours to decide*. |
+| `docs/development/DEVELOPMENT.md` | Mongo Compose stack, Mongo URIs, TTL-index guidance, and **retention keyed on `ts.server`** — the opposite of the answer | **Rewritten** for PostgreSQL, Flyway, Testcontainers, per-type queue naming, `ts.device` retention, answered behavioural defaults. |
+| `docs/development/ENGINEERING_PLAYBOOK.md` | TTL-index retention procedure, "collection", PyMongo, C1/Q10/Q23 treated as open | **Updated.** Skill 1 and Skill 5 rewritten for PostgreSQL; day-one trap briefing added to Skill 7. |
 
 Authority order, in case of any remaining disagreement: this document and the
 v1.2 amendment set win; the v1.0 `.docx` files are historical provenance only.
@@ -38,7 +70,7 @@ v1.2 amendment set win; the v1.0 `.docx` files are historical provenance only.
 
 ## 0b. ARD reconciliation — DONE (18 August 2026)
 
-`docs/source/Datahub_Core_StatsApp_ARD_v1_1.pdf` is the current ARD and supersedes
+`docs/architecture/Datahub_Core_StatsApp_ARD_v1_1.pdf` is the current ARD and supersedes
 `ARD_v1_0.pdf`, which is kept for provenance only. It is the most detailed design
 document in the set. It is dated after the v1.2 amendments but is **derived from
 the v1.0 sources**, so it is a parallel proposal to reconcile — not an authority
@@ -47,7 +79,7 @@ It independently agrees on PostgreSQL-only, per-type queues, TopicExchange, thre
 images, Java 21, `ts.device` retention, and 200-after-confirm.
 
 Six conflicts were ratified and propagated through every document on
-18 Aug 2026. Full register in `CODE_START_CHECKLIST.md` §A2.
+18 Aug 2026. Full register in `docs/development/CODE_START_CHECKLIST.md` §A2.
 
 | Gate | Decision |
 |---|---|
@@ -238,7 +270,7 @@ decision are in `docs/decisions/2B-ANSWERS-18AUG2026.md`. **Do not reopen these.
 
 Six items, four of which were never anyone else's to answer. **Approver:** Naman
 Vashishtha. Full reasoning, and the framing to take into the two conversations that
-remain: `claude/OPEN_QUESTIONS_STATUS_29AUG2026.md`.
+remain: `docs/decisions/OPEN_QUESTIONS_STATUS_29AUG2026.md`.
 
 | Ref | Decision | Lands in |
 |---|---|---|

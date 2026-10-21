@@ -214,9 +214,11 @@ counted, never silently dropped.
 docker compose -p stats-app-bundle --env-file .env -f docker/docker-compose.yml --profile apps --profile observability up -d --no-build
 ```
 
-Keycloak's admin screens don't show the `tenant` attribute. To see it, open
-**Clients → stats-dev-cli → Client scopes → Evaluate**, pick a user, and look at the
-generated access token.
+The updated realm exposes **Tenant** under **Users → select user → Details**,
+editable by administrators only. For older realms, first declare `tenant` under
+**Realm settings → User profile**, with view/edit permission for Admin only.
+Console-created users persist across restart and container recreation. Obtain their
+token with `tok USER --prompt`; they do not need credentials in `.env`.
 
 ## 13. Logs
 

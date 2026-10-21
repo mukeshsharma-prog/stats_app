@@ -1,62 +1,66 @@
 #!/usr/bin/env sh
-# Print a Keycloak access token for one of the bundle's five test users — for pasting
-# into Postman (Authorization → Bearer Token) or a curl command (DL-171).
-#
-#   ./docker/token.sh alpha-reader             the token
-#   ./docker/token.sh beta-reader --claims     what is inside it: tenant, aud, roles
-#
-# Users: alpha-reader, beta-reader, no-role, no-tenant, empty-tenant, under whatever
-# names .env gives them, plus any user you add with a STATS_<USER>_USERNAME/_PASSWORD pair.
-# Reads the password from THIS bundle's .env, whatever directory you run it from.
-# Needs only curl; jq is used to pretty-print --claims when it is installed.
+# Obtain a token for any Keycloak user. Fixture passwords remain an optional fallback.
+# --prompt ignores .env credentials; --password-stdin supports noninteractive callers.
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 ENV_FILE=${STATS_ENV_FILE:-$ROOT/.env}
 KC=${KEYCLOAK_BASE_URL:-http://localhost:8080}
-
-usage() { echo "usage: $0 alpha-reader|beta-reader|no-role|no-tenant|empty-tenant [--claims]" >&2; exit 2; }
+usage() { echo "usage: $0 USER [--claims] [--prompt|--password-stdin]" >&2; exit 2; }
 [ $# -ge 1 ] || usage
-user=$1
-case "${2:-}" in ''|--claims) ;; *) usage ;; esac
-
-if [ ! -f "$ENV_FILE" ]; then
-  echo "Missing $ENV_FILE. Run ./docker/start-stats-app.sh first." >&2
-  exit 1
+user=$1; shift
+mode=auto; show_claims=false
+for arg in "$@"; do
+  case "$arg" in
+    --claims) show_claims=true ;;
+    --prompt|--password-stdin) [ "$mode" = auto ] || usage; mode=$arg ;;
+    *) usage ;;
+  esac
+done
+for tool in curl jq; do command -v "$tool" >/dev/null 2>&1 || { echo "$tool is required." >&2; exit 1; }; done
+env_get() { if [ -f "$ENV_FILE" ]; then awk -v k="$1" 'index($0,k "=")==1 {print substr($0,length(k)+2); exit}' "$ENV_FILE"; fi; }
+realm=$(env_get STATS_REALM_NAME); realm=${realm:-statsapp}
+client=$(env_get STATS_DEV_CLI_CLIENT_ID); client=${client:-stats-dev-cli}
+password=
+case "$mode" in
+  --password-stdin) IFS= read -r password || [ -n "$password" ] ;;
+  auto)
+    var=$(if [ -f "$ENV_FILE" ]; then awk -F= -v u="$user" '$1 ~ /^STATS_[A-Z_]+_USERNAME$/ && $2==u {sub(/_USERNAME$/, "_PASSWORD", $1); print $1; exit}' "$ENV_FILE"; fi)
+    if [ -z "$var" ]; then var="STATS_$(printf %s "$user" | tr 'a-z-' 'A-Z_')_PASSWORD"; fi
+    password=$(env_get "$var") ;;
+esac
+if [ -z "$password" ]; then
+  if [ "$mode" = --password-stdin ]; then echo "Empty password." >&2; exit 1; fi
+  # /dev/tty works even when stdout is captured: TOKEN=$(./docker/token.sh USER).
+  if ! saved_stty=$(stty -g </dev/tty 2>/dev/null); then
+    echo "No fixture password for '$user'. Use --password-stdin or run in a terminal." >&2; exit 1
+  fi
+  trap 'stty "$saved_stty" </dev/tty' EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  printf 'Keycloak password for %s: ' "$user" >/dev/tty
+  stty -echo </dev/tty
+  IFS= read -r password </dev/tty || exit 1
+  stty "$saved_stty" </dev/tty
+  printf '\n' >/dev/tty
+  trap - EXIT INT TERM
 fi
-env_get() { grep -E "^$1=" "$ENV_FILE" | head -1 | cut -d= -f2-; }
-
-# The key beside the STATS_<USER>_USERNAME holding this name, so a user renamed in .env
-# still works; otherwise alpha-reader -> STATS_ALPHA_READER_PASSWORD.
-var=$(grep -E "^STATS_[A-Z_]+_USERNAME=" "$ENV_FILE" | awk -F= -v u="$user" '$2 == u { sub(/_USERNAME$/, "_PASSWORD", $1); print $1; exit }')
-[ -n "$var" ] || var="STATS_$(printf %s "$user" | tr 'a-z-' 'A-Z_')_PASSWORD"
-password=$(env_get "$var")
-[ -n "$password" ] || { echo "No $var in $ENV_FILE — is '$user' one of the five test users?" >&2; usage; }
-
-resp=$(curl -s -X POST "$KC/realms/$(env_get STATS_REALM_NAME)/protocol/openid-connect/token" \
-  -d "client_id=$(env_get STATS_DEV_CLI_CLIENT_ID)" -d grant_type=password \
-  --data-urlencode "username=$user" --data-urlencode "password=$password") || {
-  echo "Keycloak is not reachable at $KC. Is the stack running? (./docker/start-stats-app.sh)" >&2
+# Pipe the encoded form to curl; do not expose passwords in process arguments.
+encode() { printf %s "$1" | jq -sRr @uri; }
+resp=$({
+  printf 'grant_type=password&client_id=%s&username=%s&password=' "$(encode "$client")" "$(encode "$user")"
+  printf %s "$(encode "$password")"
+} | curl --silent --show-error --connect-timeout 10 --max-time 30 \
+  -H 'Content-Type: application/x-www-form-urlencoded' --data-binary @- \
+  "$KC/realms/$realm/protocol/openid-connect/token") || {
+  echo "Keycloak is not reachable at $KC." >&2; exit 1
+}
+unset password
+token=$(printf %s "$resp" | jq -er '.access_token // empty') || {
+  printf %s "$resp" | jq -r '"Keycloak refused login: " + (.error_description // .error // "unexpected response")' >&2
+  echo "If a fixture password is stale or belongs to a different installation, retry with --prompt." >&2
   exit 1
 }
-token=$(printf %s "$resp" | sed -n 's/.*"access_token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
-if [ -z "$token" ]; then
-  echo "Keycloak did not issue a token for $user: $resp" >&2
-  echo "'Invalid user credentials' means the Keycloak on $KC was started from a different" >&2
-  echo "bundle directory, whose .env holds different passwords." >&2
-  exit 1
-fi
-
-if [ "${2:-}" != --claims ]; then
-  printf '%s\n' "$token"
-  exit 0
-fi
-
-# A JWT is base64url without padding; base64 -d needs the padding restored.
+if [ "$show_claims" = false ]; then printf '%s\n' "$token"; exit 0; fi
 payload=$(printf %s "$token" | cut -d. -f2 | tr '_-' '/+')
 while [ $(( ${#payload} % 4 )) -ne 0 ]; do payload="$payload="; done
-if command -v jq >/dev/null 2>&1; then
-  printf %s "$payload" | base64 -d | jq '{tenant, aud, roles: .realm_access.roles}'
-else
-  printf %s "$payload" | base64 -d
-  echo
-fi
+printf %s "$payload" | base64 -d | jq '{tenant, aud, roles: .realm_access.roles}'

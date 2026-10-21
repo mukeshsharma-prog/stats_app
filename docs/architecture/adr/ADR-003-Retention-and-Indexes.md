@@ -134,7 +134,7 @@ still deliberately **open at both levels**:
 That openness is the whole argument. Fixed `eth0_*` / `wwan_*` columns would
 **silently drop** an interface the schema permits — directly violating the
 unknown-field policy of accepting and preserving unknown `data` members
-(`claude/CLAUDE.md` §7, decision D14). A `jsonb` interface map
+(`docs/development/PROJECT_CONTEXT.md` §7, decision D14). A `jsonb` interface map
 preserves them by construction, and no migration against two billion rows is
 needed the first time a gateway reports `eth1`.
 
@@ -157,7 +157,7 @@ data corruption. `bigint` costs four bytes.
 **Decision:** `stats-writer` owns partition creation and retention, guarded by a
 PostgreSQL **advisory lock** per stat type.
 
-Rationale: the writer is the only component permitted to write (claude/CLAUDE.md rule
+Rationale: the writer is the only component permitted to write (docs/development/PROJECT_CONTEXT.md rule
 2); giving retention to anything else creates a second writer. But horizontal
 scalability of the writer is a MUST (STA-06/26/39), so with three replicas you
 would otherwise get three concurrent retention jobs racing on the same
@@ -387,7 +387,7 @@ is absorbed.
 
 **`DO NOTHING` must not be silent.** The statement discards a row and reports
 nothing, which conflicts with the no-silent-error-handling rule in
-`claude/CLAUDE.md` §9. The writer MUST read the affected-row count and, when it is
+`docs/development/PROJECT_CONTEXT.md` §9. The writer MUST read the affected-row count and, when it is
 zero, increment `records_duplicate_suppressed{type}` — the `duplicate` metric
 STA-27A already requires. A steady low rate is redelivery working; a step change
 is a signal, and without the counter it is invisible.

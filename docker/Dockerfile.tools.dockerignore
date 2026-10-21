@@ -7,3 +7,4 @@
 !docker/demo.sh
 !docker/stats-helpers.sh
 !docker/tools-entrypoint.sh
+!docker/token.sh

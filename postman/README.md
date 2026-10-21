@@ -50,6 +50,25 @@ The suite covers:
   drain state, and empty DLQs;
 - positive Writer persistence counters for every completed type.
 
+The collection has **46 requests**, including **22 read requests**. Folder
+**3 — Read API end to end** contains seven UID lookups and the following three
+explicit queries for each of `lorastats`, `sysstats`, `omsstats`, `ltestats` and
+`netstats`:
+
+| Query | URL after `{{apiBaseUrl}}` |
+| --- | --- |
+| Tenant-wide list | `/stats/{type}?from={{fromEpoch}}&to={{toEpoch}}&limit=100` |
+| Device history from | `/stats/{type}/{{clsboxType}}/{{fromEpoch}}?limit=100` |
+| Bounded device history | `/stats/{type}/{{clsboxType}}/{{fromEpoch}}/{{toEpoch}}?limit=100` |
+
+`clsboxType` above means the corresponding collection variable: `clsboxLora`,
+`clsboxSys`, `clsboxOms`, `clsboxLte` or `clsboxNet`. The six added LoRa/system/OMS
+queries assert HTTP 200 and inclusion of the ingested UID; tenant lists also
+check the page contract. These routes already exist in the backend.
+
+Re-import the updated source collection to see all 46 requests. The immutable
+v6 distribution archive still contains the previous 40-request collection.
+
 
 A successful ingest returns HTTP 200 (or configured 202), for example:
 

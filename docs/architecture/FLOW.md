@@ -13,7 +13,7 @@ actual-feed question for netstats.
 How a record actually travels, step by step, from the Heimdal Core to an
 API response — and what happens at each point where it can fail.
 
-> **Read `claude/DECISIONS.md` alongside this.** This file says *what
+> **Read `docs/decisions/DECISIONS.md` alongside this.** This file says *what
 > happens*; that one says *why it happens that way*. Steps here cite
 > `DL-nnn` entries rather than repeating the reasoning.
 
@@ -123,7 +123,7 @@ are fixed and guarded. Since **21 Sep 2026** the ingest endpoint is two doors on
 masked on every read route (DL-167), and since **13 October** nothing is answered 2xx that
 PostgreSQL cannot store (DL-168). The
 ranked order is `Stats_App_Tracker.xlsx` → `Next Up`. Phase 2 finished
-`lorastats` first (DL-030 rationale; see `CODE_START_CHECKLIST.md` §B).
+`lorastats` first (DL-030 rationale; see `docs/development/CODE_START_CHECKLIST.md` §B).
 
 ---
 
@@ -853,7 +853,7 @@ studying: it is fully logged, fully visible, returns a correct-looking
 what the *caller* does with a well-formed answer. Visibility is not
 recoverability. That is the reason this project's
 rules read as strictly as they do, and the reason
-`IMPLEMENTATION_RULES.md` §9 now quizzes a change before it is made
+`docs/development/IMPLEMENTATION_RULES.md` §9 now quizzes a change before it is made
 (DL-005).
 
 ---
@@ -886,11 +886,11 @@ is wrong.** That is a design smell to raise, not to work around.
 
 | For | Read |
 |---|---|
-| Why any of this is the way it is | `claude/DECISIONS.md` |
-| Project context, rules, and traps | `claude/CLAUDE.md` |
-| Whether a phase may start | `claude/CODE_START_CHECKLIST.md` |
-| What is still open, and who owns it | `claude/OPEN_QUESTIONS_STATUS_29AUG2026.md` |
+| Why any of this is the way it is | `docs/decisions/DECISIONS.md` |
+| Project context, rules, and traps | `docs/development/PROJECT_CONTEXT.md` |
+| Whether a phase may start | `docs/development/CODE_START_CHECKLIST.md` |
+| What is still open, and who owns it | `docs/decisions/OPEN_QUESTIONS_STATUS_29AUG2026.md` |
 | The AMQP contract in full | `docs/contracts/amqp-topology-v1.md` |
 | The inbound HTTP contract | `docs/contracts/heimdal-input-contract-v1.md` |
 | The API contract | `docs/contracts/openapi.yaml` |
-| Repeatable procedures | `claude/SKILLS.md` |
+| Repeatable procedures | `docs/development/ENGINEERING_PLAYBOOK.md` |

@@ -1,10 +1,15 @@
 # Open questions and decisions — status and recommended answers
 
+> Historical decision register dated 29 August 2026, retained for its approved
+> decisions and rationale. For current open work use
+> [PROJECT_STATUS_AND_PLAN.md](../development/PROJECT_STATUS_AND_PLAN.md).
+
+
 > **SUPERSEDED IN PART — 4 September 2026.** This file is a dated snapshot of where
 > every question stood on 29 August and is kept as that. **Nine of the rows it
 > describes as open are now closed:** Q13b, Q13c, Q4b and Q15a–Q15d were answered by
 > ZC / Hasan, and **D5a and D5b were signed** by Naman Vashishtha. See
-> `claude/DECISIONS.md` **DL-104…DL-112** for the current position, and the ADR-007
+> `docs/decisions/DECISIONS.md` **DL-104…DL-112** for the current position, and the ADR-007
 > *Amendment — 4 September 2026* for the `lorastats` dialect reversal (**DL-105
 > supersedes DL-089**: all three dialects are now accepted). Only **Q8a-2** and
 > **Q8b-2** remain owed by ZC.
@@ -13,7 +18,7 @@
 **Date:** 29 August 2026 · **Author:** Naman Vashishtha (SSE) · **Status:** working brief
 **Audience:** lead engineer, product owner, platform
 **Sources reconciled:** `Stats_App_Tracker.xlsx` (Open Questions, Decisions, Tasks),
-`claude/CODE_START_CHECKLIST.md` §A, `claude/PROJECT_STATUS_AND_PLAN.md` §2.
+`docs/development/CODE_START_CHECKLIST.md` §A, `docs/development/PROJECT_STATUS_AND_PLAN.md` §2.
 
 > **Bottom line.** Only one item — ZC's confirmation of `docs/contracts/openapi.yaml` —
 > meaningfully gates work. Five more were ours all along and are **decided in §2 of this
@@ -68,9 +73,9 @@ criterion already covers this — a test that removes pre-creation must prove th
 
 **Unblocks:** T-012, outright.
 **Lands in:** ADR-003 — the body around
-[ADR-003-Retention-and-Indexes.md:49](docs/architecture/adr/ADR-003-Retention-and-Indexes.md#L49)
+[ADR-003-Retention-and-Indexes.md:49](../architecture/adr/ADR-003-Retention-and-Indexes.md#L49)
 and the residual row at
-[ADR-003-Retention-and-Indexes.md:404](docs/architecture/adr/ADR-003-Retention-and-Indexes.md#L404),
+[ADR-003-Retention-and-Indexes.md:404](../architecture/adr/ADR-003-Retention-and-Indexes.md#L404),
 which still reads `ACTION before Phase 2`.
 
 ### 2.2 Q14a — clock skew — reject at the edge
@@ -308,10 +313,10 @@ The sheet's Q14a row named "Writer partition routing", and `Tasks!N14` and `Task
 already carried it as a **soft** input to T-013 and T-022 respectively — correctly, since
 neither task could start the skew check before the decision existed. Four working
 documents also listed it as open
-([claude/CLAUDE.md:294](claude/CLAUDE.md#L294),
-[claude/IMPLEMENTATION_RULES.md:108](claude/IMPLEMENTATION_RULES.md#L108),
-[claude/PROJECT_STATUS_AND_PLAN.md:209](claude/PROJECT_STATUS_AND_PLAN.md#L209),
-[claude/DEVELOPMENT.md:637](claude/DEVELOPMENT.md#L637)).
+([docs/development/PROJECT_CONTEXT.md:294](../development/PROJECT_CONTEXT.md#L294),
+[docs/development/IMPLEMENTATION_RULES.md:108](../development/IMPLEMENTATION_RULES.md#L108),
+[docs/development/PROJECT_STATUS_AND_PLAN.md:209](../development/PROJECT_STATUS_AND_PLAN.md#L209),
+[docs/development/DEVELOPMENT.md:637](../development/DEVELOPMENT.md#L637)).
 
 §2.2 closes it, and the acceptance criterion is now written into **T-013** so the
 behaviour gets built rather than evaporating with the question.
@@ -333,13 +338,13 @@ deliberate and documented in `MANIFEST.md`.
 ### 5.2 D-10 and D-12 — the checklist contradicted itself, and now does not
 
 Both were already on the Open Questions sheet (rows 16 and 17, added 26 Aug). The real
-defect was in `claude/CODE_START_CHECKLIST.md`, which carried both as blanket
+defect was in `docs/development/CODE_START_CHECKLIST.md`, which carried both as blanket
 `PENDING APPROVAL` while its own Phase 2 entry criteria cited D-10 as satisfied:
 
-* [line 18](claude/CODE_START_CHECKLIST.md#L18) — D-10 Deployment/scaling
-* [line 20](claude/CODE_START_CHECKLIST.md#L20) — D-12 Data handling
-* [line 72](claude/CODE_START_CHECKLIST.md#L72) — Phase 2 entry requires D-10 approved, *and* declares Phase 2 entry satisfied for `lorastats`
-* [line 90](claude/CODE_START_CHECKLIST.md#L90) — Phase 4 entry requires D-10 and D-12
+* [line 18](../development/CODE_START_CHECKLIST.md#L18) — D-10 Deployment/scaling
+* [line 20](../development/CODE_START_CHECKLIST.md#L20) — D-12 Data handling
+* [line 72](../development/CODE_START_CHECKLIST.md#L72) — Phase 2 entry requires D-10 approved, *and* declares Phase 2 entry satisfied for `lorastats`
+* [line 90](../development/CODE_START_CHECKLIST.md#L90) — Phase 4 entry requires D-10 and D-12
 
 That mattered because §A's own rule is *"a developer may implement only the work that does
 not rely on an unanswered row."* Taken literally, Phase 2 was both open and blocked.
@@ -398,9 +403,9 @@ days. **All of it was propagated on 29 August 2026; this table is the record of 
 |---|---|
 | §2.1 `pg_partman` | **ADR-003 D1** (rewritten) and its decisions register; `stats-writer/application.properties`; tracker T-012 unblocked |
 | §2.2 Q14a clock skew | **ADR-003 D9** (new section); **SRS `STA-03B`** (new requirement); `heimdal-input-contract-v1.md` §2 response matrix and §4; `SCHEMA_CATALOGUE.md`; `fixtures/MANIFEST.md`; the five `edge/` fixtures (`$expect`/`$expectCode`); `validate-fixtures.py` (71 → 76 assertions); `SchemaFixtureParityTest` javadoc; `stats-input/application.properties`; T-013 acceptance criteria; the four working docs |
-| §2.3 Q3a | **ADR-002 §11** (new section) and its decisions register; `CLAUDE.md`, `PROJECT_STATUS_AND_PLAN.md`, `DEVELOPMENT.md`, `IMPLEMENTATION_RULES.md`, `README.md`, `ANSWER_RECONCILIATION.md`; `CODE_START_CHECKLIST.md` D-06 |
+| §2.3 Q3a | **ADR-002 §11** (new section) and its decisions register; `docs/development/PROJECT_CONTEXT.md`, `PROJECT_STATUS_AND_PLAN.md`, `DEVELOPMENT.md`, `IMPLEMENTATION_RULES.md`, `README.md`, `ANSWER_RECONCILIATION.md`; `CODE_START_CHECKLIST.md` D-06 |
 | §2.4 DLQ policy | **ADR-002 §12** (new section); `amqp-topology-v1.md` §6 (rewritten); **SRS `STA-12A`** extended; ARB DLQ row; BRD `BR-34`; `stats-writer/application.properties` (placeholder property removed); `SKILLS.md` Skill 4; T-050 and T-052 |
-| §2.5 Q5a / 115.2M | `CLAUDE.md` §7 and the historical-docs table; `PROJECT_STATUS_AND_PLAN.md` §2c; `CODE_START_CHECKLIST.md` D-11; `DEVELOPMENT.md`; ARB capacity paragraph |
+| §2.5 Q5a / 115.2M | `docs/development/PROJECT_CONTEXT.md` §7 and the historical-docs table; `PROJECT_STATUS_AND_PLAN.md` §2c; `CODE_START_CHECKLIST.md` D-11; `DEVELOPMENT.md`; ARB capacity paragraph |
 | §2.6 D5b agreement | **ADR-003** late-arrival section and register; `fixtures/MANIFEST.md`; `2B-ANSWERS`; `IMPLEMENTATION_RULES.md`; T-026 stays BLOCKED pending the product signature |
 | §5.4 401 → 403 | `docs/contracts/openapi.yaml` — `Unauthorized`, `Forbidden`, the error catalogue and `ProblemForbidden` |
-| All six | `CODE_START_CHECKLIST.md` **§A3** (new gate table); `CLAUDE.md` **v1.6** header; tracker Decisions (6 new rows), Open Questions, Tasks, Traps (17–18) and Notes (7 rows) |
+| All six | `CODE_START_CHECKLIST.md` **§A3** (new gate table); `docs/development/PROJECT_CONTEXT.md` **v1.6** header; tracker Decisions (6 new rows), Open Questions, Tasks, Traps (17–18) and Notes (7 rows) |

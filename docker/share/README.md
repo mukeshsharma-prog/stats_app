@@ -150,11 +150,23 @@ docker image rm stats-app/stats-input:share stats-app/stats-writer:share \
 * **The demo can't reach Docker** (`Cannot connect to the Docker daemon`). The demo
   mounts `/var/run/docker.sock`. On Docker Desktop that works by default; on Linux,
   the socket must be at that path.
-* **You changed `.env` and nothing happened.** PostgreSQL and Keycloak read their users
-  and passwords only on the first start. Run `docker compose down -v` first.
+* **You changed `.env` and nothing happened.** Existing Keycloak users are managed
+  through its admin console. PostgreSQL passwords must be rotated in PostgreSQL and
+  application configuration together; editing `.env` alone does not rotate them.
 
 ## Please don't
 
 * **Expose it on a network.** Every port binds to `127.0.0.1`, and the secrets in `.env`
   are for this local copy only.
 * **Point it at real data.** It's a development build with a development Keycloak realm.
+
+
+## Keycloak user persistence
+
+Users created through the Keycloak admin console survive restart and container
+recreation in the named `keycloak-data` volume. The realm file is a first-import
+seed; editing `.env` does not rotate passwords in an existing realm. Manage users,
+credentials, `stats.readOnly` and the administrator-only `tenant` profile field in
+Keycloak. Before upgrading an older running bundle, run
+`./migrate-keycloak-data.sh stats-demo-keycloak` to preserve its container-local H2
+database. `docker compose down -v` deletes named volumes, including all users.

@@ -1,19 +1,19 @@
 # Stats App — Implementation Rules
 
-> **Version 1.5 — 13 October 2026 (DL-169).** One number and three rules. `FLOW.md` §8
+> **Version 1.5 — 13 October 2026 (DL-169).** One number and three rules. `docs/architecture/FLOW.md` §8
 > has **sixteen** loss windows since DL-168 — a record answered 2xx that PostgreSQL can
 > never store — still twelve silent. §9's quiz table gains what DL-167 and DL-168 taught:
 > an unconfirmed failure hand-off, a classifier whose default is *retry*, and framework
 > loggers that print payloads at `TRACE`. §8's payload-logging paragraph says D-12's
 > logging half is decided for LTE/netstats (DL-167).
 >
-> **Version 1.4 — 21 September 2026.** One number and two rules. `FLOW.md` §8 has held
+> **Version 1.4 — 21 September 2026.** One number and two rules. `docs/architecture/FLOW.md` §8 has held
 > **fifteen** loss windows since DL-149, twelve of them silent — §9 said eleven and nine.
 > §9's quiz table gains the two rules the first end-to-end run taught (DL-149, DL-150),
 > and the door a change to `stats-input` now has to name (DL-151).
 >
 > **Version 1.3 — 24 August 2026.** Aligned with the answered decisions in
-> `docs/source/Stats_App_Answers_v1_0.docx`, the six gate decisions G1–G6, and the
+> `docs/decisions/source/Stats_App_Answers_v1_0.docx`, the six gate decisions G1–G6, and the
 > §2b answers of 18 August 2026. PostgreSQL is the only V1 database; all MongoDB
 > references have been removed.
 >
@@ -22,7 +22,7 @@
 > `stats.readOnly`; the unknown-field policy is **D14**, not `D6`; `netstats` is
 > strict; and **§5 has been reconciled — most of what it blocked is now closed.**
 >
-> Companion to `CLAUDE.md` (project context and non-negotiable rules). This file
+> Companion to `docs/development/PROJECT_CONTEXT.md` (project context and non-negotiable rules). This file
 > holds the detailed rules and the required working sequence.
 
 ## 1. Mission
@@ -44,15 +44,15 @@ RabbitMQ, PostgreSQL, and Keycloak are **infrastructure dependencies**, not Stat
 
 Before planning or editing code, read in this order:
 
-1. `CLAUDE.md`, then this file.
-2. `CODE_START_CHECKLIST.md`.
+1. `docs/development/PROJECT_CONTEXT.md`, then this file.
+2. `docs/development/CODE_START_CHECKLIST.md`.
 3. `docs/requirements/SRS-v1.2-amendment.md` for the requirement, plus
    `docs/decisions/ANSWER_RECONCILIATION.md` for the decision that governs it.
 4. The relevant ADR and contract under `docs/architecture/adr/` and `docs/contracts/`.
 5. The relevant schema under `docs/schemas/`.
 6. The relevant test criteria in the implementation request.
 
-`PROJECT_STATUS_AND_PLAN.md` tells you where the project currently is and which
+`docs/development/PROJECT_STATUS_AND_PLAN.md` tells you where the project currently is and which
 phase a task belongs to.
 
 If two documents disagree, **do not pick an answer**. Quote the conflict, name the affected requirements, and request an ADR or approved amendment.
@@ -167,7 +167,7 @@ accident.
 | D12 | Invalid filter combinations | 400 on an inverted range; document the maximum query window |
 | D13 | Health-check contents | Separate liveness/readiness; readiness probes only that module's real dependencies |
 | D1 | Log format | Structured JSON to stdout, `uid` as correlation ID |
-| D14 | Unknown fields *(was mislabelled `D6`; answer-set `D6` is byte-identical publication — CLAUDE.md §8)* | Accept and preserve unknown `data` fields; reject invalid envelope fields |
+| D14 | Unknown fields *(was mislabelled `D6`; answer-set `D6` is byte-identical publication — docs/development/PROJECT_CONTEXT.md §8)* | Accept and preserve unknown `data` fields; reject invalid envelope fields |
 
 ## 6. PostgreSQL implementation rules
 
@@ -190,7 +190,7 @@ The dominant query pattern is `(tenant, clsbox, ts.device)`. PostgreSQL indexes,
 
 ## 8. Logging, security, and data handling
 
-**The control is the LEVEL, not the path** — `DEVELOPMENT.md` §7 is authoritative and this
+**The control is the LEVEL, not the path** — `docs/development/DEVELOPMENT.md` §7 is authoritative and this
 section restates it (DL-102). V1 permits payload logging to the Java logger/Docker logs
 **only at `DEBUG`, which is off in production**. At `INFO` and above, on *every* path
 including failure, never a full payload. Never log access tokens, passwords, private keys,
@@ -220,7 +220,7 @@ payload values — a PostgreSQL constraint violation prints the offending key in
 `DETAIL:` line. Log the exception type and message; do not log the driver's full detail
 line on a write failure.
 
-## 9. Required development workflow for Claude
+## 9. Required development workflow
 
 For every task, follow this sequence.
 
@@ -235,7 +235,7 @@ For every task, follow this sequence.
 ### Why the quiz step exists
 
 Twelve of the sixteen ways this system can lose a record fail **silently**
-(`claude/FLOW.md` §8). A query on `maintenant` passes every test written
+(`docs/architecture/FLOW.md` §8). A query on `maintenant` passes every test written
 against the supplied samples. A timestamp read as milliseconds writes 1970
 with no error. A TTL on the DLQ deletes the last copy of a record and reports
 success. Code review does not catch these, because the code looks correct —

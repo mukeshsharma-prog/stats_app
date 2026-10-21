@@ -30,6 +30,7 @@ write_env() {
   input_secret=$(random_hex 24)
   alpha_password=$(random_hex 18)
   beta_password=$(random_hex 18)
+  zra_password=$(random_hex 18)
   no_role_password=$(random_hex 18)
   no_tenant_password=$(random_hex 18)
   empty_tenant_password=$(random_hex 18)
@@ -44,6 +45,7 @@ STATS_REALM_DISPLAY_NAME=Datahub Core - Stats App (local bundle)
 STATS_API_CLIENT_ID=stats-api
 STATS_INPUT_CLIENT_ID=stats-input
 STATS_DEV_CLI_CLIENT_ID=stats-dev-cli
+STATS_LOGIN_REDIRECT_URI=http://localhost:8085/callback
 STATS_READ_ONLY_ROLE=stats.readOnly
 STATS_INGEST_ROLE=stats.ingest
 STATS_API_AUDIENCE=stats-api
@@ -57,17 +59,20 @@ STATS_API_CLIENT_SECRET=$api_secret
 STATS_INPUT_CLIENT_SECRET=$input_secret
 STATS_ALPHA_READER_USERNAME=alpha-reader
 STATS_BETA_READER_USERNAME=beta-reader
+STATS_ZRA_READER_USERNAME=zra-reader
 STATS_NO_ROLE_USERNAME=no-role
 STATS_NO_TENANT_USERNAME=no-tenant
 STATS_EMPTY_TENANT_USERNAME=empty-tenant
 STATS_USER_EMAIL_DOMAIN=stats.local
 STATS_ALPHA_READER_PASSWORD=$alpha_password
 STATS_BETA_READER_PASSWORD=$beta_password
+STATS_ZRA_READER_PASSWORD=$zra_password
 STATS_NO_ROLE_PASSWORD=$no_role_password
 STATS_NO_TENANT_PASSWORD=$no_tenant_password
 STATS_EMPTY_TENANT_PASSWORD=$empty_tenant_password
 STATS_TENANT_A_ID=tenant-alpha
 STATS_TENANT_B_ID=tenant-beta
+STATS_ZRA_TENANT_ID=zra_test
 STAT_TYPE=all
 STATS_API_CURSOR_SIGNING_KEY=$cursor_key
 POSTGRES_URL=jdbc:postgresql://postgres:5432/statsdb
@@ -97,7 +102,7 @@ docker info >/dev/null 2>&1 || {
 }
 
 if [ ! -f "$ENV_FILE" ]; then
-  for data_volume in postgres-data rabbitmq-data; do
+  for data_volume in postgres-data rabbitmq-data keycloak-data; do
     existing_volume=$(docker volume ls --quiet \
       --filter "label=com.docker.compose.project=$PROJECT" \
       --filter "label=com.docker.compose.volume=$data_volume")
@@ -145,6 +150,14 @@ elif ls "$ROOT"/stats-app-images-*.tar >/dev/null 2>&1; then
   echo "This bundle has no images for this Docker engine's architecture (${engine_arch:-unknown})." >&2
   echo "Bundled: $(cd "$ROOT" && ls stats-app-images-*.tar | tr '\n' ' ')" >&2
   echo "No containers were changed." >&2
+  exit 1
+fi
+
+# Never replace a legacy Keycloak container before its local database is preserved.
+if [ "$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project"}}' stats-keycloak 2>/dev/null || true)" = "$PROJECT" ] &&
+   [ -z "$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/opt/keycloak/data"}}{{.Type}}{{end}}{{end}}' stats-keycloak 2>/dev/null || true)" ]; then
+  echo "Preserve existing Keycloak users first: ./docker/migrate-keycloak-data.sh" >&2
+  echo "Then run this start script again. No Keycloak container was replaced." >&2
   exit 1
 fi
 

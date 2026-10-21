@@ -3,6 +3,7 @@
 #
 #   ./docker/package-bundle.sh [version]                    # amd64 + arm64 (default)
 #   PLATFORMS=linux/arm64 ./docker/package-bundle.sh        # one architecture only
+#   BUNDLE_README=/path/to/README.md ./docker/package-bundle.sh
 #   BUILDX_FLAGS='--add-host host:1.2.3.4' ./docker/package-bundle.sh   # extra build flags
 #
 # BUILDX_FLAGS exists for build-network workarounds: the Gradle wrapper (Java) tries
@@ -20,6 +21,7 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 VERSION=${1:-$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || date +%Y%m%d)}
 PLATFORMS=${PLATFORMS:-linux/amd64,linux/arm64}
 DIST="$ROOT/dist"
+BUNDLE_README=${BUNDLE_README:-$ROOT/docker/BUNDLE.md}
 STAGE=$(mktemp -d)
 PAYLOAD="$STAGE/stats-app-docker-bundle-$VERSION"
 ARCHIVE="$DIST/stats-app-docker-bundle-$VERSION.tar.gz"
@@ -33,6 +35,11 @@ postman/newman:alpine
 prom/prometheus:v3.5.0
 quay.io/prometheuscommunity/postgres-exporter:v0.17.1
 grafana/grafana:11.6.0"
+
+if [ ! -r "$BUNDLE_README" ]; then
+  echo "Bundle README is not readable: $BUNDLE_README" >&2
+  exit 1
+fi
 
 if [ ! -f "$ROOT/.env" ]; then
   echo "Missing .env. Copy .env.example to .env and fill it before packaging." >&2
@@ -67,13 +74,17 @@ done
 
 cp "$ROOT/docker/docker-compose.yml" "$PAYLOAD/docker/"
 cp "$ROOT/docker/start-stats-app.sh" "$ROOT/docker/stop-stats-app.sh" "$ROOT/docker/run-postman.sh" "$ROOT/docker/check-monitoring.sh" "$PAYLOAD/docker/"
-cp "$ROOT/docker/stats-helpers.sh" "$ROOT/docker/shell.sh" "$ROOT/docker/token.sh" "$ROOT/docker/run-demo.sh" "$PAYLOAD/docker/"
+cp "$ROOT/docker/stats-helpers.sh" "$ROOT/docker/shell.sh" "$ROOT/docker/token.sh" "$ROOT/docker/migrate-keycloak-data.sh" "$ROOT/docker/check-zra-isolation.py" "$ROOT/docker/run-demo.sh" "$PAYLOAD/docker/"
 mkdir -p "$PAYLOAD/ops"
+cp -R "$ROOT/docs/runbooks" "$PAYLOAD/docs/"
 cp -R "$ROOT/ops/prometheus" "$ROOT/ops/postgres-exporter" "$ROOT/ops/grafana" "$PAYLOAD/ops/"
 cp "$ROOT/docker/postgres-init/10-read-only-user.sql" "$PAYLOAD/docker/postgres-init/"
-cp "$ROOT/docs/setup/keycloak-realm-statsapp.json" "$PAYLOAD/docs/setup/"
+mkdir -p "$PAYLOAD/docs/schemas/fixtures/valid"
+cp "$ROOT/docs/schemas/fixtures/valid/lorastats-production-canonical.json" "$PAYLOAD/docs/schemas/fixtures/valid/"
+cp "$ROOT/docs/setup/keycloak-realm-statsapp.json" "$ROOT/docs/setup/keycloak-user-profile.json" "$ROOT/docs/setup/keycloak-realm-statsapp.md" "$PAYLOAD/docs/setup/"
 cp "$ROOT/postman/stats-app.postman_collection.json" "$ROOT/postman/local.postman_environment.json" "$ROOT/postman/README.md" "$PAYLOAD/postman/"
-cp "$ROOT/docker/BUNDLE.md" "$PAYLOAD/README.md"
+cp "$BUNDLE_README" "$PAYLOAD/README.md"
+cp "$ROOT/docker/BUNDLE.md" "$PAYLOAD/BUNDLE.md"
 cp "$ROOT/docker/MANUAL.md" "$PAYLOAD/MANUAL.md"
 # Interpreter caches from running ops/ scripts locally are not part of the bundle.
 find "$PAYLOAD" -name __pycache__ -type d -prune -exec rm -rf {} +

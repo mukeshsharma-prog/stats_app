@@ -5,6 +5,9 @@ import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException
 
 import com.zenner.datahub.stats.api.query.StatsQueryBuilder.Keyset;
 import com.zenner.datahub.stats.api.query.StatsQueryBuilder.SqlQuery;
+import com.zenner.datahub.stats.common.model.StatType;
+import java.util.Arrays;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.stream.Stream;
@@ -20,15 +23,27 @@ import org.junit.jupiter.params.provider.ValueSource;
  * every tenant but minol, a filter on {@code maintenant} returns exactly the rows a filter
  * on {@code tenant} does (DL-139). The SQL cannot.
  *
- * <p>Every statement, for every reader, every operation, with and without a cursor.</p>
+ * <p>Every statement, for every reader, every operation, with and without a cursor.
+ * Since DL-172 "every reader" is checked rather than claimed: the list once stopped at
+ * three of five types for two weeks after ltestats and netstats were built (T-028 review,
+ * finding 2).</p>
  */
 class StatsQueryBuilderTest {
 
     private static final String TENANT = "tenant-alpha";
     private static final Keyset AFTER = new Keyset(1_789_001_000L, "CLSCON-b");
 
+    /** One reader per stat type — the same five beans {@code StatsApiConfiguration} wires. */
+    static final List<StatReader> READERS =
+            List.of(
+                    new LorastatsReader(),
+                    new SysstatsReader(),
+                    new OmsstatsReader(),
+                    new LtestatsReader(),
+                    new NetstatsReader());
+
     static Stream<SqlQuery> everyStatement() {
-        return Stream.of(new LorastatsReader(), new SysstatsReader(), new OmsstatsReader())
+        return READERS.stream()
                 .flatMap(
                         reader ->
                                 Stream.of(
@@ -47,6 +62,30 @@ class StatsQueryBuilderTest {
         assertThat(where(query)).startsWith("tenant = ?");
         assertThat(query.parameters().get(0)).isEqualTo(TENANT);
         assertThat(query.parameters().stream().filter(TENANT::equals)).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("the statements above cover every stat type, so a new reader cannot be left out")
+    void everyStatTypeHasItsReaderInThisSuite() {
+        EnumSet<StatType> covered = EnumSet.noneOf(StatType.class);
+        READERS.forEach(reader -> covered.add(reader.type()));
+        assertThat(covered).containsExactlyInAnyOrderElementsOf(Arrays.asList(StatType.values()));
+    }
+
+    @ParameterizedTest
+    @MethodSource("everyStatement")
+    @DisplayName("every condition is joined by AND — 'tenant = ? OR …' starts with tenant = ? and scopes nothing")
+    void everyConditionNarrowsTheTenantScope(SqlQuery query) {
+        String where = where(query);
+        assertThat(where.toLowerCase(Locale.ROOT)).doesNotContain(" or ").doesNotContain(")or").doesNotContain("or(");
+        List<String> conditions = Arrays.asList(where.split(" AND "));
+        assertThat(conditions.get(0)).isEqualTo("tenant = ?");
+        // Parentheses only ever group the keyset's row comparison, never a disjunction.
+        String allowed =
+                "tenant = \\?"
+                        + "|[a-z_]+ (=|>=|<) (\\?|upper\\(\\?\\))"
+                        + "|\\(ts_device, uid\\) < \\(\\?, \\?\\)";
+        conditions.forEach(condition -> assertThat(condition).matches(allowed));
     }
 
     @ParameterizedTest

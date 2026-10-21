@@ -21,6 +21,13 @@ PROJECT=stats-app-demo
 ENV_FILE=.env
 MAX_TRIES=100
 
+# Preserve the old container-local H2 database before Compose attaches a new volume.
+if [ "$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project"}}' stats-demo-keycloak 2>/dev/null || true)" = "$PROJECT" ] &&
+   [ -z "$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/opt/keycloak/data"}}{{.Type}}{{end}}{{end}}' stats-demo-keycloak 2>/dev/null || true)" ]; then
+  echo "Preserve existing users: ./migrate-keycloak-data.sh stats-demo-keycloak" >&2
+  exit 1
+fi
+
 # PORT_* variable, default, label. Order is the order they are probed and claimed.
 PORTS=(
   "PORT_POSTGRES:5433:PostgreSQL"
