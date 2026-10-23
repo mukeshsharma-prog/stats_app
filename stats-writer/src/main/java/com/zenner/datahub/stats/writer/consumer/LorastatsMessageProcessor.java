@@ -22,14 +22,14 @@ import org.springframework.stereotype.Component;
  *
  * <p>The gate runs <strong>before</strong> the write, and that ordering is the point: a
  * record that fails its payload schema must never open a transaction, and it must reach
- * the dead-letter queue without spending 35½ minutes in three retry tiers first
- * (T-057, ADR-007 §5). {@link PayloadGate} is type-agnostic, so the sysstats processor
+ * the dead-letter queue without spending 35½ minutes in three retry tiers first.
+ * {@link PayloadGate} is type-agnostic, so the sysstats processor
  * that follows in Phase 3 is a sibling of this class rather than a copy of its gate —
- * which is what rule 6 asks for and what stops the fifth copy being the one that omits
+ * which keeps a new type additive and stops the fifth copy being the one that omits
  * the check.</p>
  *
  * <p>{@link RetentionGuard} then runs between the gate and the write, in that order and
- * not the other way round (T-026, FLOW.md §4.1 step 3). A record too old to store is still
+ * not the other way round. A record too old to store is still
  * worth validating: if it is <em>also</em> malformed it dead-letters, where a schema
  * mismatch can be diagnosed, rather than being discarded as merely late. The reverse order
  * would silently swallow the more informative of the two failures.</p>
@@ -48,8 +48,8 @@ public final class LorastatsMessageProcessor implements StatsMessageProcessor {
      * The writer is resolved by <em>this type's</em> bean name, not by "the only
      * {@link StatsBatchWriter}". With a second type in the context that injection is
      * ambiguous and the context fails — adding sysstats would have broken lorastats,
-     * which is the exact failure rule 6 forbids and {@link StatsMessageProcessorAvailability}
-     * already guards against for processors (T-035, DL-148).
+     * which is the exact failure "a new type is additive" forbids and {@link StatsMessageProcessorAvailability}
+     * already guards against for processors.
      */
     public LorastatsMessageProcessor(
             PayloadGate gate,
@@ -75,7 +75,7 @@ public final class LorastatsMessageProcessor implements StatsMessageProcessor {
 
         ValidatedRecord validated = gate.admit(LorastatsConsumerDescriptor.TYPE, message);
         // Bound only now: the gate has validated the envelope, so uid, tenant and clsbox
-        // are the schema's values rather than whatever an unvalidated body carried (T-005).
+        // are the schema's values rather than whatever an unvalidated body carried.
         WriterLogContext.bindRecord(validated.envelope());
         log.atDebug().addKeyValue("event", "consumed").log("Record admitted by the payload gate");
 
@@ -83,7 +83,7 @@ public final class LorastatsMessageProcessor implements StatsMessageProcessor {
             // Past its retention window: skipped, metered and logged by the guard, and
             // ACKed by returning normally. Throwing would route a perfectly valid record
             // into the retry arm and then a DLQ that never expires, where every redrive
-            // would reach this same line again (D5b, DL-112).
+            // would reach this same line again.
             return;
         }
 

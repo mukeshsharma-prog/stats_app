@@ -40,28 +40,26 @@ import org.springframework.transaction.TransactionException;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * Individual, idempotent lorastats inserts behind the T-021 list contract.
+ * Individual, idempotent lorastats inserts behind the batch-shaped list contract.
  *
- * <p>Requirements STA-21A, STA-25A, STA-27A; decisions G3/D11 (batch-shaped
- * interface, individual writes first), ADR-005 (duplicate outcome is
- * {@code ON CONFLICT DO NOTHING}, metered), ADR-003 D2/D7 (typed columns, counters
- * as {@code bigint}, {@code schema_version}), ADR-004 and ADR-007 §2 (the record
- * survives the round trip intact), and D14/D14b (unknown {@code data} members are
- * preserved, never dropped).</p>
+ * <p>A batch-shaped interface with individual writes first; a duplicate is
+ * {@code ON CONFLICT DO NOTHING} and metered; typed columns with counters as
+ * {@code bigint} and a {@code schema_version}; the record survives the round trip
+ * intact; and unknown {@code data} members are preserved, never dropped.</p>
  *
- * <p>Since T-057 the input is a {@link ValidatedRecord}: the payload has already passed
+ * <p>The input is a {@link ValidatedRecord}: the payload has already passed
  * its per-type schema at {@link com.zenner.datahub.stats.writer.validation.PayloadGate},
  * and the schema label that admitted it travels with it into {@code schema_version}.
- * Since T-063 the payload is <strong>normalised before it is mapped</strong> — all three
- * production dialects reach these columns in one canonical shape (DL-105 rule 2), and
+ * The payload is <strong>normalised before it is mapped</strong> — all three
+ * production dialects reach these columns in one canonical shape, and
  * the {@code data_extra} residue is taken from that shape rather than from the wire.</p>
  *
  * <p><strong>One round trip is no longer byte-exact, and that is the decision.</strong> A
  * dialect-B or dialect-C record rebuilds with bare names and integral values rather than
- * the spelling it arrived in. ADR-004's byte-identical guarantee is about
+ * the spelling it arrived in. The byte-identical guarantee is about
  * <em>publication</em> — what Input republishes, and what the retry arm hands on, which
  * is what keeps {@code (ts_device, uid)} suppression correct. Storage was always
- * value-preserving rather than encoding-preserving (ADR-003 D2), and DL-105 rule 2 is
+ * value-preserving rather than encoding-preserving, and normalisation is
  * what makes one API shape possible for a type that arrives in three.</p>
  */
 @Component(LorastatsConsumerDescriptor.BATCH_WRITER_BEAN)
@@ -74,14 +72,13 @@ public final class LorastatsBatchWriter implements StatsBatchWriter {
     public static final String POSTGRES_ERROR_METRIC = "records_postgres_errors";
 
     /**
-     * DL-105 rule 2: the dialect is a metric label, never a column. This answers the
+     * The dialect is a metric label, never a column. This answers the
      * only question the distinction actually raises — "how much of the fleet is still on
      * C?" — without pushing a three-way branch onto every consumer of the table.
      *
      * <p>The name is <em>composed</em> from the wire name rather than written as a
      * literal. Spelling it out would hard-code one stat type into main source, which is
-     * the shape {@code StatTypeFanOutTest} forbids so that adding a type stays additive
-     * (STA-22, trap 15).</p>
+     * the shape {@code StatTypeFanOutTest} forbids so that adding a type stays additive.</p>
      */
     public static final String DIALECT_METRIC =
             "records_" + LorastatsConsumerDescriptor.TYPE.wireName() + "_dialect";
@@ -93,7 +90,7 @@ public final class LorastatsBatchWriter implements StatsBatchWriter {
     /**
      * Every {@code data} member lorastats-v1.schema.json names, in canonical (bare)
      * spelling. Anything outside this set has no typed column and is preserved in
-     * {@code data_extra} (D14b) — which is why the residue is taken <em>after</em>
+     * {@code data_extra} — which is why the residue is taken <em>after</em>
      * dialect normalisation and not before. Declared once, by
      * {@link LorastatsDialects}, and checked against the normative schema by
      * {@code LorastatsColumnMappingTest}, so a member added to the schema and not here
@@ -148,7 +145,7 @@ public final class LorastatsBatchWriter implements StatsBatchWriter {
         this.jdbc = Objects.requireNonNull(jdbc, "jdbc");
         this.gateMetrics = Objects.requireNonNull(gateMetrics, "gateMetrics");
         // The gate's and retention's series for this type export at zero from startup
-        // too (DL-158): a deployed type is exactly one with a writer, and a series that
+        // too: a deployed type is exactly one with a writer, and a series that
         // waits for its first event or its first maintenance pass is absent until then.
         gateMetrics.registerFor(TYPE);
         Objects.requireNonNull(retentionMetrics, "retentionMetrics").registerFor(TYPE);
@@ -165,7 +162,7 @@ public final class LorastatsBatchWriter implements StatsBatchWriter {
                 Counter.builder(UNMAPPED_DATA_METRIC)
                         .description(
                                 "Records carrying a data member the schema does not name, "
-                                        + "preserved in data_extra (D14b)")
+                                        + "preserved in data_extra")
                         .tag("type", TYPE.wireName())
                         .register(meterRegistry);
         this.writeFailures =
@@ -182,8 +179,7 @@ public final class LorastatsBatchWriter implements StatsBatchWriter {
                     dialect,
                     Counter.builder(DIALECT_METRIC)
                             .description(
-                                    "Records normalised from each known payload dialect "
-                                            + "(DL-105 rule 2)")
+                                    "Records normalised from each known payload dialect")
                             .tag("dialect", dialect.label())
                             .register(meterRegistry));
         }
@@ -246,23 +242,23 @@ public final class LorastatsBatchWriter implements StatsBatchWriter {
                             "A single-record insert affected an unexpected row count");
                 }
             } catch (RuntimeException failure) {
-                // Never silent (claude/CLAUDE.md §9). Since T-024 the delivery is not
+                // Never silent. The delivery is not
                 // dropped either: the consumer hands it to FailedDeliveryRouter, which
                 // confirms a retry or dead-letter copy before the original is ACKed.
                 //
                 // The failure is DESCRIBED, never passed to the logger. This is the exact
-                // path guard P2 was written for (DEVELOPMENT.md §7): PostgreSQL puts the
+                // path guard P2 was written for: PostgreSQL puts the
                 // offending values in its DETAIL: line, the driver puts that line in the
                 // exception message, and a throwable argument prints it at ERROR — where
                 // DEBUG-gating the payload never sees it. uid stays: it is the correlation
-                // ID by decision (D1), and it is what makes a DLQ message findable.
+                // ID by decision, and it is what makes a DLQ message findable.
                 writeFailures.increment();
                 if (isDatabaseFailure(failure)) {
                     postgresErrors.increment();
                 }
                 WriterLogContext.errorCode("write_failed");
                 // uid is carried explicitly as well as in the MDC: this is a batch-shaped
-                // API, and once G3 batches for real the MDC will name the delivery, not
+                // API, and once writes are batched for real the MDC will name the delivery, not
                 // the record at this index.
                 LOGGER.atError()
                         .addKeyValue("event", "write_failed")
@@ -279,9 +275,9 @@ public final class LorastatsBatchWriter implements StatsBatchWriter {
     }
 
     /**
-     * Whether a failed write is the database's (T-027): a JDBC, Spring data-access or
+     * Whether a failed write is the database's: a JDBC, Spring data-access or
      * transaction exception anywhere in a bounded cause chain. Only the TYPE is inspected
-     * -- no driver message becomes a label or a log value (guard P2).
+     * -- no driver message becomes a label or a log value.
      */
     private static boolean isDatabaseFailure(Throwable failure) {
         for (int depth = 0; failure != null && depth < 8; depth++, failure = failure.getCause()) {
@@ -318,7 +314,7 @@ public final class LorastatsBatchWriter implements StatsBatchWriter {
         }
         Timestamps ts = Objects.requireNonNull(record.ts(), "record.ts");
 
-        // T-063 / DL-105. Normalisation comes FIRST, and everything below reads its
+        // Normalisation comes FIRST, and everything below reads its
         // output rather than the raw payload. Taking the counters or the data_extra
         // residue from the wire shape instead would mean that on dialect C every one of
         // the fifteen lora_-prefixed counters is an "unmapped" member: the typed columns
@@ -342,8 +338,8 @@ public final class LorastatsBatchWriter implements StatsBatchWriter {
                 .addValue("uid", requiredText(record.uid(), "uid"))
                 .addValue("tenant", requiredText(record.tenant(), "tenant"))
                 .addValue("maintenant", requiredText(record.maintenant(), "maintenant"))
-                // Uppercased to ONE canonical form before it reaches the index
-                // (DL-115). The wire admits either case; storing either case splits
+                // Uppercased to ONE canonical form before it reaches the index.
+                // The wire admits either case; storing either case splits
                 // one device across two keys in
                 // idx_lorastats_tenant_clsbox_device_uid, and the API's
                 // case-insensitive clsbox filter then returns a silently partial
@@ -354,11 +350,11 @@ public final class LorastatsBatchWriter implements StatsBatchWriter {
                         requiredText(record.clsbox(), "clsbox").toUpperCase(Locale.ROOT))
                 .addValue("ts_server", timestamp(ts.server(), "ts.server"))
                 .addValue("ts_device", timestamp(ts.device(), "ts.device"))
-                // Heimdal's version, stored as received. ADR-007 §4: NEVER a payload
+                // Heimdal's version, stored as received. NEVER a payload
                 // discriminator -- all three incompatible lorastats dialects carry 1.
                 .addValue("record_version", shortOrNull(record.version()), Types.SMALLINT)
-                // ADR-003 D7: which of OUR schemas validated the row, taken from the
-                // validator's own result since T-057. A constant here would answer a
+                // Which of OUR schemas validated the row, taken from the
+                // validator's own result. A constant here would answer a
                 // different question -- which schema the author believed was current --
                 // and the two agree only until a v2 exists, at which point every row
                 // already stored claims the wrong one and nothing fails.
@@ -389,9 +385,9 @@ public final class LorastatsBatchWriter implements StatsBatchWriter {
     /**
      * The envelope members production sends that this system preserves and never
      * reads: {@code ts.datastore}, {@code ts.converter}, {@code ts.expiresOn} and
-     * {@code status} (ADR-003 "Required table and index direction", ADR-007 §2), plus
+     * {@code status}, plus
      * the two Heimdal has since been seen to add — {@code ts.deviceOrig} and
-     * {@code meta} (DL-146).
+     * {@code meta}.
      *
      * <p>Written in the wire's own shape and units — epoch <em>seconds</em>, and
      * {@code expiresOn} in whichever of its two spellings arrived — so the
@@ -407,7 +403,7 @@ public final class LorastatsBatchWriter implements StatsBatchWriter {
         putEpochSeconds(timestamps, "converter", ts.converter());
         putEpochSeconds(timestamps, "deviceOrig", ts.deviceOrig());
         if (ts.expiresOn() != null) {
-            // String or {"$date": ...} - whichever form arrived is the form stored (DL-146).
+            // String or {"$date": ...} - whichever form arrived is the form stored.
             timestamps.set("expiresOn", ts.expiresOn());
         }
         if (!timestamps.isEmpty()) {
@@ -423,11 +419,11 @@ public final class LorastatsBatchWriter implements StatsBatchWriter {
     }
 
     /**
-     * Unknown {@code data} members, preserved verbatim (D14, D14b).
+     * Unknown {@code data} members, preserved verbatim.
      *
      * <p>The lorastats schema is {@code additionalProperties: true}, so a member
      * Heimdal adds between releases is valid and must survive. Typed columns cannot
-     * hold it; dropping it is what ADR-003 D2 rejected in writing. Returns
+     * hold it, and dropping it would be silent data loss. Returns
      * {@code null} — leaving the column NULL and costing one null-bitmap bit — when
      * the payload is exactly the schema, which is the overwhelmingly common case.</p>
      */
@@ -478,7 +474,7 @@ public final class LorastatsBatchWriter implements StatsBatchWriter {
             return null;
         }
         if (version < Short.MIN_VALUE || version > Short.MAX_VALUE) {
-            // Permanent: no redelivery changes the value (DL-168). The envelope refuses it at
+            // Permanent: no redelivery changes the value. The envelope refuses it at
             // Input now; this is the backstop for anything already queued.
             throw new PermanentFailureException("version does not fit the record_version column");
         }
@@ -487,7 +483,7 @@ public final class LorastatsBatchWriter implements StatsBatchWriter {
 
     private static String requiredText(String value, String field) {
         if (value == null || value.isBlank()) {
-            // Permanent, as above (DL-168): the envelope requires a non-blank value now.
+            // Permanent, as above: the envelope requires a non-blank value now.
             throw new PermanentFailureException(field + " must be present");
         }
         return value;

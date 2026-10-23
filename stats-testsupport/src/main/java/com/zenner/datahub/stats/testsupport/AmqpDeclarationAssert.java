@@ -8,20 +8,20 @@ import org.springframework.amqp.core.Exchange;
 import org.springframework.amqp.core.Queue;
 
 /**
- * T-032 — the declaration-conflict enforcement, in one place both broker-connected
+ * The declaration-conflict enforcement, in one place both broker-connected
  * modules call.
  *
  * <p><strong>The failure it exists to stop.</strong> {@code stats-input} and
- * {@code stats-writer} both declare topology (ADR-002 §11). RabbitMQ does not merge
+ * {@code stats-writer} both declare topology. RabbitMQ does not merge
  * two declarations of the same resource: it rejects the second with
  * {@code RESOURCE_LOCKED} and that module fails to start. Quorum makes it worse — a
  * queue's type is fixed at declaration, so correcting one means deleting and
- * redeclaring it (ADR-002 §8). Every field matters: name, durability, auto-delete,
+ * redeclaring it. Every field matters: name, durability, auto-delete,
  * exclusivity and every argument.</p>
  *
  * <p><strong>Why an assertion rather than a shared factory.</strong> A factory
  * returning Spring AMQP objects would have to live in {@code stats-common}, which
- * deliberately holds no broker client (D15), or in one application module, which the
+ * deliberately holds no broker client, or in one application module, which the
  * other may not depend on. {@code AmqpTopology} therefore owns the <em>values</em> as
  * plain records and each module owns the four lines that turn one into a Spring
  * object. This class checks those four lines, in both modules, from one

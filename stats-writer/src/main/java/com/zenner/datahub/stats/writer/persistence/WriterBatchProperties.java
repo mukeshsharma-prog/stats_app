@@ -5,11 +5,11 @@ import java.util.Objects;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
- * The G3/D11 write-boundary settings.
+ * The write-boundary settings.
  *
- * <p>Micro-batching is deliberately disabled in T-021. The interface is already
+ * <p>Micro-batching is deliberately disabled. The interface is already
  * batch-shaped, but the implementation commits one record at a time so one poison
- * record can be isolated for the later T-024 DLQ path.</p>
+ * record can be isolated on the DLQ path.</p>
  */
 @ConfigurationProperties(prefix = "stats.writer.batch")
 public record WriterBatchProperties(boolean enabled, int maxRecords, Duration maxWait) {

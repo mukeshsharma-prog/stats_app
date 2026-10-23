@@ -27,8 +27,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * Sends a failed delivery to the next retry tier or to the type's DLQ, and does not
- * return until that copy is confirmed (T-024; ADR-002 §4/§12, ADR-005, STA-12,
- * STA-25A).
+ * return until that copy is confirmed.
  *
  * <h2>The ordering is the whole point</h2>
  *
@@ -36,8 +35,8 @@ import org.springframework.stereotype.Component;
  * caller ACKs the original <em>after</em> that, never before. The reverse order —
  * ACK, then publish — opens a window in which the original is gone and the copy does
  * not exist yet, and a crash inside it loses the record with nothing anywhere
- * reporting a failure. That window is the eleventh of the eleven in
- * {@code claude/FLOW.md} §8, and it is the one that leaves no trace at all.</p>
+ * reporting a failure. Of the ways a record can be lost between Heimdal and
+ * PostgreSQL, it is the one that leaves no trace at all.</p>
  *
  * <h2>Attempts are counted in our own header</h2>
  *
@@ -52,8 +51,8 @@ import org.springframework.stereotype.Component;
  *
  * <p>The original bytes are republished verbatim. A retried or redriven record has to
  * remain byte-identical to what Heimdal sent, because it must still collide on
- * {@code (ts_device, uid)} when it finally lands — ADR-004's byte-identical
- * publication is what makes ADR-003's duplicate suppression correct, and it has to
+ * {@code (ts_device, uid)} when it finally lands — byte-identical
+ * publication is what makes the duplicate suppression correct, and it has to
  * survive this path too. Only headers change.</p>
  */
 @Component
@@ -62,7 +61,7 @@ public class FailedDeliveryRouter {
     /** How many times this record has been handed on. Ours, not the broker's. */
     public static final String ATTEMPT_HEADER = "x-stats-attempt";
 
-    /** The failure class name — never a message, which can quote payload (STA-03A). */
+    /** The failure class name — never a message, which can quote payload. */
     public static final String FAILURE_HEADER = "x-stats-failure";
 
     /** Set on a DLQ copy only: whether the failure was classified as permanent. */
@@ -118,7 +117,7 @@ public class FailedDeliveryRouter {
 
     /**
      * Returns a delivery whose onward copy was NOT confirmed to its main queue — after a
-     * pause, never immediately (DL-168).
+     * pause, never immediately.
      *
      * <p>Leaving it unacknowledged is not an option, though it looks like one. In
      * {@code MANUAL} ack mode the listener container neither acks nor nacks a delivery
@@ -128,7 +127,7 @@ public class FailedDeliveryRouter {
      * that would show it read normally whenever the queue itself is healthy.</p>
      *
      * <p>Nack with requeue keeps the broker holding the only copy, which is the property
-     * the hand-off exists to protect. The pause is rule 5: the cause — a missing retry or
+     * the hand-off exists to protect. The pause is because immediate requeue is never used: the cause — a missing retry or
      * DLQ queue, a broker refusing publishes under a resource alarm — usually persists,
      * and an immediate requeue would spin on it. Sleeping on the listener thread is
      * deliberate: it also slows this type's consumption while its failure arm is broken.
@@ -149,7 +148,7 @@ public class FailedDeliveryRouter {
                 .log(
                         "The retry/DLQ copy was not confirmed; the original is returned to its "
                                 + "main queue after the delay. The failure arm itself is broken "
-                                + "- check the retry and DLQ queues and broker alarms (DL-168)");
+                                + "- check the retry and DLQ queues and broker alarms");
         try {
             Thread.sleep(properties.unconfirmedHandoffRequeueDelay().toMillis());
         } catch (InterruptedException shutdown) {
@@ -161,7 +160,7 @@ public class FailedDeliveryRouter {
 
     private void retry(
             StatType statType, Message message, int attempt, String reason, Throwable failure) {
-        // One attempt per tier (G4): attempt 1 waits tier 1, attempt 2 waits tier 2.
+        // One attempt per tier: attempt 1 waits tier 1, attempt 2 waits tier 2.
         int tier = attempt;
         String queue = AmqpTopology.retryQueue(statType, tier);
 
@@ -174,8 +173,8 @@ public class FailedDeliveryRouter {
         metrics.retried(statType, tier);
         WriterLogContext.errorCode(reason);
         // The failure is DESCRIBED, never passed to the logger: a throwable argument
-        // prints a stack whose driver message carries the offending row values
-        // (guard P2, DEVELOPMENT.md §7). SafeFailure explains what survives and why.
+        // prints a stack whose driver message carries the offending row values.
+        // SafeFailure explains what survives and why.
         log.atWarn()
                 .addKeyValue("event", "retried")
                 .addKeyValue("attempt", attempt)
@@ -185,7 +184,7 @@ public class FailedDeliveryRouter {
                 .addKeyValue("cause", SafeFailure.describe(failure))
                 .log(
                         "Write failed and was routed to a confirmed retry tier; the original is "
-                                + "ACKed only after this hand-off (ADR-005)");
+                                + "ACKed only after this hand-off");
     }
 
     private void deadLetter(
@@ -214,13 +213,13 @@ public class FailedDeliveryRouter {
                 .addKeyValue("cause", SafeFailure.describe(failure))
                 .log(
                         "Record dead-lettered after a confirmed hand-off. The queue has no TTL; "
-                                + "disposition is manual within 14 days (ADR-002 §12)");
+                                + "disposition is manual within 14 days");
     }
 
     /**
      * Publishes and waits for the confirm, treating a return as a failure.
      *
-     * <p>An unroutable retry or DLQ publish is the same silent-loss shape ADR-002 §9
+     * <p>An unroutable retry or DLQ publish is the same silent-loss shape {@code mandatory}
      * closes at Input: the broker acks a message no queue wanted. Here it would mean
      * the retry or dead-letter queue is missing, and ACKing the original on the
      * strength of that ack would destroy the record.</p>
@@ -293,15 +292,15 @@ public class FailedDeliveryRouter {
                 source.getContentEncoding() == null
                         ? StandardCharsets.UTF_8.name()
                         : source.getContentEncoding());
-        // Rule 10 / STA-13A. A transient copy in a durable retry queue survives exactly
+        // Persistent. A transient copy in a durable retry queue survives exactly
         // as long as the broker process, which is not what "retry in 30 minutes" means.
         properties.setDeliveryMode(MessageDeliveryMode.PERSISTENT);
         properties.setCorrelationId(source.getCorrelationId());
         properties.setMessageId(source.getMessageId());
-        // Input's publish time travels with the copy (DL-147). The age gauge ignores a
+        // Input's publish time travels with the copy. The age gauge ignores a
         // retry re-entry by its attempt header, so this changes nothing it measures; it
-        // is what a broker-side reader of DLQ age would need, which DL-144 recorded as
-        // the missing precondition for the DLQ half of "oldest-message age".
+        // is what a broker-side reader of DLQ age would need — the missing
+        // precondition for the DLQ half of "oldest-message age".
         properties.setTimestamp(source.getTimestamp());
 
         return new Message(message.getBody(), properties);

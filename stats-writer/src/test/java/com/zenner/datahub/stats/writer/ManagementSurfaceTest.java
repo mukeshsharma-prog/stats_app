@@ -38,11 +38,11 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
  * were inert and docker-compose's readiness healthcheck on 8082 could never
  * pass.</p>
  *
- * <p>It matters most for {@code records_duplicate_suppressed}. STA-21B/STA-27A make
+ * <p>It matters most for {@code records_duplicate_suppressed}. The design makes
  * duplicate suppression deliberately silent at the database — {@code ON CONFLICT DO
  * NOTHING} — so this counter is the ONLY thing that distinguishes a suppressed
  * duplicate from a write that never happened, and a cross-tenant {@code uid}
- * collision is visible nowhere else (ADR-003, ADR-005). An unexported counter turns
+ * collision is visible nowhere else. An unexported counter turns
  * that back into silence.</p>
  *
  * <p>The persistence counters are registered when their writer bean is created.
@@ -112,7 +112,7 @@ class ManagementSurfaceTest {
                 .isEqualTo(HttpStatus.OK);
 
         // Micrometer appends _total to a counter in Prometheus' naming convention,
-        // and the type tag is what keeps the metric per-type (rule 6).
+        // and the type tag is what keeps the metric per-type.
         assertThat(scrape.getBody())
                 .contains(LorastatsBatchWriter.DUPLICATE_METRIC + "_total")
                 .contains(LorastatsBatchWriter.UNMAPPED_DATA_METRIC + "_total")
@@ -120,21 +120,21 @@ class ManagementSurfaceTest {
                 .contains("records_persisted_total{type=\"lorastats\"}")
                 .contains("records_postgres_errors_total{type=\"lorastats\"}")
                 .contains("type=\"lorastats\"")
-                // T-035: the second type's writer registers the same five series under
+                // The second type's writer registers the same five series under
                 // its own label, unconditionally, so they export at zero from startup.
                 .contains("records_persisted_total{type=\"sysstats\"}")
                 .contains("records_duplicate_suppressed_total{type=\"sysstats\"}")
                 .contains("records_unmapped_data_field_total{type=\"sysstats\"}")
                 .contains("records_write_failed_total{type=\"sysstats\"}")
                 .contains("records_postgres_errors_total{type=\"sysstats\"}")
-                // T-036: the third type, the same five series, exported at zero from startup.
+                // The third type, the same five series, exported at zero from startup.
                 .contains("records_persisted_total{type=\"omsstats\"}")
                 .contains("records_duplicate_suppressed_total{type=\"omsstats\"}")
                 .contains("records_unmapped_data_field_total{type=\"omsstats\"}")
                 .contains("records_write_failed_total{type=\"omsstats\"}")
                 .contains("records_postgres_errors_total{type=\"omsstats\"}")
-                // T-056 (DL-158): the six series the dashboards read that were asserted
-                // only at the registry, plus DL-156's timestamp — at the ENDPOINT, by
+                // The six series the dashboards read that were asserted
+                // only at the registry, plus the last-sweep timestamp — at the ENDPOINT, by
                 // their exported names. The gate's counters are registered per type at
                 // writer construction; the retention series at the startup pass.
                 .contains("records_payload_rejected_total{reason=\"payload_schema\",type=\"lorastats\"}")
@@ -145,7 +145,7 @@ class ManagementSurfaceTest {
                 .contains("records_expired_on_arrival_total{type=\"lorastats\"}")
                 .contains("retention_partitions_dropped_total{type=\"lorastats\"}")
                 .contains("retention_orphans_dropped_total{type=\"lorastats\"}")
-                // NaN until the first sweep on this replica (DL-156), and exported as such.
+                // NaN until the first sweep on this replica, and exported as such.
                 .contains("retention_oldest_partition_age_days{type=\"lorastats\"} NaN")
                 .contains("retention_last_sweep_timestamp_seconds{type=\"lorastats\"} NaN");
 
@@ -202,7 +202,7 @@ class ManagementSurfaceTest {
     }
 
     /**
-     * T-050 / DL-147: the oldest-message-age gauge reaches the scrape under the type
+     * The oldest-message-age gauge reaches the scrape under the type
      * this deployment serves, and NaN — "not observed yet" — is what it exports until a
      * delivery or a poll has said otherwise. A NaN that Prometheus ingests is a sample
      * the alert rules can tell apart from zero; an absent series is not.
@@ -234,7 +234,7 @@ class ManagementSurfaceTest {
     }
 
     /**
-     * D13: readiness probes this module's <em>real</em> dependencies. For the Writer
+     * Readiness probes this module's <em>real</em> dependencies. For the Writer
      * that is PostgreSQL <em>and</em> RabbitMQ — it consumes from one and commits to
      * the other, and cannot do its job with either gone.
      *
@@ -268,7 +268,7 @@ class ManagementSurfaceTest {
     }
 
     /**
-     * The other half of D13, and the reason the two groups are configured as a pair.
+     * The other half of the health split, and the reason the two groups are configured as a pair.
      *
      * <p>Liveness answers "should this process be restarted". A dependency in this
      * group turns a database blip into a restart loop that cannot fix itself: every
@@ -298,7 +298,7 @@ class ManagementSurfaceTest {
 
     /**
      * The servlet container is here for actuator, not to open an application
-     * endpoint. Rule 1 puts every GET in stats-api and rule 2 makes this the only
+     * endpoint. Every GET lives in stats-api and this is the only
      * module with write access to PostgreSQL; a controller here would be a write path
      * into the database reachable over HTTP, which is exactly what neither rule
      * permits.

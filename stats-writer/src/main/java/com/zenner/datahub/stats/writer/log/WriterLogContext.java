@@ -9,7 +9,7 @@ import org.slf4j.MDC;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.core.MessageProperties;
 
-/** Scoped structured-log context for one Writer delivery (T-005, ADR-001). */
+/** Scoped structured-log context for one Writer delivery. */
 public final class WriterLogContext {
 
     public static final String TRACE_ID = "traceId";

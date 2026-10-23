@@ -23,7 +23,7 @@ import org.skyscreamer.jsonassert.JSONCompareMode;
 import org.springframework.test.web.servlet.MvcResult;
 
 /**
- * T-040, T-041, T-044, T-067 against the Writer's real tables, read as {@code stats_ro}:
+ * The read API against the Writer's real tables, read as {@code stats_ro}:
  * the record each type returns, the bounds, the window, every error the contract
  * catalogues, and a cursor walk to its end.
  */
@@ -141,7 +141,7 @@ class StatsReadIntegrationTest extends ApiIntegrationTest {
     }
 
     @Test
-    @DisplayName("omsstats: five integers, and no converter-derived member anywhere (ADR-004)")
+    @DisplayName("omsstats: five integers, and no converter-derived member anywhere")
     void omsstatsRecord() throws Exception {
         String expected =
                 """

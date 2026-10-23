@@ -1,4 +1,4 @@
-# Stats App — the hand-run tools image for the Docker bundle (DL-171).
+# Stats App — the hand-run tools image for the Docker bundle.
 #
 # Everything MANUAL.md and docker/demo.sh need besides Docker itself — bash, curl, jq and
 # a Docker CLI — plus demo.sh, the fixtures it posts and the walkthrough helpers. It is

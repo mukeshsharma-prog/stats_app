@@ -14,7 +14,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * The read API, v1 (STA-30…STA-38; openapi.yaml). GET only — every other method never
+ * The read API, v1 (openapi.yaml). GET only — every other method never
  * gets here ({@link ReadOnlyMethods}).
  *
  * <p><strong>Routing is by segment count, never by value</strong> (openapi.yaml): three
@@ -24,7 +24,7 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * <p><strong>The tenant is resolved here, from the token, once per request</strong> and
  * passed down. No parameter of any handler is a tenant: a {@code tenant} query parameter,
- * header or path value is not bound, so it is ignored (STA-34A).</p>
+ * header or path value is not bound, so it is ignored.</p>
  */
 @RestController
 @RequestMapping("/v1/stats")

@@ -19,7 +19,7 @@ public final class LorastatsConsumerDescriptor {
     /**
      * The bean name of this type's {@code StatsBatchWriter}, spelled once. The writer
      * declares it and the processor qualifies on it, so a second type's writer in the
-     * same context is not an ambiguity (DL-148).
+     * same context is not an ambiguity.
      */
     public static final String BATCH_WRITER_BEAN = WIRE_NAME + "BatchWriter";
 

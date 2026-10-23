@@ -23,7 +23,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 
 /**
- * T-043, rule 1, STA-32/STA-32A: POST, PUT, PATCH and DELETE are 405 with {@code Allow:
+ * POST, PUT, PATCH and DELETE are 405 with {@code Allow:
  * GET} and no side effect — on every {@code /v1/**} route, mapped or not, with a token or
  * without one.
  *

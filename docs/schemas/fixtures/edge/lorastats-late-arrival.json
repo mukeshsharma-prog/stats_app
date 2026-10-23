@@ -23,7 +23,7 @@
     "chip_comm_error": 0,
     "util_fopen_failed": 0
   },
-  "$comment": "ts.device is 95 days old while ts.server is current - a gateway that was offline and has just reconnected. No live partition exists for this row, and none ever will: the record only gets older. DECIDED BEHAVIOUR, signed as D5b (DL-112) and BUILT by T-026 on 10 Sep 2026 - RetentionGuard SKIPS the write, increments records_expired_on_arrival{type}, logs at WARN and ACKs the delivery. It is NOT dead-lettered: the record is valid, the DLQ never expires anything (ADR-002 12), and a redrive would re-derive this same verdict forever. That is trap 18 from the other end - a DLQ message redriven after ~90 days lands here and increments a counter, which is a no-op that looks like a recovery. This is deliberate data loss by a signed decision, which is why it is metered and alerted rather than silent.",
+  "$comment": "ts.device is 95 days old while ts.server is current - a gateway that was offline and has just reconnected. No live partition exists for this row, and none ever will: the record only gets older. DECIDED BEHAVIOUR - RetentionGuard SKIPS the write, increments records_expired_on_arrival{type}, logs at WARN and ACKs the delivery. It is NOT dead-lettered: the record is valid, the DLQ never expires anything, and a redrive would re-derive this same verdict forever. That is the redrive-age trap from the other end - a DLQ message redriven after ~90 days lands here and increments a counter, which is a no-op that looks like a recovery. This is deliberate data loss by a signed decision, which is why it is metered and alerted rather than silent.",
   "$expect": "writer-skip",
   "$expectCode": "expired_on_arrival"
 }

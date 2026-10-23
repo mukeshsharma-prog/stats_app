@@ -1,7 +1,7 @@
 package com.zenner.datahub.stats.writer.retry;
 
 /**
- * A failure that will fail identically on every future attempt (T-024).
+ * A failure that will fail identically on every future attempt.
  *
  * <p>Throwing this from a processor sends the delivery <strong>straight to the type's
  * DLQ</strong>, skipping all three retry tiers. That is a deliberate saving of 35½

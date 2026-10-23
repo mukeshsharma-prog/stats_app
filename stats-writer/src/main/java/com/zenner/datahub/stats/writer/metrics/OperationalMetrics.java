@@ -24,7 +24,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * Broker observations for each stat type this deployment serves, cached so that a
- * Prometheus scrape performs no external I/O (T-027; STA-27A, NFR-05).
+ * Prometheus scrape performs no external I/O.
  *
  * <p>Passive queue inspection ({@link AmqpAdmin#getQueueInfo}) gives ready-message depth
  * and consumer count without management-plugin credentials or a new dependency. It is
@@ -40,16 +40,16 @@ import org.springframework.stereotype.Component;
  * an alert has to check freshness before treating any zero as healthy.</p>
  *
  * <p><strong>What is deliberately not here.</strong> Retention health is reported by the
- * sweep itself as {@code retention_oldest_partition_age_days} (DL-132), which rejected a
+ * sweep itself as {@code retention_oldest_partition_age_days}, which rejected a
  * polled catalogue gauge on purpose: it would keep reporting a healthy number from a
  * replica whose sweep never ran. Only the configured window is exported from here, and it
  * is read from {@link RetentionWindow} — the one definition the guard and the sweep share
- * (DL-133) — so this class cannot advertise a window different from the one in force.
- * Main-queue depth is a diagnostic, not the oldest-message-age alert T-050 requires:
- * under jitter (DL-104) a cyclic depth spike is evidence, not a buffer working. That
+ * — so this class cannot advertise a window different from the one in force.
+ * Main-queue depth is a diagnostic, not the oldest-message-age alert:
+ * under jitter a cyclic depth spike is evidence, not a buffer working. That
  * alert reads {@link QueueAgeMetrics}, which is sampled at delivery; this class registers
- * its gauge for every served type and resets it whenever a poll finds the queue empty
- * (DL-147).</p>
+ * its gauge for every served type and resets it whenever a poll finds the queue empty.
+ * </p>
  */
 @Component
 public final class OperationalMetrics {
@@ -83,7 +83,7 @@ public final class OperationalMetrics {
         Objects.requireNonNull(selectedType, "selectedType");
 
         for (StatType type : StatType.values()) {
-            // In production one deployment serves one type (ADR-003 D8). In development
+            // In production one deployment serves one type. In development
             // `all` mode the served set is whatever queues this context declared, so a
             // type whose consumer has not been built yet gets no gauges rather than NaN
             // forever.
@@ -158,12 +158,12 @@ public final class OperationalMetrics {
                             Instant.now().getEpochSecond()));
             if (main.getMessageCount() == 0) {
                 // No ready message means no oldest message. Without this the age gauge
-                // would keep the last backlog value through a quiet hour (DL-147).
+                // would keep the last backlog value through a quiet hour.
                 queueAge.observedEmpty(type);
             }
         } catch (RuntimeException failure) {
             sample.set(BrokerSample.failed(sample.get()));
-            // The cause is described, never passed (guard P2): an AMQP exception carries
+            // The cause is described, never passed: an AMQP exception carries
             // a host and port, and the shape here is the one the next site copies.
             LOGGER.atWarn()
                     .addKeyValue("event", "metrics_collection_failed")

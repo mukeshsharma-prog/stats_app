@@ -10,11 +10,11 @@ import java.util.Objects;
 
 /**
  * Writes RFC 9457 bodies from the places a controller advice cannot reach — the servlet
- * filters and Spring Security's entry point and access-denied handler (T-044).
+ * filters and Spring Security's entry point and access-denied handler.
  *
  * <p>Every problem this API returns is built from the shared {@link ErrorCode}
  * catalogue, so a 401 cannot carry a 403's type URI and the URI spelling is the one
- * Input already ships (underscores — the DL-145 residual, closed in DL-162).</p>
+ * Input already ships (underscores).</p>
  */
 public final class ProblemResponses {
 

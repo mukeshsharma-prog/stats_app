@@ -93,7 +93,7 @@ asynchronously.
 Then send the corresponding GET-by-UID requests. A brief initial 404 can occur
 before Writer commits; retry. Expect 200 and compare the response `data` to the
 submitted `data`, including spelling, omitted members and JSON value types —
-**except `imsi`, which is always returned masked** (D-12 P3, DL-167): the carrier
+**except `imsi`, which is always returned masked**: the carrier
 prefix and at most the last four digits, every other digit `*`, same length — e.g.
 `001010123456789` is returned as `00101******6789`. The raw value must never appear.
 
@@ -317,6 +317,3 @@ The 9 October audit found 10 older partitions each for LoRa/sys/OMS, none for
 LTE/netstats. After a scheduled pass, check the gauge and partition catalog again;
 do not equate complete partition creation with successful cleanup. Inspect Writer
 maintenance logs for failures if expired partitions remain after the pass.
-
-The completed automated audit and sanitized aggregate evidence are linked from
-[the verification report](../verification/lte-netstats-2026-10-09.md).

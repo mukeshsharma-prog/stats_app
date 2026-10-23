@@ -1,11 +1,11 @@
-# Custom queries for postgres_exporter (Compose `observability` profile; T-051, DL-155).
+# Custom queries for postgres_exporter (Compose `observability` profile).
 #
 # Why this file exists: the exporter's built-in settings collector exports only numeric
 # and boolean server settings. `archive_mode` is an ENUM (off | on | always), so
 # `pg_settings_archive_mode` -- which postgres-alerts.yml gates StatsAppWalArchiveStale on
 # and StatsAppWalArchiveDisabled reads outright -- was never exported. A PromQL comparison
 # against an absent series matches nothing: both alerts were silent by construction
-# (found on the first live render, 22 Sep 2026, DL-160). This query is what makes the
+# (found on the first live render, 22 Sep 2026). This query is what makes the
 # series exist. The metric name is `<key>_<column>`; keep both spellings in step with the
 # rule file and ops/grafana/check-dashboards.py.
 #

@@ -11,7 +11,7 @@ import java.net.URI;
  * a different status to the same error class. The problem type URI ends with the
  * exact wire code, which is the value callers match on.</p>
  *
- * <p><strong>Why one catalogue and not two (DL-121).</strong> {@code payload_too_large}
+ * <p><strong>Why one catalogue and not two.</strong> {@code payload_too_large}
  * and {@code too_many_requests} appear only in the inbound contract, so an
  * Input-local enum was the obvious alternative. It was rejected: two catalogues means
  * two type-URI bases, and a caller matching on {@code type} then has to know which
@@ -32,9 +32,9 @@ public enum ErrorCode {
     /** Ingest only — contract §2. The body exceeds {@code stats.input.limits.max-request-bytes}. */
     PAYLOAD_TOO_LARGE("payload_too_large", "Payload too large", 413),
     /**
-     * Ingest only — contract §2. The per-instance ingest rate limit of T-018, which
-     * DL-109 records as the only replay control we actually own: Heimdal has agreed
-     * the 2x cap, and an agreement is a commitment rather than a control.
+     * Ingest only — contract §2. The per-instance ingest rate limit, the only replay
+     * control we actually own: Heimdal has agreed to cap replay at 2x nominal, and an
+     * agreement is a commitment rather than a control.
      */
     TOO_MANY_REQUESTS("too_many_requests", "Too many requests", 429),
     SERVICE_UNAVAILABLE("service_unavailable", "Service unavailable", 503);

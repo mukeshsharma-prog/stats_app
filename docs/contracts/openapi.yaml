@@ -2,27 +2,25 @@
 #
 # Status:  DRAFT — FOR ZC CONFIRMATION
 # Owner:   Naman and Mukesh
-# Source:  docs/contracts/openapi-v1-design.md (design input)
-#          docs/source/Datahub_Core_StatsApp_ARD_v1_1.pdf §8 (endpoints, query rules)
-#          docs/requirements/SRS-v1.2-amendment.md STA-30A…STA-38A
-#          ADR-006 (tenant isolation and API security) — ACCEPTED
+# Source:  docs/requirements/SRS-v1.2-amendment.md STA-30A…STA-38A
+#          docs/ARCHITECTURE.md (tenant isolation and API security)
 #
-# Why this file exists: answered conflict C2. ZC's position was "please create an
+# Why this file exists: ZC's position was "please create an
 # OpenAPI definition and we will confirm/decline it", so writing this is our action,
-# not a wait on them (CLAUDE.md §7). It was meant to gate Phase 4; on 26 Sep 2026 the
-# controllers were built against this draft ahead of confirmation, by decision (DL-162).
+# not a wait on them. It was meant to gate Phase 4; on 26 Sep 2026 the
+# controllers were built against this draft ahead of confirmation, by decision.
 # A change ZC asks for is now rework in stats-api as well as here — that is the accepted
 # risk, not a reason to treat this file as frozen.
 #
 # SCOPE: the read-only Stats API only. The Heimdal inbound POST contract is a
 # different audience, a different auth mode and a different release cadence; it
-# lives in docs/contracts/heimdal-input-contract-v1.md and, since DL-145, in its
+# lives in docs/contracts/heimdal-input-contract-v1.md and in its
 # OpenAPI twin docs/contracts/openapi-input.yaml — which $refs the schemas below
 # rather than restating them. It is NOT in this file; the two are rendered onto one
 # reviewable page by docs/contracts/build-html.sh.
-# The /actuator/** endpoints are platform-only (ARD v1.1 §8.1) and are deliberately
+# The /actuator/** endpoints are platform-only and are deliberately
 # absent from a consumer-facing contract. There is no /v1/openapi discovery route:
-# Q1a answered that no internal reference repo exists, so there is no platform
+# there is no internal reference repo, so there is no platform
 # convention to follow, and inventing one is not our call.
 #
 # SCHEMA DRIFT GATE. The per-type `data` schemas below are inlined
@@ -46,34 +44,34 @@ info:
     ## Principles
 
     - **GET only.** No POST, PUT, PATCH or DELETE exists on any `/v1/**` route,
-      ever. Non-GET methods return `405` with no side effect. (STA-32, STA-32A)
+      ever. Non-GET methods return `405` with no side effect.
     - **Tenant comes from the token, never from the caller.** There is no `tenant`
       query parameter, header or body field. The tenant is derived from the
       validated access token's claim and bound into every query, count and cursor
       — including single-record lookup by `uid`. A `tenant` value supplied by a
-      caller is ignored, never honoured. (STA-34A, STA-35A, ADR-006)
+      caller is ignored, never honoured.
     - **`maintenant` is not an isolation field.** It is stored and returned, and it
       is never filtered on. On every tenant but one `tenant` and `maintenant` hold
       the same value — the platform sets both on a tenant move — so an
       implementation that filters on the wrong one passes every test written from
       real data and leaks in production. The one exception is minol, where roughly
-      one live record in ten carries `tenant: minol-gateway` with `maintenant: minol`
-      (DL-146); a filter on `maintenant` there would drop those rows, which is a
+      one live record in ten carries `tenant: minol-gateway` with `maintenant: minol`;
+      a filter on `maintenant` there would drop those rows, which is a
       *different* wrong answer, not a safe one. (CLAUDE.md §6 — the highest-risk
       item in the project)
     - **Timestamps are Unix epoch SECONDS**, on the wire and in every filter. Not
       milliseconds, not RFC 3339. This matches what Heimdal sends and what
       retention keys on, so a value never changes meaning between ingest and read.
-      A 13-digit value is a millisecond timestamp and is rejected. (ARD v1.1 §8.2)
+      A 13-digit value is a millisecond timestamp and is rejected.
     - **Ordering is fixed and deterministic**: `ts.device DESC, uid DESC`, always,
       not only when a caller asks. There is no `sort` parameter. Without a unique
       tie-breaker a paginated query can return the same row on two pages or skip
-      one entirely. (STA-36A)
-    - **Pagination is keyset, never offset.** (ARD v1.1 AD-14)
+      one entirely.
+    - **Pagination is keyset, never offset.**
     - **Three ways in, one tenant predicate.** A tenant-wide list
       (`/stats/{type}?from&to`), a device-scoped range
       (`/stats/{type}/{clsbox}/{from}` and `/stats/{type}/{clsbox}/{from}/{to}`,
-      added 21 Sep 2026 — DL-151), and a single record by `uid`
+      added 21 Sep 2026), and a single record by `uid`
       (`/stats/{type}/{uid}`). All three carry the token's tenant into the query;
       none accepts it from the caller. The device-scoped paths and the `uid` path
       are told apart by segment count, never by inspecting the value.
@@ -82,7 +80,7 @@ info:
 
     Both `from` and `to` filter on **`ts.device`** — the timestamp the gateway
     reported, not the timestamp Heimdal handled it. Retention keys on the
-    same field and defaults to **90 days** (configurable, STA-23A). Two consequences
+    same field and defaults to **90 days** (configurable). Two consequences
     a consumer must plan for:
 
     - A time range older than the retention window is syntactically valid and
@@ -96,8 +94,8 @@ info:
 
     **This contract is a draft pending confirmation.** Items still open are marked
     `PROVISIONAL` in the descriptions below: the maximum query window, and ZC's
-    confirmation of the Keycloak issuer, audience, role name and tenant claim
-    (Q8b-2 — ADR-006 itself is ACCEPTED). The security values are fail-closed
+    confirmation of the Keycloak issuer, audience, role name and tenant claim.
+    The security values are fail-closed
     configuration with no defaults in code, so confirming them is a configuration
     change and not a code change.
   contact:
@@ -115,7 +113,7 @@ servers:
       basePath:
         default: v1
         description: |
-          API version segment. STA-38A: a breaking change requires a new version
+          API version segment. A breaking change requires a new version
           segment or an approved migration — never a redefinition of this one.
   - url: http://localhost:8083/v1
     description: Local development stack (docker/docker-compose.yml).
@@ -146,7 +144,7 @@ paths:
         the only operation subject to `query_window_exceeded`; a single gateway's
         history is read through `/stats/{type}/{clsbox}/{from}[/{to}]`, which the
         covering index bounds by construction. There is no `clsbox` query parameter
-        here — one query, one spelling (DL-151).
+        here — one query, one spelling.
 
         **Continuation.** Follow `nextCursor` to fetch the next page, resending
         `from` and `to` unchanged. The cursor carries the filters it was
@@ -154,7 +152,7 @@ paths:
         than silently returning a page from a different query. A `null` or absent
         `nextCursor` means the last page has been reached.
 
-        Requires the read-only role. (STA-33A)
+        Requires the read-only role.
       parameters:
         - $ref: '#/components/parameters/From'
         - $ref: '#/components/parameters/To'
@@ -204,7 +202,7 @@ paths:
         every observable respect — status, body, headers, timing class — to a `uid`
         that does not exist at all. The response deliberately cannot be used to
         probe whether a record exists in another tenant. Cross-tenant lookup by
-        `uid` is a named release gate. (STA-35A, STA-35B, ADR-006)
+        `uid` is a named release gate.
 
         **Routing.** This path has three segments; the device-scoped reads have four
         or five. The two are never distinguished by looking at the value — a
@@ -247,8 +245,8 @@ paths:
         Returns a keyset-paginated page of records of `{type}` reported by the gateway
         `{clsbox}` with `ts.device >= {from}`, belonging to the tenant in the caller's
         token, ordered `ts.device DESC, uid DESC`. Added 21 Sep 2026 at management's
-        request (DL-151): *"a GET call with MAC address and timestamp — from to now"*.
-        `{clsbox}` **is** the MAC address; the wire name is kept (ADR-007 §1).
+        request: *"a GET call with MAC address and timestamp — from to now"*.
+        `{clsbox}` **is** the MAC address; the wire name is kept.
 
         **"Until now" means open-ended, not `to = now`.** There is deliberately no
         upper bound. Input accepts a `ts.device` up to `max-clock-skew` (5 min) ahead
@@ -260,7 +258,7 @@ paths:
         **Tenant scope is unchanged.** The tenant predicate is the token's, exactly as
         on the list. A `{clsbox}` that reports under another tenant — or does not
         exist — returns an empty `items` array and `200`, never `404`: the response
-        must not disclose whether another tenant's gateway exists. (STA-35A, ADR-006)
+        must not disclose whether another tenant's gateway exists.
 
         **No window limit.** `(tenant, clsbox, ts_device DESC, uid DESC)` is the
         covering index, so the scan is proportional to the result and the page size
@@ -271,7 +269,7 @@ paths:
         binds `{type}`, `{clsbox}`, `{from}` and the tenant; presenting it on a
         different path is `400 invalid_cursor`.
 
-        Requires the read-only role. (STA-33A)
+        Requires the read-only role.
       parameters:
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
@@ -315,7 +313,7 @@ paths:
       description: |
         The bounded form of `/stats/{type}/{clsbox}/{from}`: records of `{type}`
         reported by `{clsbox}` with `{from} <= ts.device < {to}`, belonging to the
-        tenant in the caller's token, ordered `ts.device DESC, uid DESC` (DL-151).
+        tenant in the caller's token, ordered `ts.device DESC, uid DESC`.
 
         `[from, to)` — inclusive lower bound, exclusive upper bound — exactly as on
         the tenant-wide list, so a consumer can walk consecutive windows without
@@ -325,7 +323,7 @@ paths:
         Tenant scope, the empty-page rule, the absence of a window limit and cursor
         binding are as for the open-ended form; the cursor additionally binds `{to}`.
 
-        Requires the read-only role. (STA-33A)
+        Requires the read-only role.
       parameters:
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
@@ -367,7 +365,7 @@ components:
       description: |
         Keycloak-issued OAuth2 / OIDC access token, validated as a resource server.
 
-        `PROVISIONAL — Q8b-2.` ADR-006 is **ACCEPTED**; the isolation decisions are
+        `PROVISIONAL.` The isolation decisions are
         settled and buildable. What is provisional is only ZC's confirmation of the
         names below, which are live in the development realm
         (`docs/setup/keycloak-realm-statsapp.json`):
@@ -401,7 +399,7 @@ components:
         reaches a table name.
 
         Adding a type is an additive change: a new value here never alters the
-        handling of an existing one. (STA-14, STA-14A, STA-22)
+        handling of an existing one.
       schema:
         $ref: '#/components/schemas/StatType'
       example: lorastats
@@ -451,13 +449,13 @@ components:
       required: true
       description: |
         The reporting gateway — its MAC address, 12 hexadecimal characters, matched
-        case-insensitively. This is `clsbox` on the wire, in the column and here
-        (ADR-007 §1); "MAC" is what it is, `clsbox` is what it is called. There is
+        case-insensitively. This is `clsbox` on the wire, in the column and here;
+        "MAC" is what it is, `clsbox` is what it is called. There is
         no prefix or wildcard form.
 
         Case-insensitivity is delivered by normalisation, not by the predicate:
         `clsbox` is stored uppercase (the Writer uppercases it, and a CHECK
-        constraint enforces it — DL-115), so the filter is `clsbox = upper(:clsbox)`
+        constraint enforces it), so the filter is `clsbox = upper(:clsbox)`
         and still uses the covering index `(tenant, clsbox, ts_device DESC, uid DESC)`.
         A predicate of the form `upper(clsbox) = ...` would not, and would seq-scan
         every live partition. A value that is not 12 hex characters is
@@ -556,7 +554,7 @@ components:
         A token that authenticates but carries **no usable tenant claim** is a
         different case and returns **403**, not 401: the caller proved who they are
         and has no tenant to be scoped to. An absent claim and an empty claim both
-        fail closed there, and neither is ever read as "all tenants". (ADR-006)
+        fail closed there, and neither is ever read as "all tenants".
       headers:
         WWW-Authenticate:
           description: Bearer challenge, per RFC 6750.
@@ -573,7 +571,7 @@ components:
     Forbidden:
       description: |
         The token is valid but the caller lacks the read-only role, **or carries no
-        usable `tenant` claim** — absent and empty both fail closed here (ADR-006).
+        usable `tenant` claim** — absent and empty both fail closed here.
 
         `403` means "you are authenticated and not permitted to use this operation".
         It never means "that data belongs to someone else" — a cross-tenant read is
@@ -602,7 +600,7 @@ components:
     MethodNotAllowed:
       description: |
         A non-GET method was used. The API is read-only and this response carries
-        **no side effect** of any kind. (STA-32, STA-32A)
+        **no side effect** of any kind.
       headers:
         Allow:
           description: Always `GET`.
@@ -670,24 +668,24 @@ components:
       description: |
         The production `ts` block. `server`, `device`, `datastore` and `converter`
         are Unix seconds; `expiresOn` is an ISO-8601 instant, as a string or as
-        Extended-JSON `{"$date": …}` (DL-146). Heimdal may also add `deviceOrig` —
+        Extended-JSON `{"$date": …}`. Heimdal may also add `deviceOrig` —
         the clock the gateway sent before Heimdal corrected `device` — and a
         top-level `meta.tsDeviceCorrected`; both are preserved. The Stats App performs
         **no timestamp normalisation** — Heimdal already sends the canonical
-        `ts.server` (ADR-004, ACCEPTED, amended 29 Aug 2026).
+        `ts.server`.
 
         `converter`, `datastore` and `expiresOn` are stored and returned verbatim
         and are never read. Until 29 Aug 2026 this schema declared a record carrying
         `ts.converter` invalid; production sends it on 100% of records, so that rule
-        rejected everything Heimdal sends and was removed (ADR-007 §2).
+        rejected everything Heimdal sends and was removed.
       required: [server, device]
       properties:
         server:
           allOf:
             - $ref: '#/components/schemas/UnixSeconds'
           description: |
-            When Heimdal processed the record — **the canonical arrival clock**
-            (ADR-007 §3). This is what the SRS called `ts.processor`. Clock skew is
+            When Heimdal processed the record — **the canonical arrival clock**.
+            This is what the SRS called `ts.processor`. Clock skew is
             measured against it.
         device:
           allOf:
@@ -715,7 +713,7 @@ components:
           description: |
             Present when Heimdal has rewritten `device` to equal `server`: the clock the
             gateway actually sent (`meta.tsDeviceCorrected` is set on the same record).
-            Preserved and returned, never read (DL-146, Q15f).
+            Preserved and returned, never read.
         expiresOn:
           oneOf:
             - type: string
@@ -727,11 +725,11 @@ components:
           description: |
             The legacy Mongo TTL key, an ISO-8601 instant equal to `device`. Preserved
             and returned, never read — Stats App retention is a partition
-            detach-and-drop keyed on `ts_device` (ADR-003 D1), not a TTL. Deliberately
+            detach-and-drop keyed on `ts_device`, not a TTL. Deliberately
             never a Unix-seconds integer. Accepted and returned in either of the two
             forms seen: the plain string of the 29 Aug 2026 sample, or MongoDB Extended
             JSON `{"$date": "<ISO-8601>"}` as the live datastore returns it. Which one
-            the HTTP forward emits is open (Q15e, DL-146); the value is stored verbatim
+            the HTTP forward emits is open; the value is stored verbatim
             in whichever form it arrived.
       additionalProperties: true
 
@@ -750,9 +748,9 @@ components:
           description: |
             The record's unique identifier, supplied by Heimdal — never generated by
             the database. Unique per `(ts_device, uid)`, which is what makes a
-            redelivered message a no-op rather than a duplicate row. (STA-21B)
+            redelivered message a no-op rather than a duplicate row.
             At most 128 characters with at least one non-whitespace character, on
-            ingest as on read (DL-168).
+            ingest as on read.
         tenant:
           type: string
           minLength: 1
@@ -777,11 +775,11 @@ components:
           description: |
             The reporting device identifier, 12 hexadecimal characters. Named
             `clsbox` on the wire, in the database column, and here — the SRS called
-            it `gateway`, a name no production record has ever used (ADR-007 §1).
+            it `gateway`, a name no production record has ever used.
 
             **Always returned uppercase**, whatever case the record arrived in. The
             wire accepts either (`^[0-9A-Fa-f]{12}$`) so a lowercase record is never
-            rejected, but one device must not become two index keys (DL-115). The
+            rejected, but one device must not become two index keys. The
             pattern here stays permissive so a client that echoes this value back
             into the `clsbox` filter cannot be broken by the normalisation.
         type:
@@ -793,7 +791,7 @@ components:
           description: |
             Heimdal's record version, stored and returned as received. **Not a payload
             discriminator** — all three mutually incompatible lorastats payload
-            dialects observed in production carry `version: 1` (ADR-007 §4). Never
+            dialects observed in production carry `version: 1`. Never
             branch on it.
         ts:
           $ref: '#/components/schemas/Timestamps'
@@ -822,7 +820,7 @@ components:
           description: |
             Heimdal annotations about the record, e.g. `{"tsDeviceCorrected": true}`
             when `ts.device` was rewritten upstream. Stored and returned verbatim,
-            never read (DL-146).
+            never read.
       additionalProperties: true
 
     StatRecord:
@@ -877,7 +875,7 @@ components:
     # circulated on its own. The drift gate described in the file header checks
     # these projections against the validation catalogue on every CI run.
     #
-    # `additionalProperties: true` on every `data` object is deliberate (D14):
+    # `additionalProperties: true` on every `data` object is deliberate:
     # unknown members inside `data` are accepted at ingest, preserved, and returned
     # here unchanged. Envelope fields do not get that latitude.
 
@@ -904,13 +902,13 @@ components:
         nothing on the record discriminates them — detection is structural, and
         `version` is never the discriminator.
 
-        **All three are accepted and normalised to this one shape** (DL-105, 4 Sep
-        2026, reversing ADR-007 §4), so a reader of this API never sees a dialect.
+        **All three are accepted and normalised to this one shape** (decided 4 Sep
+        2026), so a reader of this API never sees a dialect.
         The enumeration is closed at three; an unknown fourth is dead-lettered rather
         than guessed at. String counters are range-checked against the signed 64-bit
         maximum before conversion and dead-letter on overflow.
 
-        Ingestion of all three dialects is **built** (T-063, 8 Sep 2026, DL-127):
+        Ingestion of all three dialects is **built** (8 Sep 2026):
         the Writer detects the dialect structurally and normalises it into these
         columns, so the dialect a record arrived in is not queryable and not
         returned. It is carried as the metric label
@@ -952,12 +950,12 @@ components:
     LtestatsData:
       description: |
         LTE modem signal and network identity — **one of two closed shapes**
-        (DL-146, 18 Sep 2026). A modem reports either a measurement
+        (18 Sep 2026). A modem reports either a measurement
         (`LtestatsMeasured`) or the reason it has none (`LtestatsUnknownTechnology`).
         Live data on 18 Sep 2026 showed both, and the earlier single-shape schema
         dead-lettered every 2G fallback and every modem that never registered — the
         records ops most needs. A record matching neither shape, or carrying `etxt`
-        next to a partial measurement, is dead-lettered by the Writer (ADR-007 §5).
+        next to a partial measurement, is dead-lettered by the Writer.
       oneOf:
         - $ref: '#/components/schemas/LtestatsMeasured'
         - $ref: '#/components/schemas/LtestatsUnknownTechnology'
@@ -967,8 +965,7 @@ components:
       type: object
       description: |
         `imsi` is a subscriber identifier and is classified sensitive operational
-        data (ARD v1.1 §9). **It is returned MASKED on every route** (D-12 P3,
-        DL-167): the carrier prefix — the record's `plmn` when the IMSI starts with
+        data. **It is returned MASKED on every route** (decided 12 Oct 2026): the carrier prefix — the record's `plmn` when the IMSI starts with
         it, otherwise the first five digits — and, when at least eight subscriber
         digits follow, the last four stay visible; every other digit is `*`, so the
         length is preserved. The raw value is stored and never returned. `lac` and
@@ -977,10 +974,10 @@ components:
         drift gate holds it to exactly this difference.
         **Every numeric here is a STRING**, and the technology field carries a
         capital T: `access_Technology`. Both were corrected against production on
-        29 Aug 2026 (ADR-007) — the previous integer/lowercase declaration came from
+        29 Aug 2026 — the previous integer/lowercase declaration came from
         the SRS and each mistake alone dead-lettered 100% of ltestats traffic.
         `rsrp` and `rsrq` are **optional**: they are LTE reference-signal
-        measurements and a modem on 2G reports neither (DL-146).
+        measurements and a modem on 2G reports neither.
       required: [rssi, access_Technology, operator, plmn, imsi, lac, cid]
       not:
         required: [etxt]
@@ -993,7 +990,7 @@ components:
         access_Technology: { type: string, minLength: 1, description: 'Note the capital T. Production spelling; the lowercase form has never appeared on the wire. Observed values: "4G", "2G".' }
         operator: { type: string, minLength: 1 }
         plmn: { type: string, pattern: '^[0-9]{5,6}$', description: 'Public land mobile network code, as a string.' }
-        imsi: { type: string, pattern: '^[0-9]{0,6}\*+[0-9]{0,4}$', minLength: 1, maxLength: 20, description: 'SENSITIVE — always masked, e.g. "26201******7890" (D-12 P3, DL-167). Ingest accepts digits only; the read never returns them all.' }
+        imsi: { type: string, pattern: '^[0-9]{0,6}\*+[0-9]{0,4}$', minLength: 1, maxLength: 20, description: 'SENSITIVE — always masked, e.g. "26201******7890". Ingest accepts digits only; the read never returns them all.' }
         lac: { type: string, pattern: '^[0-9A-Fa-f]{1,16}$', description: 'Location area code, hexadecimal, as reported.' }
         cid: { type: string, pattern: '^[0-9A-Fa-f]{1,16}$', description: 'Cell identifier, hexadecimal, as reported.' }
         timespan: { type: string, pattern: '^(0|[1-9][0-9]{0,18})$', description: 'Reporting window in seconds, as a string. Optional — production omits it on some records.' }
@@ -1006,7 +1003,7 @@ components:
         A modem that never registered on any network: `{"etxt": "unknown technology"}`
         and no measurement at all. Closed (`additionalProperties: false`) so that
         `etxt` beside a partial measurement matches neither shape and is dead-lettered
-        — half a measurement is not a known shape (DL-146).
+        — half a measurement is not a known shape.
       required: [etxt]
       properties:
         etxt: { type: string, minLength: 1, description: 'Free-text reason the modem produced no measurement. Observed value: "unknown technology".' }
@@ -1030,7 +1027,7 @@ components:
         The five optional members below are real production fields that went
         unmodelled until 29 Aug 2026. They are optional because a gateway legitimately
         omits them — that is a device state, not a dialect disagreement, so it is
-        accommodated rather than dead-lettered (ADR-007 §5).
+        accommodated rather than dead-lettered.
       required: [memfree, uptime, idletime, load1, load5, load15, runable]
       properties:
         memfree: { type: integer, format: int64, description: 'Free memory, kilobytes.' }
@@ -1069,8 +1066,7 @@ components:
           description: |
             **Optional, and a STRING here** (`"300"`) where `lorastats`, `omsstats` and
             `netstats` send the same concept as an integer (`1800`, `3600`). The wire
-            encoding differs per type; do not assume one column type across types
-            (ADR-007 §5).
+            encoding differs per type; do not assume one column type across types.
       additionalProperties: true
 
     OmsstatsRecord:
@@ -1087,7 +1083,7 @@ components:
       type: object
       description: |
         OMS reception counters over a reporting window. No timestamp normalisation
-        is applied to this or any other type (ADR-004).
+        is applied to this or any other type.
       required: [rx_nr_pkts, rx_valid_nr_pkts, rx_crc_bad, device_count, timespan]
       properties:
         rx_nr_pkts: { type: integer, format: int64 }
@@ -1115,7 +1111,7 @@ components:
 
         `eth0` and `wwan` are mandatory. **Any other interface name is accepted**
         and validated against the same shape, so a gateway reporting a new interface
-        never requires a schema change (Q4a, STA-14A).
+        never requires a schema change.
 
         Interface names are matched against
         `^(?!timespan$)[A-Za-z][A-Za-z0-9_.:-]{0,14}$`. OpenAPI's
@@ -1147,7 +1143,7 @@ components:
         interface that had not come up — production sends a `wwan` with
         `need_init: "qmi"`, a `fail_count`, and no address at all. A modem that is
         down is a legitimate device state and precisely the record ops most needs
-        to see (ADR-007 §5). Strictness is kept where it earns its place: an
+        to see. Strictness is kept where it earns its place: an
         address that IS present must still be a well-formed IPv4.
       required: [tx, rx]
       properties:
@@ -1203,7 +1199,7 @@ components:
       type: string
       pattern: '^((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])$'
       description: |
-        Dotted-quad IPv4 address. `PROVISIONAL — Q4b open`: no gateway is known to
+        Dotted-quad IPv4 address. `PROVISIONAL — IPv6 support is an open question`: no gateway is known to
         report IPv6 and V1 does not accept it. If ZC confirms IPv6 anywhere in the
         estate, this one definition widens and nothing else changes.
       examples: ['192.168.178.10']
@@ -1247,7 +1243,7 @@ components:
             machine-readable code — the `FieldError.code` spelling exactly, underscores
             and all (`…/errors/invalid_time_range`), as the inbound contract already
             ships; match on this, never on `title` or `detail`. (The examples used a
-            hyphenated spelling until 26 Sep 2026; corrected with the build, DL-162.)
+            hyphenated spelling until 26 Sep 2026; corrected with the build.)
         title:
           type: string
           description: Short human-readable summary. Stable for a given `type`.
@@ -1298,7 +1294,7 @@ components:
             | `query_window_exceeded` | 400 | `to - from` exceeds the permitted window on the tenant-wide list. Device-scoped reads are not subject to it. |
             | `invalid_cursor` | 400 | Cursor is malformed, expired, tampered with, or issued for different filters. |
             | `unauthorized` | 401 | Missing, malformed, expired, wrongly issued or wrongly audienced token. |
-            | `forbidden` | 403 | Authenticated, but lacks the read-only role **or has no usable `tenant` claim** — absent and empty both fail closed here (ADR-006). |
+            | `forbidden` | 403 | Authenticated, but lacks the read-only role **or has no usable `tenant` claim** — absent and empty both fail closed here. |
             | `record_not_found` | 404 | No such `uid` **in the caller's tenant**. |
             | `method_not_allowed` | 405 | Non-GET method on a read-only API. |
             | `service_unavailable` | 503 | A dependency is unavailable; the read is safe to retry. |
@@ -1318,7 +1314,7 @@ components:
   # highest-risk trap in the project into every generated client.
   #
   # The lorastats data blocks are POST-NORMALISATION. The wire carries three
-  # dialects; the Writer collapses them into one shape before the INSERT (DL-127),
+  # dialects; the Writer collapses them into one shape before the INSERT,
   # so a prefixed name or a quoted counter in a response example would describe a
   # response this API cannot produce.
 
@@ -1382,7 +1378,7 @@ components:
         2026 — one per dialect — as this API returns them.** On the wire the first
         had every counter quoted (`"rx_nr_pkts": "176"`) and the second was
         `lora_`-prefixed (`lora_rx_nr_pkts: 220`). The Writer normalises both into
-        the bare integer members below before the `INSERT` (DL-127), so **no
+        the bare integer members below before the `INSERT`, so **no
         prefixed name and no quoted counter can appear in a response**, and the
         dialect a record arrived in is neither queryable nor returned. It is carried
         as `records_lorastats_dialect{dialect}`.
@@ -1534,7 +1530,7 @@ components:
         `PROVISIONAL — pending consumer confirmation and load testing.` The
         current limit on the tenant-wide list is **1 hour**. Narrow the range, or
         read one gateway through `/stats/{type}/{clsbox}/{from}[/{to}]`, which has no
-        window limit (DL-151).
+        window limit.
       value:
         type: https://stats.example/errors/query_window_exceeded
         title: Query window exceeded

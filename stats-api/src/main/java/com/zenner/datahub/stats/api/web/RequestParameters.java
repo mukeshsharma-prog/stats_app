@@ -11,7 +11,7 @@ import java.util.regex.Pattern;
 
 /**
  * Parses the read API's path and query values into typed values, collecting every
- * malformed one before answering (T-040, T-044; openapi.yaml {@code parameters}).
+ * malformed one before answering (openapi.yaml {@code parameters}).
  *
  * <p>Values are taken as strings and parsed here, not bound by Spring, so that every
  * malformed value is the contract's {@code invalid_parameter} naming the field — never a
@@ -20,7 +20,7 @@ import java.util.regex.Pattern;
  * <p><strong>Seconds, bounded.</strong> A timestamp is Unix epoch <em>seconds</em>
  * between 2000-01-01 and 2100-01-01. A 13-digit millisecond value is outside that and is
  * {@code invalid_parameter}, never reinterpreted: read as seconds it is a date some
- * 53,000 years out that no query returns (CLAUDE.md §6).</p>
+ * 53,000 years out that no query returns.</p>
  */
 public final class RequestParameters {
 
@@ -98,7 +98,7 @@ public final class RequestParameters {
 
     /**
      * {@code clsbox}: 12 hex characters in either case, returned in the stored canonical
-     * uppercase (DL-115) so the same gateway asked for in either case is one walk.
+     * uppercase so the same gateway asked for in either case is one walk.
      */
     public String clsbox(String raw) {
         if (raw == null || !CLSBOX.matcher(raw).matches()) {

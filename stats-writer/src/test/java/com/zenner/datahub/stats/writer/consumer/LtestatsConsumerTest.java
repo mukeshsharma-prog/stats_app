@@ -90,7 +90,7 @@ class LtestatsConsumerTest {
 
         // Never ACKed — the onward copy may not exist. And not left unacknowledged on the
         // open channel either: in MANUAL mode the container never returns it, so it was
-        // not redelivered at all and held a prefetch slot for good (DL-168). The router
+        // not redelivered at all and held a prefetch slot for good. The router
         // returns it to its queue after a pause.
         InOrder order = inOrder(router);
         order.verify(router).route(StatType.LTESTATS, message, failure);
@@ -119,7 +119,7 @@ class LtestatsConsumerTest {
         assertAttemptMetered();
     }
 
-    /** T-050: the age is sampled at entry under THIS type's label. */
+    /** The age is sampled at entry under THIS type's label. */
     @Test
     void samplesTheDeliverysAgeUnderItsOwnType() throws Exception {
         Message message = delivery(7L);

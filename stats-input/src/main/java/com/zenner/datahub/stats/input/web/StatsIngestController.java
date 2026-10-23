@@ -26,30 +26,30 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * The Heimdal ingest endpoint (STA-01A, STA-03A, STA-03B; T-013).
+ * The Heimdal ingest endpoint.
  *
  * <p>Three steps, in this order, and the order is load-bearing:</p>
  *
  * <ol>
  *   <li><strong>Envelope only</strong> — {@link EnvelopeGate}. A failure is a 400 and
- *       nothing is published (rule 7). The per-type payload is deliberately not
+ *       nothing is published. The per-type payload is deliberately not
  *       checked here; that gate belongs to the Writer, where a failure is a
- *       redrivable dead-letter (ADR-007 §5).</li>
- *   <li><strong>Clock skew</strong> — Q14a. Cross-field, so it cannot live in the
+ *       redrivable dead-letter.</li>
+ *   <li><strong>Clock skew</strong> — cross-field, so it cannot live in the
  *       schema.</li>
  *   <li><strong>Publish, then confirm</strong> — the response is a 2xx only after the
- *       broker confirms (STA-04A, rule 8). Anything else is 503, because Heimdal
+ *       broker confirms. Anything else is 503, because Heimdal
  *       owns retry and only retries on a non-2xx.</li>
  * </ol>
  *
  * <p>The body is taken as {@code byte[]} rather than bound to a typed record, so the
- * bytes published are exactly the bytes received (ADR-004, T-016). Binding would
+ * bytes published are exactly the bytes received. Binding would
  * round-trip through Jackson and quietly re-encode the record.</p>
  *
  * <p>Non-POST methods on either path return 405 from Spring's own handler mapping, with
  * no side effect.</p>
  *
- * <p><strong>Two paths, one handler (DL-151).</strong> The internal door is Heimdal's,
+ * <p><strong>Two paths, one handler.</strong> The internal door is Heimdal's,
  * the external door is everyone else's, and the method below is bound to both on
  * purpose: the rules are identical, so a second handler would be a second copy of the
  * same three steps waiting to drift. The door is resolved once, by
@@ -107,8 +107,8 @@ public class StatsIngestController {
 
         if (result instanceof GateResult.Rejected rejected) {
             switch (rejected.reason()) {
-                // A sending clock ahead of real time is a clock fault like Q14a's, so it
-                // shares that counter; the field code tells the two apart (DL-168).
+                // A sending clock ahead of real time is a clock fault like device skew, so it
+                // shares that counter; the field code tells the two apart.
                 case CLOCK_SKEW_EXCEEDED, SERVER_CLOCK_AHEAD ->
                         metrics.clockSkewRejected(rejected.statType(), source);
                 case MALFORMED_JSON, INVALID_ENVELOPE, UNSTORABLE_CHARACTER ->
@@ -120,8 +120,8 @@ public class StatsIngestController {
         GateResult.Accepted accepted = (GateResult.Accepted) result;
         StatType statType = accepted.statType();
 
-        // ADR-007 §2: ts.converter is accepted, preserved, never read — and metered,
-        // so we can see the day Heimdal stops sending it (T-059).
+        // ts.converter is accepted, preserved, never read — and metered,
+        // so we can see the day Heimdal stops sending it.
         if (accepted.converterTimestampPresent()) {
             metrics.converterTimestampPresent(statType, source);
         }
@@ -134,7 +134,7 @@ public class StatsIngestController {
                     .addKeyValue("event", "publish_failed")
                     .log(
                             "Record passed validation but was not publisher-confirmed; answering "
-                                    + "503 so Heimdal retries (STA-04A, STA-06A)");
+                                    + "503 so Heimdal retries");
             return problem(
                     ProblemDetails.of(
                             ErrorCode.SERVICE_UNAVAILABLE,
@@ -145,7 +145,7 @@ public class StatsIngestController {
         }
 
         metrics.accepted(statType, source);
-        // T-050 / DL-147: metered on acceptance so a 503-then-resend counts once.
+        // Metered on acceptance so a 503-then-resend counts once.
         metrics.tsServerCycleOffset(statType, source, accepted.tsServer());
         if (accepted.tsDeviceCorrected()) {
             metrics.tsDeviceCorrected(statType, source);
@@ -153,7 +153,7 @@ public class StatsIngestController {
         log.atDebug()
                 .addKeyValue("event", "published")
                 .log("Record publisher-confirmed and accepted");
-        // DL-163: acknowledge the confirmed handoff, not the asynchronous Writer commit.
+        // Acknowledge the confirmed handoff, not the asynchronous Writer commit.
         return ResponseEntity.status(endpointProperties.successStatus())
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(new IngestAcknowledgement("accepted", IngestLogContext.traceId()));

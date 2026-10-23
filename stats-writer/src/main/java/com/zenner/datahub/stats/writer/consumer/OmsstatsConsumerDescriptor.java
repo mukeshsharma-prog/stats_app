@@ -3,8 +3,8 @@ package com.zenner.datahub.stats.writer.consumer;
 import com.zenner.datahub.stats.common.model.StatType;
 
 /**
- * The single type-specific identity point for the additive omsstats consumer artifact
- * (T-036, DL-153). A sibling of {@link SysstatsConsumerDescriptor} and
+ * The single type-specific identity point for the additive omsstats consumer artifact.
+ * A sibling of {@link SysstatsConsumerDescriptor} and
  * {@link LorastatsConsumerDescriptor}, never an edit to either.
  */
 public final class OmsstatsConsumerDescriptor {
@@ -20,7 +20,7 @@ public final class OmsstatsConsumerDescriptor {
 
     static final String PROPERTY_PREFIX = "stats.consumer." + WIRE_NAME;
 
-    /** The bean name of this type's {@code StatsBatchWriter}, spelled once (DL-153). */
+    /** The bean name of this type's {@code StatsBatchWriter}, spelled once. */
     public static final String BATCH_WRITER_BEAN = WIRE_NAME + "BatchWriter";
 
     private OmsstatsConsumerDescriptor() {

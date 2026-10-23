@@ -10,19 +10,19 @@ import java.util.List;
  * The common envelope shared by all five V1 statistic types.
  *
  * <p>Field names are the production wire format, re-derived from the 29 August 2026
- * sample and ratified as ADR-007. The device identifier is {@code clsbox}, not
+ * production sample. The device identifier is {@code clsbox}, not
  * {@code gateway} — the SRS name that no production record has ever used. There is
  * deliberately no rename layer: the same name is used on the wire, here, in the
  * PostgreSQL column, and in API responses, because a translation step sitting next
  * to {@code tenant}/{@code maintenant} is exactly where a field gets silently
- * swapped (claude/CLAUDE.md §6).</p>
+ * swapped.</p>
  *
- * <p>D14 is explicit: unknown envelope fields are accepted, while unknown fields
+ * <p>The unknown-field policy is explicit: unknown envelope fields are accepted, while unknown fields
  * inside {@code data} are preserved by its {@link JsonNode} representation. This
  * typed record is an application view; ingress validates and publishes the
  * original JSON byte-identically, so this view is not responsible for retaining
  * unknown top-level extensions — except {@code meta}, which Heimdal has been seen
- * to send ({@code {"tsDeviceCorrected": true}}, DL-146) and which the Writer keeps
+ * to send ({@code {"tsDeviceCorrected": true}}) and which the Writer keeps
  * in the passthrough column so that a stored record still says its device clock
  * was rewritten upstream.</p>
  */
@@ -38,7 +38,7 @@ public record StatsEnvelope(
         /**
          * Heimdal's record version. Accepted and stored, and <strong>never</strong> a
          * payload discriminator: all three mutually incompatible lorastats payload
-         * dialects observed in production carry {@code version: 1} (ADR-007 §4).
+         * dialects observed in production carry {@code version: 1}.
          */
         Integer version,
 
@@ -48,7 +48,7 @@ public record StatsEnvelope(
         /**
          * Heimdal annotations about the record itself, e.g.
          * {@code {"tsDeviceCorrected": true}}. Preserved verbatim and never read —
-         * upstream state, like {@link #status()} (DL-146).
+         * upstream state, like {@link #status()}.
          */
         JsonNode meta,
 

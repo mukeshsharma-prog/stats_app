@@ -15,13 +15,13 @@ import org.springframework.amqp.core.MessageProperties;
 import org.springframework.stereotype.Component;
 
 /**
- * The oldest-message age of each served main queue — the series T-050 alerts on, and the
- * one ADR-002 §12 and Q13a ask for in place of depth (DL-147).
+ * The oldest-message age of each served main queue — the series the queue-age alerts read,
+ * in place of depth.
  *
  * <h2>How it is measured</h2>
  *
  * <p>Input stamps the standard AMQP {@code timestamp} property on every message it
- * publishes (DL-147). {@code app_statsstore.<type>} is FIFO, so the delivery the Writer
+ * publishes. {@code app_statsstore.<type>} is FIFO, so the delivery the Writer
  * is about to process <em>was</em> the oldest ready message at the moment the broker
  * handed it over. Its age at listener entry — receive time minus publish time — is
  * therefore the oldest-message age of the queue, sampled once per delivery. When the
@@ -37,14 +37,14 @@ import org.springframework.stereotype.Component;
  * failure look like the Writer falling behind. The retry arm has its own counters
  * ({@code records_retried}, {@code records_write_failed}); this gauge answers only
  * "how long does a fresh record wait before the Writer takes it". A delivery with no
- * timestamp at all — published by something other than Input, or by an Input built
- * before DL-147 — is skipped rather than guessed at.</p>
+ * timestamp at all — published by something other than Input, or by an older Input
+ * — is skipped rather than guessed at.</p>
  *
  * <h2>The blind spot, and what covers it</h2>
  *
  * <p>A gauge sampled at delivery stops moving when deliveries stop. If the consumer is
  * absent or wedged while messages wait, the last observed age stays on the scrape and
- * reads as healthy. That is the same objection DL-137 raised against a polled
+ * reads as healthy. That is the same objection that applies to a polled
  * retention gauge, and it is not solved here by inventing a value: it is covered by two
  * companion rules in {@code ops/prometheus/writer-alerts.yml} that read what the poll
  * <em>does</em> know — {@code consumer_availability == 0} while depth is non-zero, and
@@ -52,12 +52,12 @@ import org.springframework.stereotype.Component;
  * three together; none of them is the alert on its own.</p>
  *
  * <p>Why not read the head message from the broker instead: passive queue inspection
- * (DL-137) reports counts, not messages, and the management API's
+ * reports counts, not messages, and the management API's
  * {@code head_message_timestamp} needs a management credential and an HTTP client in
- * the Writer, which DL-137 chose not to take on. The stamp at Input is the half of that
+ * the Writer, which it deliberately does not take on. The stamp at Input is the half of that
  * design that costs nothing and is needed either way; a broker-side reader can be added
  * later without changing what is published, and the DLQ would then get its age from the
- * same stamp (DL-144).</p>
+ * same stamp.</p>
  *
  * <p>The clamp at zero absorbs clock skew between the Input and Writer hosts: a message
  * "from the future" is a clock problem, not a negative backlog. AMQP timestamps are
@@ -80,8 +80,8 @@ public final class QueueAgeMetrics {
 
     /**
      * Registers the gauge for a served type so it exports from startup. NaN until the
-     * first observation — "not observed yet" and "empty" must not read the same, for the
-     * reason DL-137 gives.
+     * first observation — "not observed yet" and "empty" must not read the same, or a
+     * stalled sampler reads as an empty queue.
      */
     public void register(StatType type) {
         state(Objects.requireNonNull(type, "type"));
@@ -118,7 +118,7 @@ public final class QueueAgeMetrics {
         if (headers == null) {
             return false;
         }
-        // A redriven record carries the attempt header too (DL-138); the second check
+        // A redriven record carries the attempt header too; the second check
         // is belt to that braces, so a redrive can never read as a backlog.
         return headers.containsKey(FailedDeliveryRouter.ATTEMPT_HEADER)
                 || headers.containsKey(FailedDeliveryRouter.MANUAL_REDRIVE_HEADER);

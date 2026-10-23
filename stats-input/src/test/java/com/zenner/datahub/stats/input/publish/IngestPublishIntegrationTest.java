@@ -37,9 +37,9 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
 /**
- * The publish half of rule 8, against a real broker: T-014 (confirm before 2xx),
- * T-015 (an unroutable message is a failed acceptance) and T-016 (byte-identical
- * publication).
+ * The publish half of "2xx only after a publisher confirm", against a real broker:
+ * confirm before 2xx, an unroutable message is a failed acceptance, and byte-identical
+ * publication.
  *
  * <p>All three ride one context and one container because all three are the same
  * question asked three ways — <em>is a 200 from this endpoint true?</em></p>
@@ -70,7 +70,7 @@ class IngestPublishIntegrationTest {
 
     /**
      * Only {@code lorastats} gets a queue. The other four types stay deliberately
-     * unbound: that is not an incomplete fixture, it is the topology state T-015
+     * unbound: that is not an incomplete fixture, it is the topology state the unroutable check
      * exists for — a type deployed before its queue.
      */
     @BeforeEach
@@ -98,7 +98,7 @@ class IngestPublishIntegrationTest {
 
         Message published = receive();
         assertThat(published).isNotNull();
-        // Rule 10 / STA-13A: a durable queue holds a transient message exactly as long
+        // A durable queue holds a transient message exactly as long
         // as the broker process lives.
         assertThat(published.getMessageProperties().getReceivedDeliveryMode())
                 .isEqualTo(MessageDeliveryMode.PERSISTENT);
@@ -127,7 +127,7 @@ class IngestPublishIntegrationTest {
         // whole purpose is its byte layout has no business in a set that could
         // reasonably be reformatted.
         //
-        // ADR-004: this is what makes the Writer's ON CONFLICT (ts_device, uid) DO
+        // This is what makes the Writer's ON CONFLICT (ts_device, uid) DO
         // NOTHING correct — a redelivered record has to BE the same record.
         byte[] sent = fixture(ADVERSARIAL_FIXTURE);
 
@@ -143,7 +143,7 @@ class IngestPublishIntegrationTest {
     void unroutableRecordIsAnsweredWith503() throws Exception {
         // sysstats has no queue and no binding in this context. The broker will ACK the
         // publish and drop the message; without mandatory=true and this check, Input
-        // would answer 200 to a record that no longer exists anywhere (ADR-002 §9).
+        // would answer 200 to a record that no longer exists anywhere.
         double unroutableBefore = counter(IngestMetrics.UNROUTABLE, StatType.SYSSTATS);
         double failedBefore = counter(IngestMetrics.PUBLISH_FAILED, StatType.SYSSTATS);
 
@@ -162,16 +162,16 @@ class IngestPublishIntegrationTest {
     @Test
     @DisplayName("Input declares the exchange exactly as the Writer does, and declares no queues")
     void declaresTheExchangeAndNothingElse() {
-        // T-032, the stats-input half. The assertion implementation is shared with
+        // The declaration-conflict check, stats-input half. The assertion implementation is shared with
         // LorastatsTopologyDeclarationTest, so the two modules are checked against one
         // definition by one piece of code — a mismatch in either is a build failure
         // rather than a RESOURCE_LOCKED startup failure in whichever environment boots
-        // them in the wrong order (ADR-002 §8/§11).
+        // them in the wrong order.
         AmqpDeclarationAssert.assertMatches(statsInputExchange, AmqpTopology.inputExchange());
 
         // And no queues. Declaring them here would create undrained queues for types
         // whose Writer is not deployed, and would make the missing-binding case — the
-        // entire reason mandatory is set — unreachable (DL-118).
+        // entire reason mandatory is set — unreachable.
         assertThat(context.getBeansOfType(Queue.class)).isEmpty();
     }
 

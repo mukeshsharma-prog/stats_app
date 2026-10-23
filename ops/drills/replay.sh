@@ -1,22 +1,22 @@
 #!/usr/bin/env bash
-# T-049 — replay drill: 2,667/s of ALREADY-STORED records on top of live traffic (NFR-04;
-# ADR-005; Q13c / DL-109).
+# Replay drill: 2,667/s of ALREADY-STORED records on top of live traffic, at the replay
+# cap Heimdal has agreed.
 #
 # What it proves, and what it cannot. Heimdal agreed a 2× nominal replay cap (2,667/s) after
 # an outage, and we cannot enforce it. This drill proves OUR behaviour under a replay at that
 # cap: every replayed record is a duplicate by definition and ON CONFLICT (ts_device, uid)
 # DO NOTHING absorbs it, metered as records_duplicate_suppressed and never alerted on
-# (ADR-005 says so); nothing dead-letters; and no alert that was not already active fires.
-# It proves nothing about whether Heimdal honours the cap (DL-109).
+# (a replay spike is the system working); nothing dead-letters; and no alert that was not already active fires.
+# It proves nothing about whether Heimdal honours the cap.
 #
 # Three phases, one type (the replay corpus is one fixture):
 #   1  HISTORY  live rate for HISTORY_SECS, bodies saved byte for byte; wait for the queue
 #               to drain so every record is a row before anything replays it
 #   2  REPLAY   REPLAY_RATE/s of those same bodies (cycled) on top of LIVE_RATE/s of new
 #               unique records for REPLAY_SECS -- 4,000/s in total, which is the shipped
-#               per-instance rate limit (DL-121), so a few 429s are the limiter clipping at
+#               per-instance rate limit, so a few 429s are the limiter clipping at
 #               its own cap and are Heimdal's to retry; 503 is the confirm path saying no,
-#               which is the backpressure channel working, not an incident (DL-109)
+#               which is the backpressure channel working, not an incident
 #   3  DRAIN    wait for the queue to drain; then assert from the Writer's own counters
 #
 # Assertions (each printed PASS/FAIL; exit 1 on any FAIL):
@@ -27,7 +27,7 @@
 #      if reachable on :9090 -- the Compose `observability` profile); the oldest-message
 #      age the queue reached is reported against the 300 s warning threshold
 #
-# Usage: ops/drills/t049-replay.sh [http://host:port/internal/stats]
+# Usage: ops/drills/replay.sh [http://host:port/internal/stats]
 #   LIVE_RATE=1333 REPLAY_RATE=2667 HISTORY_SECS=30 REPLAY_SECS=60 override the shape.
 #   Records carry unique uids and fresh timestamps: run this against a database you are
 #   willing to fill (~1333 × HISTORY_SECS + 1333 × REPLAY_SECS rows).
@@ -41,7 +41,7 @@ REPLAY_RATE=${REPLAY_RATE:-2667}
 HISTORY_SECS=${HISTORY_SECS:-30}
 REPLAY_SECS=${REPLAY_SECS:-60}
 TYPE=${TYPE:-lorastats}
-OUT=${OUT:-/tmp/t049-$(date +%Y%m%d-%H%M%S)}
+OUT=${OUT:-/tmp/replay-$(date +%Y%m%d-%H%M%S)}
 mkdir -p "$OUT"
 hr() { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 fail=0
@@ -58,7 +58,7 @@ import json,sys
 try: d=json.load(sys.stdin)['data']['alerts']
 except Exception: sys.exit(0)
 for a in sorted(set((a['labels']['alertname'], a['labels'].get('type',''), a['state']) for a in d)): print('/'.join(a))"; }
-drain() { # wait for queue_depth == 0 (polled every 30 s by the Writer, DL-137); track the oldest age seen
+drain() { # wait for queue_depth == 0 (polled every 30 s by the Writer); track the oldest age seen
   local max=0 age depth t0=$SECONDS
   while :; do
     depth=$(queue_depth); age=$(oldest_age)
@@ -121,5 +121,5 @@ if [ "$PROM_OK" = 1 ]; then
 fi
 echo "  oldest-message age peaked at ${MAXAGE}s during the replay (StatsAppMainQueueAging warns at 300 s for 5 m)"
 echo
-[ "$fail" = 0 ] && echo "T-049: PASS. Results in $OUT" || echo "T-049: FAIL. Results in $OUT"
+[ "$fail" = 0 ] && echo "replay drill: PASS. Results in $OUT" || echo "replay drill: FAIL. Results in $OUT"
 exit $fail

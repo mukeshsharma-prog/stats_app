@@ -1,25 +1,24 @@
-# Replay drill — T-049
+# Replay drill
 
-**NFR-04 · ADR-005 (duplicate suppression, metered, never alerted) · Q13c / DL-109
-(2,667/s replay cap, agreed and unenforceable) · DL-121 (4,000 req/s per instance) ·
-DL-161**
+**Duplicate suppression is metered and never alerted · 2,667/s is the agreed (and
+unenforceable) replay cap · 4,000 req/s is the per-instance ingest limit**
 
 ## What is being rehearsed, and what cannot be
 
 After an outage Heimdal replays what it could not deliver. It agreed to do so at no more
-than **2× nominal — 2,667/s** — on top of the ~1,333/s steady state (Q13c), which holds
-total ingest at the shipped per-instance limit of 4,000/s. **We cannot enforce that cap**
-(DL-109): the agreement is a commitment, not a control. This drill therefore proves *our*
+than **2× nominal — 2,667/s** — on top of the ~1,333/s steady state, which holds
+total ingest at the shipped per-instance limit of 4,000/s. **We cannot enforce that cap**:
+the agreement is a commitment, not a control. This drill therefore proves *our*
 side of it and nothing about Heimdal's:
 
 * every replayed record is a duplicate by definition — same `uid`, same `ts.device` — and
   `ON CONFLICT (ts_device, uid) DO NOTHING` absorbs it, metered as
-  `records_duplicate_suppressed{type}` (STA-25A, ADR-005);
+  `records_duplicate_suppressed{type}`;
 * the counter spikes **by design and nothing alerts on it** — no rule in `ops/prometheus`
   reads it, and this drill asserts that no alert that was not already active fires;
 * nothing dead-letters, nothing fails to write, the DLQ does not move;
 * a 503 during a replay would be the confirm path saying no — the backpressure channel
-  working (rule 8, DL-118), not an incident — and a 429 would be the limiter clipping at
+  working, not an incident — and a 429 would be the limiter clipping at
   its own cap; both are Heimdal's to retry.
 
 **The replay must be the same bytes.** A replayed record that had its `uid` or `ts.*`
@@ -30,7 +29,7 @@ byte; `--replay` sends them again, cyclically, with no re-stamping.
 ## How to run
 
 ```bash
-ops/drills/t049-replay.sh [http://host:port/internal/stats]
+ops/drills/replay.sh [http://host:port/internal/stats]
 # shape: LIVE_RATE=1333 REPLAY_RATE=2667 HISTORY_SECS=30 REPLAY_SECS=60 (override in the environment)
 # needs: Input, the Writer's /actuator/prometheus on :8082; Prometheus on :9090 for assertion D
 ```
@@ -75,25 +74,25 @@ both generators on the same laptop. Absolutes are conservative; the shape is the
   against `StatsAppMainQueueAging`'s 300 s for 5 min — and it drained within **40 s** of
   the replay ending. The single Writer consumed at a peak one-minute rate of **3,137/s**
   on one type (2,092/s of it duplicates, 1,046/s inserts), above the ~2,000/s per type
-  the sizing assumed (Q13a); a duplicate costs one round trip to a suppressed `INSERT`,
+  the sizing assumed; a duplicate costs one round trip to a suppressed `INSERT`,
   not nothing.
 * **4,000/s in total is the shipped limit, and the limiter did not clip.** 240,000
   requests at exactly `max-requests-per-second`, zero 429s: the token bucket holds one
   second of burst and refills continuously, so a steady offered rate *at* the cap passes.
-  Above it (T-048 run B) it clips immediately. Nothing to tune; recorded so the next
+  Above it (burst-load run B) it clips immediately. Nothing to tune; recorded so the next
   reading of "4,000/s and no 429s" is not mistaken for a broken limiter.
 
-Results and the 40k-body corpus: `../t049-replay-22Sep2026/` beside the checkout (not
-committed — 70 MB of bodies).
+`replay.sh` writes its results and the replayed-body corpus to `/tmp/replay-<timestamp>/`
+(not committed — about 70 MB of bodies per run).
 
 ## What a real replay will look like on the dashboards
 
 * `records_duplicate_suppressed` on the Writer dashboard's *Consumed vs persisted* panel
   rises to the replay rate while *persisted* stays at the live rate. **That gap is the
-  replay, and it is healthy.** Do not alert on the duplicate counter (ADR-005) — the
+  replay, and it is healthy.** Do not alert on the duplicate counter — the
   drill is the proof that it spikes without meaning anything is wrong.
 * Queue depth and oldest-message age rise for as long as the replay outpaces the Writer
-  and fall back when it ends. The number to watch is the **age**, never the depth (Q13a):
+  and fall back when it ends. The number to watch is the **age**, never the depth:
   the 300 s warning is what says the Writer is not keeping up, and a 6-hour outage's
   28.8M records at 2,667/s is ~3 h of replay — long enough for that rule to mean it.
 * A 503 is the confirm path refusing, a 429 the limiter — both are Heimdal's to retry and
@@ -103,18 +102,18 @@ committed — 70 MB of bodies).
 ## The trap the drill cannot see
 
 A message that sat long enough before being replayed is `expired_on_arrival` the moment it
-returns, because its `ts.device` has aged past the retention window (DL-133). The drill
+returns, because its `ts.device` has aged past the retention window. The drill
 replays records minutes old; a replay after a multi-week outage replays records that the
-guard skips, meters and ACKs — correctly, and by design (D5b) — and `StatsAppLateArrival`
+guard skips, meters and ACKs — correctly, and by design — and `StatsAppLateArrival`
 fires on the hourly increase. That alert firing during such a replay is the policy
 working, not a defect; the runbook for it is `docs/runbooks/dlq-redrive.md`'s 90-day
 section, which describes the same trap from the redrive side.
 
 ## Not measured here
 
-* More than one Writer instance — D8's shape. One instance drained 4,000/s in with a 29 s
+* More than one Writer instance — the production shape. One instance drained 4,000/s in with a 29 s
   peak age; N instances share the queue and the counters sum.
 * A replay across all five types at once — the corpus is one fixture, one type, one queue.
-  Per-type queues mean the other four are untouched by a lorastats replay (rule 5); a
+  Per-type queues mean the other four are untouched by a lorastats replay; a
   replay of all five is five of these running together.
-* Whether Heimdal honours 2,667/s. It cannot be measured from here (DL-109).
+* Whether Heimdal honours 2,667/s. It cannot be measured from here.

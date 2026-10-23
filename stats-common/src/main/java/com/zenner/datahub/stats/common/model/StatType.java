@@ -42,7 +42,7 @@ public enum StatType {
             return type;
         }
         // Do not include the attacker-controlled literal in this exception. The
-        // ingress error mapper will turn this into safe Problem Details in T-003.
+        // ingress error mapper turns this into safe Problem Details.
         throw new IllegalArgumentException("Unknown stat type literal");
     }
 }

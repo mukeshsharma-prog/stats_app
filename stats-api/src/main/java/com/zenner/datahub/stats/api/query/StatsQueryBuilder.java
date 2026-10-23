@@ -9,18 +9,18 @@ import java.util.Objects;
 
 /**
  * Every SQL statement the read API runs, built in one place from constants and bound
- * parameters (T-040, T-041, T-067; STA-35A; ADR-006). Pure — no connection — so the
+ * parameters. Pure — no connection — so the
  * isolation suite asserts against the SQL that actually runs rather than against a
- * response body (T-028).
+ * response body.
  *
  * <p><strong>Rule 3, mechanically.</strong> Every statement's first predicate is
  * {@code tenant = ?}, and its first parameter is the caller's tenant from the token.
  * There is no statement without it: not the list, not the device paths, not the lookup by
  * {@code uid} — a {@code uid} is not isolation, and the key {@code (ts_device, uid)}
- * deliberately leaves {@code tenant} out (rule 13). {@code maintenant} is selected so it
+ * deliberately leaves {@code tenant} out. {@code maintenant} is selected so it
  * can be returned and appears in no predicate and no ordering: on every tenant but one it
- * equals {@code tenant}, so a filter on it passes every test written from real data
- * (DL-139); on minol it silently drops rows (DL-146).</p>
+ * equals {@code tenant}, so a filter on it passes every test written from real data;
+ * on minol it silently drops rows.</p>
  *
  * <p><strong>What never reaches the SQL text.</strong> Only the table name varies, and it
  * comes from a {@link StatReader} — a closed set — never from the request. Every
@@ -28,9 +28,9 @@ import java.util.Objects;
  *
  * <p><strong>Two index rules.</strong> {@code clsbox = upper(?)}, never
  * {@code upper(clsbox) = ?}, which would stop {@code (tenant, clsbox, ts_device DESC, uid
- * DESC)} being used (DL-115). And the order is {@code ts_device DESC, uid DESC} on every
+ * DESC)} being used. And the order is {@code ts_device DESC, uid DESC} on every
  * statement, with the keyset as a row comparison on the same two columns, so a walk can
- * neither repeat nor skip a row (STA-36A).</p>
+ * neither repeat nor skip a row.</p>
  */
 public final class StatsQueryBuilder {
 
@@ -59,7 +59,7 @@ public final class StatsQueryBuilder {
         }
     }
 
-    /** Tenant-wide list: {@code [from, to)} on {@code ts_device} (T-040). */
+    /** Tenant-wide list: {@code [from, to)} on {@code ts_device}. */
     public static SqlQuery tenantList(
             StatReader reader, String tenant, long from, long to, Keyset after, int fetch) {
         Statement statement = new Statement(reader, tenant);
@@ -70,9 +70,9 @@ public final class StatsQueryBuilder {
 
     /**
      * One gateway: {@code ts_device >= from}, and {@code < to} only when {@code to} is
-     * given (T-067). The one-argument form is open-ended by design, not {@code to = now}:
+     * given. The one-argument form is open-ended by design, not {@code to = now}:
      * a gateway whose clock runs up to {@code max-clock-skew} fast has records in the near
-     * future, and a literal now would hide its newest one on every call (DL-151).
+     * future, and a literal now would hide its newest one on every call.
      */
     public static SqlQuery device(
             StatReader reader,
@@ -92,7 +92,7 @@ public final class StatsQueryBuilder {
     }
 
     /**
-     * One record by {@code uid}, within the caller's tenant (T-041). A {@code uid} that
+     * One record by {@code uid}, within the caller's tenant. A {@code uid} that
      * exists only under another tenant matches nothing here, which is what makes its 404
      * identical to a {@code uid} that exists nowhere. Should one tenant ever hold the
      * same {@code uid} twice (different {@code ts_device}), the newest is returned.

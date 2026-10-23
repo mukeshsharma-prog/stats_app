@@ -53,7 +53,7 @@ class ManagementSurfaceTest {
                 .isEqualTo(HttpStatus.OK);
         assertThat(response.getBody()).isNotNull();
 
-        // Every type's series exists from startup (DL-160), so pick the one incremented.
+        // Every type's series exists from startup, so pick the one incremented.
         assertThat(response.getBody())
                 .contains("records_unroutable_total{type=\"sysstats\"} 1.0")
                 .contains("records_unroutable_total{type=\"lorastats\"} 0.0");
@@ -68,7 +68,7 @@ class ManagementSurfaceTest {
     }
 
     /**
-     * DL-160 (DL-158's rule, applied to Input): every per-record counter exports for every
+     * Every per-record counter exports for every
      * type and both doors before any record has arrived. Asserted by exported name and
      * label set, not by value -- the sibling tests in this context increment some of them.
      */
@@ -114,14 +114,14 @@ class ManagementSurfaceTest {
         for (StatType type : StatType.values()) {
             for (String name : new String[] {IngestMetrics.ACCEPTED, IngestMetrics.VALIDATION_FAILED,
                     IngestMetrics.PUBLISH_FAILED, IngestMetrics.CLOCK_SKEW_REJECTED, IngestMetrics.CONVERTER_TS_PRESENT}) {
-                // DL-151: every per-type series also carries the ingest door.
+                // Every per-type series also carries the ingest door.
                 assertThat(response.getBody())
                         .contains(name + "_total{source=\"internal\",type=\"" + type.wireName() + "\"} 1.0");
             }
         }
         assertThat(response.getBody())
                 .contains("records_validation_failed_total{source=\"unknown\",type=\"unknown\"} 1.0")
-                // T-048 (DL-159): the confirm histogram, by its exported names, before any
+                // The confirm histogram, by its exported names, before any
                 // record has been published -- what the Input dashboard's p99 reads.
                 .contains("records_publish_confirm_seconds_bucket{outcome=\"confirmed\",type=\"lorastats\",le=\"0.001\"} 0")
                 .contains("records_publish_confirm_seconds_bucket{outcome=\"confirmed\",type=\"omsstats\",le=\"5.0\"} 0")

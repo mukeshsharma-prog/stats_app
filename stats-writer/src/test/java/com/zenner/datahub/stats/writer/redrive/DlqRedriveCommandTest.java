@@ -138,7 +138,7 @@ class DlqRedriveCommandTest {
     }
 
     /**
-     * DL-168. The DLQ is FIFO and never expires anything, so its oldest record is the one
+     * The DLQ is FIFO and never expires anything, so its oldest record is the one
      * that ages out of the window first — and used to abort every run from the head of the
      * queue, so the redrivable records behind it could never be reached.
      */

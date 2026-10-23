@@ -5,13 +5,13 @@ import org.springframework.boot.autoconfigure.security.oauth2.resource.OAuth2Res
 
 /**
  * The issuer and audience the token decoder validates, refused at startup when either is
- * blank (T-038, ADR-006; DL-172).
+ * blank.
  *
  * <p><strong>Unset and empty are not the same.</strong> An unset
  * {@code ${STATS_API_AUDIENCE}} stops the context with an unresolvable placeholder. An
  * <em>empty</em> one — {@code STATS_API_AUDIENCE=} in an {@code .env} — binds Boot's
  * {@code audiences} to an empty list, and Boot then adds no audience validator at all:
- * a token minted for any client of the realm is accepted, and nothing says so. The T-028
+ * a token minted for any client of the realm is accepted, and nothing says so. A security
  * review measured it (200 for a {@code stats-input} token and for a token with no
  * {@code aud}). An empty issuer fails the other way — every token is a 401 — which is
  * safe, but an API that refuses everyone should not report itself ready. Both are

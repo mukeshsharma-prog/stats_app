@@ -6,7 +6,6 @@ report. Authentication headers are passed on stdin and are never included in the
 report. Inserts three uniquely named synthetic lorastats records; does not delete data.
 """
 import argparse
-import base64
 import json
 import os
 from pathlib import Path
@@ -59,6 +58,26 @@ def main():
             raise SystemExit(1)
         return proc.stdout.strip()
 
+    def ingest_token():
+        # A client-credentials token from the stats-input client, for
+        # STATS_INPUT_AUTH_MODE=oauth2. The secret travels to curl on stdin.
+        keycloak = os.environ.get('KEYCLOAK_BASE_URL', 'http://localhost:8080')
+        realm = env.get('STATS_REALM_NAME', 'statsapp')
+        client = env.get('STATS_INPUT_CLIENT_ID', 'stats-input')
+        url = f'{keycloak}/realms/{realm}/protocol/openid-connect/token'
+        config = ('data = "grant_type=client_credentials"\n'
+                  f'data = "client_id={client}"\n'
+                  f'data = "client_secret={env.get("STATS_INPUT_CLIENT_SECRET", "")}"\n')
+        proc = subprocess.run(['curl', '--silent', '--show-error', '--max-time', '30',
+                               '--config', '-', url], input=config, text=True, capture_output=True)
+        try:
+            return json.loads(proc.stdout)['access_token']
+        except (ValueError, KeyError):
+            record('Ingest token acquisition', shlex.join(['curl', '--config', '-', url]),
+                   'N/A (token request failed)', (proc.stderr or proc.stdout).strip(), False)
+            raise SystemExit(1)
+
+    ingest = ingest_token() if env.get('STATS_INPUT_AUTH_MODE') == 'oauth2' else None
     zra = token(username)
     alpha = token(env.get('STATS_ALPHA_READER_USERNAME', 'alpha-reader'))
     claims_proc = subprocess.run([str(ROOT / 'docker/token.sh'), username, '--claims'],
@@ -97,14 +116,12 @@ def main():
                 config += f'header = "Authorization: Bearer {bearer}"\n'
             if data:
                 cmd.extend(['-H', 'Content-Type: application/json', '--data-binary', '@' + str(data)])
-                if env.get('STATS_INPUT_AUTH_MODE') == 'basic':
+                if ingest:
                     if not bearer:
                         cmd.extend(['--config', '-'])
-                    credential = base64.b64encode((env['STATS_INPUT_BASIC_USERNAME'] + ':' +
-                                                  env['STATS_INPUT_BASIC_PASSWORD']).encode()).decode()
-                    config += f'header = "Authorization: Basic {credential}"\n'
+                    config += f'header = "Authorization: Bearer {ingest}"\n'
                 elif env.get('STATS_INPUT_AUTH_MODE') != 'none':
-                    raise RuntimeError('This check supports Input auth modes none/basic only.')
+                    raise RuntimeError('This check supports Input auth modes none/oauth2 only.')
             cmd.append(url)
             result = subprocess.run(cmd, input=config, text=True, capture_output=True, check=True)
             body = Path(response.name).read_text()

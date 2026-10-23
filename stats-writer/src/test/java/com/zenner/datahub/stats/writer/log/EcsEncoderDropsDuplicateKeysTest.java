@@ -18,7 +18,7 @@ import org.springframework.core.env.Environment;
 import org.springframework.core.env.StandardEnvironment;
 
 /**
- * Characterises the failure DL-150 closes, against the encoder production actually
+ * Characterises the duplicate-key failure, against the encoder production actually
  * runs: {@code logging.structured.format.console=ecs}.
  *
  * <p>This is the executable reason for {@code LogsDoNotShadowMdcKeysTest}. A unit

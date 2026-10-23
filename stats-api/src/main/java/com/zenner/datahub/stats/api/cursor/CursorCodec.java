@@ -20,7 +20,7 @@ import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
 /**
- * The signed keyset cursor (T-042, STA-36A; openapi.yaml {@code Cursor}).
+ * The signed keyset cursor (openapi.yaml {@code Cursor}).
  *
  * <p><strong>What is in it, and what is not.</strong> The token is
  * {@code base64url(payload).base64url(HMAC-SHA256)}. The payload holds only the keyset
@@ -33,7 +33,7 @@ import javax.crypto.spec.SecretKeySpec;
  * {@code 400 invalid_cursor}.</p>
  *
  * <p><strong>The cursor is never the tenant.</strong> The query's tenant comes from the
- * token on every page; the cursor can only fail to verify against it (DL-162, quiz 3).
+ * token on every page; the cursor can only fail to verify against it.
  * No tenant name travels in the token either, so a cursor that leaks into a log or a
  * support ticket discloses one {@code uid} and one timestamp of the caller's own data.</p>
  *

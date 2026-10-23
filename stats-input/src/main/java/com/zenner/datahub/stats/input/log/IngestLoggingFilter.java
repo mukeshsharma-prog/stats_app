@@ -13,7 +13,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 /**
  * Establishes and clears correlation context around every ingest request.
  *
- * <p>Since DL-151 it also resolves which ingest door the request came through and
+ * <p>It also resolves which ingest door the request came through and
  * publishes that once — as the {@code ingestSource} MDC key for every log line of the
  * request, and as a request attribute for the filters and the controller behind it, so
  * the path is matched in one place and every metric carries the same answer.</p>

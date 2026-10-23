@@ -10,14 +10,13 @@ import org.springframework.stereotype.Component;
 /**
  * Creates the partitions this deployment needs <em>before</em> it starts consuming.
  *
- * <p>Requirement STA-23C; ADR-003 D1 — "Partitions must be pre-created ahead of
- * ingestion, or inserts fail."</p>
+ * <p>Partitions must be pre-created ahead of ingestion, or inserts fail.</p>
  *
  * <p><strong>Why this exists separately from the cron.</strong> The scheduled run
  * ({@code stats.retention.schedule}, default 03:30 UTC) is the only other trigger.
  * A module deployed at any other hour would therefore come up against a parent
  * table with no partitions and stay that way for up to a day: every insert fails
- * with {@code no partition of relation "lorastats" found for row}, the T-020
+ * with {@code no partition of relation "lorastats" found for row}, the
  * manual-ACK contract correctly withholds the ACK, and the consumer wedges once it
  * has held its whole prefetch window unacknowledged. Nothing is lost — the broker
  * keeps every record — but ingestion for the type stops, and it does not recover on
@@ -51,7 +50,7 @@ import org.springframework.stereotype.Component;
  *
  * <p>A failure here is deliberately fatal: the context fails to start, the process
  * exits non-zero, and the orchestrator restarts or holds the rollout. That is the
- * loud failure ADR-003 D1 asks for. The alternative — start anyway — is the silent
+ * loud failure this needs. The alternative — start anyway — is the silent
  * wedge described above.</p>
  */
 @Component

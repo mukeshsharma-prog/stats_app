@@ -14,7 +14,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 /**
- * Maps the read path's failures to the contract's problems (T-044; RFC 9457).
+ * Maps the read path's failures to the contract's problems (RFC 9457).
  *
  * <p>Bodies are written straight to the response rather than returned for content
  * negotiation: a caller that sent {@code Accept: application/json} must still receive
@@ -22,7 +22,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
  *
  * <p><strong>Nothing from the database reaches a caller or a log line.</strong> A
  * {@code PSQLException} message can quote a row ({@code DETAIL: Key (...)=(...)}); only the
- * exception's type is logged, as the Writer does (DL-124).</p>
+ * exception's type is logged, as the Writer does.</p>
  */
 @RestControllerAdvice
 public class ApiExceptionHandler {

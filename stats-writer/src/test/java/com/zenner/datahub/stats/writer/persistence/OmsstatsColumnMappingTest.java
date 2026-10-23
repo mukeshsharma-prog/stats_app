@@ -35,7 +35,7 @@ class OmsstatsColumnMappingTest {
 
         assertThat(OmsstatsBatchWriter.REQUIRED_FIELDS).containsExactlyInAnyOrderElementsOf(required);
         assertThat(OmsstatsBatchWriter.OPTIONAL_FIELDS).doesNotContainAnyElementsOf(required).isEmpty();
-        // No wire-type trap on this type (ADR-007 §6): every member, timespan included, is an
+        // No wire-type trap on this type: every member, timespan included, is an
         // INTEGER -- the string "300" belongs to sysstats, and a copy that kept the digit-string
         // parser would refuse every production omsstats record.
         for (String field : OmsstatsBatchWriter.REQUIRED_FIELDS) {

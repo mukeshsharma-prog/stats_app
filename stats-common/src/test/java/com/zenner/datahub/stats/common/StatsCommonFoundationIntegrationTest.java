@@ -37,8 +37,8 @@ class StatsCommonFoundationIntegrationTest {
         ((ObjectNode) rawRecord.path("data")).put("futureDataMember", 42);
         JsonNode originalRecord = rawRecord.deepCopy();
 
-        ValidationResult validation = validator.validate(rawRecord); // T-004
-        StatsEnvelope envelope = OBJECT_MAPPER.treeToValue(rawRecord, StatsEnvelope.class); // T-001
+        ValidationResult validation = validator.validate(rawRecord);
+        StatsEnvelope envelope = OBJECT_MAPPER.treeToValue(rawRecord, StatsEnvelope.class);
 
         assertThat(validation.valid()).isTrue();
         assertThat(validation.schemaVersion()).isEqualTo("v1");
@@ -46,7 +46,7 @@ class StatsCommonFoundationIntegrationTest {
         assertThat(envelope.ts().device().getEpochSecond()).isEqualTo(1_787_054_100L);
         assertThat(envelope.data().path("futureDataMember").asInt()).isEqualTo(42);
 
-        assertThat(AmqpTopology.routingKey(envelope.type())).isEqualTo("ltestats"); // T-002
+        assertThat(AmqpTopology.routingKey(envelope.type())).isEqualTo("ltestats");
         assertThat(AmqpTopology.mainQueue(envelope.type()))
                 .isEqualTo("app_statsstore.ltestats");
         assertThat(AmqpTopology.retryQueue(envelope.type(), 3))
@@ -55,7 +55,7 @@ class StatsCommonFoundationIntegrationTest {
                 .isEqualTo("app_statsstore.ltestats.dlq");
 
         // Validation and typed inspection must not alter the JsonNode that the
-        // future Input publisher retains for byte-identical publication (D6).
+        // future Input publisher retains for byte-identical publication.
         assertThat(rawRecord).isEqualTo(originalRecord);
     }
 
@@ -66,10 +66,10 @@ class StatsCommonFoundationIntegrationTest {
         String rejectedRssi = rawRecord.at("/data/rssi").asText();
         String imsi = rawRecord.at("/data/imsi").asText();
 
-        ValidationResult validation = validator.validate(rawRecord); // T-004
-        ProblemDetails problem = ProblemDetails.validationFailure( // T-003
+        ValidationResult validation = validator.validate(rawRecord);
+        ProblemDetails problem = ProblemDetails.validationFailure(
                 ErrorCode.INVALID_PARAMETER,
-                StatType.fromWireName(rawRecord.path("type").asText()), // T-001
+                StatType.fromWireName(rawRecord.path("type").asText()),
                 validation.errors(),
                 "/stats",
                 "trace-foundation-test");

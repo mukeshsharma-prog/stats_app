@@ -20,17 +20,16 @@ import java.util.Objects;
  * modules declaring the same queue with different arguments is not a warning — the
  * broker rejects the mismatched declaration with {@code RESOURCE_LOCKED} and the
  * module fails to start. Quorum sharpens it further: a queue's type is fixed at
- * declaration, so switching one means deleting and redeclaring it (ADR-002 §8).
+ * declaration, so switching one means deleting and redeclaring it.
  * Assembling the maps once here means the cross-module declaration test compares one
- * map rather than two hand-built ones. (CLAUDE.md §6; T-002, T-032)</p>
+ * map rather than two hand-built ones.</p>
  *
  * <p><strong>The dead-letter queue takes no expiry and no onward route.</strong>
  * {@link #deadLetterQueueArguments()} has no parameter to set a TTL with, which is
  * deliberate: a TTL'd dead-letter queue discards records silently, and a message that
  * reached the DLQ has already survived three retry tiers — it is the only remaining
  * copy of a record Heimdal believes it delivered and will never resend. Bounding
- * broker disk is an alerting and disposition problem, not an expiry problem.
- * (ADR-002 §12, rule 9, trap 17)</p>
+ * broker disk is an alerting and disposition problem, not an expiry problem.</p>
  */
 public final class AmqpTopology {
 
@@ -73,7 +72,7 @@ public final class AmqpTopology {
      * Declaration arguments for every main queue {@code app_statsstore.<type>}.
      *
      * <p>Takes no stat type on purpose. The arguments are identical for all five
-     * types, and keeping them that way is what makes rule 6 hold: a new type adds a
+     * types, and keeping them that way is what lets a new stat type stay additive: it adds a
      * queue, never a new argument set to keep in step.</p>
      */
     public static Map<String, Object> mainQueueArguments() {
@@ -86,7 +85,7 @@ public final class AmqpTopology {
      * Declaration arguments for one retry tier.
      *
      * <p>The delay is the tier's TTL and comes from configuration — never a constant
-     * here (G4). When it expires the message dead-letters to {@link #DEAD_LETTER_EXCHANGE}
+     * here. When it expires the message dead-letters to {@link #DEAD_LETTER_EXCHANGE}
      * under the type's own routing key, and the binding that carries it back to the
      * main queue is declared by the broker-connected modules.</p>
      *
@@ -118,7 +117,7 @@ public final class AmqpTopology {
      * expiry here is silent data loss. No {@code x-dead-letter-exchange}, because a DLQ
      * that routes onward is the same failure wearing a different name — the last copy of
      * the record leaves and nothing says so. There is no parameter to pass either one
-     * through. (ADR-002 §12, trap 17)</p>
+     * through.</p>
      */
     public static Map<String, Object> deadLetterQueueArguments() {
         Map<String, Object> arguments = new LinkedHashMap<>();
@@ -126,19 +125,19 @@ public final class AmqpTopology {
         return Map.copyOf(arguments);
     }
 
-    // --- Declaration definitions (T-032) -----------------------------------
+    // --- Declaration definitions -----------------------------------
     //
     // Names and argument maps were already shared; the DURABILITY and AUTO-DELETE
     // flags were not, and each module hand-built its own Spring AMQP object from
     // memory. Those flags are exactly as fatal as the arguments: a mismatch on any
     // one of them is RESOURCE_LOCKED at startup for whichever module boots second,
-    // and quorum sharpens it further because a queue's type is fixed at declaration
-    // (ADR-002 §8). Definitions below carry every field of a declaration, so the two
+    // and quorum sharpens it further because a queue's type is fixed at declaration.
+    // Definitions below carry every field of a declaration, so the two
     // modules can differ only in the four lines that turn a definition into a Spring
     // object — and stats-testsupport's AmqpDeclarationAssert checks those in both.
     //
-    // Deliberately free of Spring AMQP types: stats-common holds no broker client
-    // (D15), and giving it one to share a factory would trade a small duplication
+    // Deliberately free of Spring AMQP types: stats-common holds no broker client,
+    // and giving it one to share a factory would trade a small duplication
     // for a large dependency.
 
     /** Everything needed to declare one exchange, with no Spring AMQP types. */
@@ -168,7 +167,7 @@ public final class AmqpTopology {
     }
 
     /**
-     * The ingress exchange every broker-connected module declares (ADR-002 §11).
+     * The ingress exchange every broker-connected module declares.
      *
      * <p>Durable and not auto-delete: an auto-delete exchange disappears the moment the
      * last binding goes, and the next publish is then unroutable rather than queued.</p>
@@ -198,7 +197,7 @@ public final class AmqpTopology {
         return wireName(type) + ".dlq";
     }
 
-    /** The main work queue, durable and non-exclusive (rule 10, STA-13A). */
+    /** The main work queue, durable and non-exclusive. */
     public static QueueDefinition mainQueueDefinition(StatType type) {
         return new QueueDefinition(mainQueue(type), true, false, false, mainQueueArguments());
     }
@@ -209,7 +208,7 @@ public final class AmqpTopology {
                 retryQueue(type, tier), true, false, false, retryQueueArguments(type, tier, delay));
     }
 
-    /** The DLQ. No expiry and no onward route, by construction (ADR-002 §12). */
+    /** The DLQ. No expiry and no onward route, by construction. */
     public static QueueDefinition deadLetterQueueDefinition(StatType type) {
         return new QueueDefinition(
                 deadLetterQueue(type), true, false, false, deadLetterQueueArguments());

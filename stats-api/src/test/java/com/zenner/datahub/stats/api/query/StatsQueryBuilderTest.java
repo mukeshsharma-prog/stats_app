@@ -18,15 +18,14 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 /**
- * T-028, the read half: the tenant predicate verified against the GENERATED SQL, not a
- * response body (STA-35A, ADR-006). A response can look right for the wrong reason — on
+ * The tenant predicate verified against the GENERATED SQL, not a
+ * response body. A response can look right for the wrong reason — on
  * every tenant but minol, a filter on {@code maintenant} returns exactly the rows a filter
- * on {@code tenant} does (DL-139). The SQL cannot.
+ * on {@code tenant} does. The SQL cannot.
  *
  * <p>Every statement, for every reader, every operation, with and without a cursor.
- * Since DL-172 "every reader" is checked rather than claimed: the list once stopped at
- * three of five types for two weeks after ltestats and netstats were built (T-028 review,
- * finding 2).</p>
+ * "Every reader" is checked rather than claimed: the list once stopped at
+ * three of five types for two weeks after ltestats and netstats were built.</p>
  */
 class StatsQueryBuilderTest {
 
@@ -136,7 +135,7 @@ class StatsQueryBuilderTest {
     }
 
     @Test
-    @DisplayName("the open-ended device read has no upper bound at all — never to = now (DL-151)")
+    @DisplayName("the open-ended device read has no upper bound at all — never to = now")
     void theOneArgumentDeviceFormIsOpenEnded() {
         SqlQuery query =
                 StatsQueryBuilder.device(new LorastatsReader(), TENANT, "04B64810652B", 1_789_000_000L, null, null, 101);

@@ -10,8 +10,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
- * Every connection the API's pool hands out carries a server-side statement timeout
- * (DL-168), read back from PostgreSQL rather than from the property, so a typo in the
+ * Every connection the API's pool hands out carries a server-side statement timeout,
+ * read back from PostgreSQL rather than from the property, so a typo in the
  * driver option cannot pass.
  */
 class ReadStatementTimeoutIntegrationTest extends ApiIntegrationTest {

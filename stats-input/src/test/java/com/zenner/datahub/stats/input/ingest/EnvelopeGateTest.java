@@ -27,8 +27,8 @@ import org.junit.jupiter.params.provider.ValueSource;
  *
  * <p>The load-bearing assertions here are the ones that prove Input does
  * <strong>not</strong> run the payload gate. If those ever flip to expecting a 400,
- * the module has started destroying records that Heimdal will never resend
- * (ADR-007 §5, DL-088).</p>
+ * the module has started destroying records that Heimdal will never resend.
+ * </p>
  */
 class EnvelopeGateTest {
 
@@ -59,15 +59,15 @@ class EnvelopeGateTest {
         assertThat(accepted.statType()).isEqualTo(StatType.LORASTATS);
         // ts.converter is on 100% of production records: accepted, never read, metered.
         assertThat(accepted.converterTimestampPresent()).isTrue();
-        // T-050: the validated ts.server rides out with the result, in SECONDS, so the
+        // The validated ts.server rides out with the result, in SECONDS, so the
         // controller can meter the reporting-cycle phase without re-parsing the body.
         assertThat(accepted.tsServer()).isEqualTo(java.time.Instant.ofEpochSecond(1_787_833_739L));
         assertThat(accepted.tsDeviceCorrected()).isFalse();
     }
 
     /**
-     * DL-146: Heimdal flags a record whose {@code ts.device} it rewrote. The flag is read
-     * to be counted (T-050) and for nothing else — the record is still accepted, and the
+     * Heimdal flags a record whose {@code ts.device} it rewrote. The flag is read
+     * to be counted and for nothing else — the record is still accepted, and the
      * skew check sees the corrected value.
      */
     @Test
@@ -90,13 +90,13 @@ class EnvelopeGateTest {
                 "invalid/lorastats-missing-required.json",
                 "invalid/lorastats-wrong-type.json"
             })
-    @DisplayName("a PAYLOAD failure is never a 400 — ADR-007 §5")
+    @DisplayName("a PAYLOAD failure is never a 400")
     void acceptsPayloadFailures(String fixture) {
         // Every one of these fails its per-type payload schema and passes the
         // envelope. Heimdal retries only on a non-2xx, so a 400 here is unrecoverable
         // data loss, while a dead-letter at the Writer is redrivable. The dialect case
-        // is the FOURTH, unexplained spelling: DL-105 accepted the three known dialects
-        // on 4 Sep 2026 and T-063 built them, so the two production records that used to
+        // is the FOURTH, unexplained spelling: the three known dialects are accepted
+        // since 8 Sep 2026, so the two production records that used to
         // sit here are now valid/ fixtures and Input's behaviour toward them is covered
         // by acceptsTheProductionRecord and its siblings.
         GateResult result = gate.evaluate(fixture(fixture), INSTANCE);
@@ -132,7 +132,7 @@ class EnvelopeGateTest {
         GateResult result = gate.evaluate(fixture("edge/lorastats-late-arrival.json"), INSTANCE);
 
         assertThat(result)
-                .as("retention keys on ts.device (STA-23B); late arrival is the Writer's call")
+                .as("retention keys on ts.device; late arrival is the Writer's call")
                 .isInstanceOf(GateResult.Accepted.class);
     }
 
@@ -204,7 +204,7 @@ class EnvelopeGateTest {
         assertThat(result).isInstanceOf(GateResult.Accepted.class);
     }
 
-    // ---- DL-168: nothing is answered 200 that PostgreSQL cannot hold --------------------
+    // ---- Nothing is answered 200 that PostgreSQL cannot hold --------------------
 
     @ParameterizedTest(name = "{0} is malformed_json")
     @ValueSource(
@@ -213,7 +213,7 @@ class EnvelopeGateTest {
                 "malformed/trailing-content.json",
                 "malformed/duplicate-keys.json"
             })
-    @DisplayName("the body is parsed as bytes, strictly — DL-168")
+    @DisplayName("the body is parsed as bytes, strictly")
     void rejectsWhatTheWriterCouldNotParseTheSameWay(String fixture) {
         // Each of these used to be a 200. Invalid UTF-8 was decoded to U+FFFD here and
         // refused by the Writer, which parses the same bytes; a duplicated member resolved
@@ -312,7 +312,7 @@ class EnvelopeGateTest {
                 "invalid/envelope-tenant-blank.json",
                 "invalid/envelope-version-too-large.json"
             })
-    @DisplayName("the envelope bounds the identifiers and version the Writer can store — DL-168")
+    @DisplayName("the envelope bounds the identifiers and version the Writer can store")
     void rejectsUnstorableEnvelopeValues(String fixture) {
         GateResult result = gate.evaluate(fixture(fixture), INSTANCE);
 

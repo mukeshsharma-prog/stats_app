@@ -5,7 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
-/** D-12 P3 (DL-167): the IMSI leaves the API masked, and never in clear. */
+/** The IMSI leaves the API masked, and never in clear. */
 class ImsiMaskTest {
 
     @ParameterizedTest(name = "{0} with plmn {1} -> {2}")

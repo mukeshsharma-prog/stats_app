@@ -13,13 +13,13 @@ import org.springframework.amqp.core.Message;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 
 /**
- * Dedicated consumer for {@code app_statsstore.omsstats}; it never handles another type
- * (T-036, DL-153; STA-20A, STA-25A). The third type of the fan-out, copied from the
- * sysstats slice (DL-148).
+ * Dedicated consumer for {@code app_statsstore.omsstats}; it never handles another type.
+ * The third type of the fan-out, copied from the
+ * sysstats slice.
  *
  * <p>The two ACK orderings are the lorastats sibling's, unchanged: on success the ACK
- * follows the committed transaction (D7); on failure it follows the <em>confirmed</em>
- * hand-off to a retry tier or the DLQ (ADR-005), and an unconfirmed hand-off leaves the
+ * follows the committed transaction; on failure it follows the <em>confirmed</em>
+ * hand-off to a retry tier or the DLQ, and an unconfirmed hand-off leaves the
  * delivery with the broker. Nothing acknowledges a record that exists in exactly one
  * place.</p>
  */
@@ -67,7 +67,7 @@ public final class OmsstatsConsumer {
         // Count before decoding so malformed records remain observable.
         consumed.increment();
         // Sampled at entry: this delivery was the head of a FIFO queue when the broker
-        // handed it over, so its age is the queue's oldest-message age (T-050, DL-147).
+        // handed it over, so its age is the queue's oldest-message age.
         queueAge.observe(OmsstatsConsumerDescriptor.TYPE, message);
         Timer.Sample sample = Timer.start(registry);
         try (WriterLogContext.Scope ignored =
@@ -78,7 +78,7 @@ public final class OmsstatsConsumer {
                         .process(OmsstatsConsumerDescriptor.TYPE, message);
             } catch (InterruptedException shutdown) {
                 // Lifecycle, not a failed record: leave the original unacknowledged so
-                // closing the channel returns it to its main queue (DL-143).
+                // closing the channel returns it to its main queue.
                 Thread.currentThread().interrupt();
                 throw shutdown;
             } catch (Exception failure) {
@@ -86,7 +86,7 @@ public final class OmsstatsConsumer {
                     failedDeliveryRouter.route(OmsstatsConsumerDescriptor.TYPE, message, failure);
                 } catch (UnconfirmedHandoffException unconfirmed) {
                     // The onward copy may not exist, so the original must not be ACKed —
-                    // and must not be stranded unacknowledged either (DL-168).
+                    // and must not be stranded unacknowledged either.
                     failedDeliveryRouter.requeueUnconfirmed(
                             OmsstatsConsumerDescriptor.TYPE, message, channel);
                     return;

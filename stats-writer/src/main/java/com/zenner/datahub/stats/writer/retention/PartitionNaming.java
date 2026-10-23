@@ -9,7 +9,7 @@ import java.util.Optional;
 
 /**
  * The one place a daily partition's name, bound expression and quoted identifier are
- * spelled (ADR-003 D1).
+ * spelled.
  *
  * <p><strong>Why this is shared rather than written twice.</strong> Pre-creation composes
  * these names and retention has to recognise them again — and the two directions are only
@@ -20,7 +20,7 @@ import java.util.Optional;
  *
  * <p>Nothing here names an individual stat type: every identifier derives from
  * {@link StatType#wireName()}, which is what keeps a new type additive
- * (STA-22, {@code StatTypeFanOutTest}).</p>
+ * ({@code StatTypeFanOutTest}).</p>
  */
 final class PartitionNaming {
 

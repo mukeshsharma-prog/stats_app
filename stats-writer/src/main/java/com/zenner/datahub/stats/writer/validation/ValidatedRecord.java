@@ -7,10 +7,10 @@ import java.util.regex.Pattern;
 
 /**
  * One delivery that has passed the Writer's payload gate, with the schema that
- * admitted it (T-057; ADR-003 D7, ADR-007 §5).
+ * admitted it.
  *
  * <p>The schema label travels with the record rather than being re-derived at the
- * INSERT because ADR-003 D7's {@code schema_version} column is supposed to say
+ * INSERT because the {@code schema_version} column is supposed to say
  * <em>which of our contracts admitted this row</em>. A constant compiled into the
  * writer answers a different question — "which contract did the author believe was
  * current" — and the two only agree until the day a second schema exists, at which

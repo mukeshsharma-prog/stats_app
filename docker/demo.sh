@@ -4,12 +4,12 @@
 #   docker compose --profile apps up -d --build      # from docker/, wait for (healthy)
 #   ./docker/demo.sh                                 # from anywhere
 #
-# Ten steps, each naming the rule it proves (CLAUDE.md §5). Every number printed is live:
+# Ten steps, each naming the rule it proves. Every number printed is live:
 # the Input response, the Writer's Prometheus counters, the rows in PostgreSQL, the
 # broker's queue depths. Nothing here is mocked, and the negative steps are real —
 # step 10 stops RabbitMQ.
 #
-# Two local gotchas this script works around on purpose (DEVELOPMENT.md §3.2):
+# Two local gotchas this script works around on purpose:
 #   * psql goes through `docker exec "$POSTGRES_CONTAINER"` — a host PostgreSQL on 5432 would
 #     otherwise shadow the container's port mapping.
 #   * .env is read key by key, not `source`d — an unquoted value with a "(" aborts a
@@ -17,7 +17,7 @@
 set -u
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FX="$REPO/docs/schemas/fixtures"
-# Heimdal's door. /external/stats is the same handler for callers that are not Heimdal (DL-151).
+# Heimdal's door. /external/stats is the same handler for callers that are not Heimdal.
 INPUT_BASE_URL=${INPUT_BASE_URL:-http://localhost:8081}
 WRITER_BASE_URL=${WRITER_BASE_URL:-http://localhost:8082}
 IN="$INPUT_BASE_URL/internal/stats"
@@ -42,7 +42,7 @@ dlq()    { docker exec "$RABBITMQ_CONTAINER" rabbitmqctl list_queues name messag
 rec()    { jq -c 'del(.["$expect"], .["$expectCode"], .["$comment"])' "$1"; }
 # The valid fixtures are production records dated 27 Aug 2026 and age a day every day.
 # For the happy path they are re-stamped to NOW, which is what live traffic looks like;
-# for the DL-149 step, to a device time three weeks ago. Edge fixtures (clock skew, late
+# for the whole-window step, to a device time three weeks ago. Edge fixtures (clock skew, late
 # arrival) keep their own timestamps because the timestamp IS the test.
 NOW=$(date +%s)
 send() { # send <json-on-stdin>  -> "HTTP <code>   X-Trace-Id: ..." then the body if any
@@ -60,11 +60,11 @@ docker ps --format '  {{.Names}}: {{.Status}}' | grep -E 'stats-(postgres|rabbit
 echo "  partitioned tables: $(psq "select string_agg(relname, ', ' order by relname) from pg_class where relkind='p'")"
 echo "  lorastats partitions: $(psq "select min(relname)||' .. '||max(relname)||' ('||count(*)||')' from pg_class where relname ~ '^lorastats_[0-9_]+$'")"
 
-hr "1. Happy path — all five stat types, including LTE degraded states and network interfaces. 2xx ONLY after publisher confirm (rule 8)"
+hr "1. Happy path — all five stat types, including LTE degraded states and network interfaces. 2xx ONLY after publisher confirm"
 postnow "$FX/valid/sysstats-production-minimal.json"
-postnow "$FX/valid/omsstats-production.json"          # ts.converter on every record: stored in passthrough, no normalisation (ADR-004)
+postnow "$FX/valid/omsstats-production.json"          # ts.converter on every record: stored in passthrough, no normalisation
 postnow "$FX/valid/lorastats-production-canonical.json"
-postnow "$FX/valid/lorastats-dialect-prefixed.json"     # dialect C -> the SAME row shape (DL-127)
+postnow "$FX/valid/lorastats-dialect-prefixed.json"     # dialect C -> the SAME row shape
 postnow "$FX/valid/ltestats-live-2026-10-09.json"
 postnow "$FX/valid/ltestats-production-2g-no-rsrp.json"
 postnow "$FX/valid/ltestats-production-unknown-technology.json"
@@ -79,25 +79,25 @@ psq "select 'omsstats passthrough: '||(passthrough->'ts')::text from omsstats or
 metric 'records_persisted_total'
 metric 'records_lorastats_dialect_total'
 
-hr "2. A gateway back from THREE WEEKS offline — inside the window, before this deployment existed (DL-149)"
+hr "2. A gateway back from THREE WEEKS offline — inside the window, before this deployment existed"
 postold "$FX/valid/lorastats-production-canonical.json" 21
 sleep 3
 psq "select clsbox, to_char(ts_device,'YYYY-MM-DD') ts_device, tableoid::regclass partition from lorastats where uid like '%-late-21' order by ts_device desc limit 1" | sed 's/^/  stored in: /'
-echo "  lorastats DLQ depth: $(dlq lorastats)   (before DL-149 this record was here, permanent, SQLSTATE 23514)"
+echo "  lorastats DLQ depth: $(dlq lorastats)   (without whole-window pre-creation this record would be here, permanent, SQLSTATE 23514)"
 
-hr "3. Redelivery is harmless — the same record again -> 2xx, ON CONFLICT DO NOTHING, metered not silent (rule 13)"
+hr "3. Redelivery is harmless — the same record again -> 2xx, ON CONFLICT DO NOTHING, metered not silent"
 postnow "$FX/valid/sysstats-production-minimal.json"
 sleep 2
 metric 'records_duplicate_suppressed_total'
 echo "  sysstats rows still: $(psq 'select count(*) from sysstats')"
 
-hr "4. ENVELOPE failure -> 400 at Input, nothing published (rule 7, gate 1)"
-post "$FX/edge/sysstats-clock-skew-future.json"        # ts.device > ts.server + 5 min (ADR-003 D9)
+hr "4. ENVELOPE failure -> 400 at Input, nothing published (gate 1)"
+post "$FX/edge/sysstats-clock-skew-future.json"        # ts.device > ts.server + 5 min
 post "$FX/invalid/envelope-missing-tenant.json"
 post "$FX/invalid/envelope-ts-in-milliseconds.json"    # seconds, not milliseconds (trap)
 echo '{not json' | curl -s -o /dev/null -w '  malformed JSON -> HTTP %{http_code}\n' -X POST "$IN" -H 'Content-Type: application/json' --data-binary @-
 
-hr "5. PAYLOAD failure -> accepted 2xx, then DEAD-LETTERED by the Writer on the FIRST attempt (rule 7 gate 2, DL-126)"
+hr "5. PAYLOAD failure -> accepted 2xx, then DEAD-LETTERED by the Writer on the FIRST attempt (gate 2)"
 before=$(dlq lorastats)
 post "$FX/invalid/lorastats-dialect-unknown.json"      # a fourth dialect: the enumeration is closed at three
 sleep 6
@@ -105,22 +105,22 @@ echo "  lorastats DLQ depth before: $before  after: $(dlq lorastats)   (tiers sk
 metric 'records_payload_rejected_total'
 docker logs "$WRITER_CONTAINER" --since 30s 2>&1 | grep '"event":"payload_rejected"' | tail -1 | jq -c '{event,reason,statType,uid,traceId}' | sed 's/^/  writer log: /'
 
-hr "6. Late arrival -> 2xx, SKIPPED, metered, ACKed — never dead-lettered (rule 11, D5b, DL-133)"
+hr "6. Late arrival -> 2xx, SKIPPED, metered, ACKed — never dead-lettered"
 post "$FX/edge/sysstats-late-arrival.json"             # ts.device past the 90-day window
 sleep 3
 metric 'records_expired_on_arrival_total'
 docker logs "$WRITER_CONTAINER" --since 30s 2>&1 | grep '"event":"expired_on_arrival"' | tail -1 | jq -c '{event,statType,uid,ageDays,retentionDays}' | sed 's/^/  writer log: /'
 echo "  sysstats rows still: $(psq 'select count(*) from sysstats')   sysstats DLQ depth: $(dlq sysstats)"
 
-hr "7. Non-OK upstream status -> stored + metered + WARN, never dead-lettered (DL-128)"
+hr "7. Non-OK upstream status -> stored + metered + WARN, never dead-lettered"
 postnow "$FX/valid/lorastats-status-not-ok.json"
 sleep 2
 metric 'records_upstream_status_not_ok_total'
 
-hr "8. What ops watches (T-027 / T-050) — polled and cached; a failed poll is NaN, never zero"
+hr "8. What ops watches — polled and cached; a failed poll is NaN, never zero"
 curl -s "$WR" | grep -E '^(queue_depth|dlq_depth|queue_oldest_message_age_seconds|consumer_availability|broker_metrics_collection_success)' | sed 's/^/  /'
 
-hr "9. Security at both ends: stats_ro cannot write (rule 2, PostgreSQL 42501); the API is 401 without a token (ADR-006)"
+hr "9. Security at both ends: stats_ro cannot write (PostgreSQL 42501); the API is 401 without a token"
 docker exec "$POSTGRES_CONTAINER" psql -U stats_ro -d statsdb -c "insert into sysstats (uid) values ('x')" 2>&1 | sed 's/^/  /'
 tok() { curl -s -X POST "$KC/realms/statsapp/protocol/openid-connect/token" -d client_id=stats-dev-cli -d grant_type=password -d "username=$1" -d "password=$2" | jq -r .access_token; }
 printf '  anonymous     -> %s\n' "$(curl -s -o /dev/null -w '%{http_code}' "$API/v1/stats/lorastats")"

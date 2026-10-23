@@ -15,11 +15,11 @@ import org.springframework.context.annotation.ClassPathScanningCandidateComponen
 import org.springframework.core.type.filter.AssignableTypeFilter;
 
 /**
- * Every Writer listener starts under the same rule (DL-167).
+ * Every Writer listener starts under the same rule.
  *
  * <p>An explicit {@code autoStartup} on {@code @RabbitListener} overrides the container
  * factory, so whether {@code spring.rabbitmq.listener.simple.auto-startup} reaches a
- * listener depends on its own expression. Until DL-167 two of the five named the switch
+ * listener depends on its own expression. Once, two of the five named the switch
  * and three did not: setting it {@code false} stopped {@code ltestats} and
  * {@code netstats} and nothing else — records piling up in two queues while the other
  * three drained normally. This scans the package for every listener, so a sixth type that

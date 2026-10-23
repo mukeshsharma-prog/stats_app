@@ -39,8 +39,7 @@ import org.springframework.context.annotation.Import;
 import org.testcontainers.containers.PostgreSQLContainer;
 
 /**
- * T-054 — advisory-lock contention between two Writer <em>replicas</em> (ADR-003 D3;
- * STA-23C).
+ * Advisory-lock contention between two Writer <em>replicas</em>.
  *
  * <p>{@code PartitionRetentionIntegrationTest.skipsTheRunEntirelyWhenAnotherReplicaHoldsTheAdvisoryLock}
  * proves a replica that loses the race changes nothing — but it holds the lock from a
@@ -50,7 +49,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
  * {@link HikariDataSource}, {@link PartitionMaintenance}, metrics registry and clock —
  * against one database, and fires both.</p>
  *
- * <p>Why it is not academic: ADR-003 D8 runs N replicas <em>per type</em>, so two replicas
+ * <p>Why it is not academic: production runs N replicas <em>per type</em>, so two replicas
  * firing the same cron at the same second is the production default, not an edge.</p>
  *
  * <p>What it asserts beyond "one sweep ran": that the losing replica logs at DEBUG and not
@@ -63,7 +62,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
  * auto-commit it changed; this test borrows every pooled connection afterwards and checks.</p>
  *
  * <p>The literal two-<em>process</em> run against the Compose stack is
- * {@code ops/drills/t054-advisory-lock-contention.sh}; this is the deterministic, in-build
+ * {@code ops/drills/advisory-lock-contention.sh}; this is the deterministic, in-build
  * half.</p>
  */
 @SpringBootTest(
@@ -263,7 +262,7 @@ class AdvisoryLockContentionIntegrationTest {
         assertThat(events("partition_precreation_failed")).isEmpty();
         assertThat(maintenanceLog.list).noneMatch(e -> e.getLevel().isGreaterOrEqual(Level.WARN));
         System.out.printf(
-                "[T-054] %d simultaneous rounds: dropped by A=%.0f B=%.0f, rounds where the loser had to skip=%d, errors=0%n",
+                "[lock-contention] %d simultaneous rounds: dropped by A=%.0f B=%.0f, rounds where the loser had to skip=%d, errors=0%n",
                 ROUNDS, a.dropped(), b.dropped(), overlaps);
     }
 

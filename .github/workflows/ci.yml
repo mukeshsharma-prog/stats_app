@@ -49,20 +49,20 @@ jobs:
           python docs/contracts/test_schema_drift.py
           python docs/contracts/check_schema_drift.py
 
-      # DL-166 / DL-167: credential safety on upgrade, monitoring waited for before the
+      # Credential safety on upgrade, monitoring waited for before the
       # applications, degraded monitoring reported as exit 3, and Prometheus never gated
       # on the health of what it monitors. No real Docker resources are touched.
       - name: Startup script regression tests
         run: python docker/tests/test-start-stats-app.py -v
 
-      # DL-171: the bundle's hand-run tools — a refused token is reported with Keycloak's
+      # The bundle's hand-run tools — a refused token is reported with Keycloak's
       # reason (never decoded as "null"), and every script MANUAL.md names is packaged.
       - name: Bundle walkthrough tools tests
         run: python docker/tests/test-manual-tools.py -v
 
-      # DL-144 (dlq-alerts), DL-147 (writer-alerts: oldest-message age, late arrival,
-      # upstream status) and DL-155 (postgres-alerts: WAL archiver, the RPO half of
-      # ADR-003 D5). Every file checked, every file behaviour-tested.
+      # dlq-alerts, writer-alerts (oldest-message age, late arrival, upstream status)
+      # and postgres-alerts (WAL archiver, the RPO half of the backup strategy).
+      # Every file checked, every file behaviour-tested.
       - name: Validate Prometheus configuration and alert rules
         run: |
           docker run --rm \
@@ -84,21 +84,21 @@ jobs:
             prom/prometheus:v3.5.0 \
             test rules dlq-alerts.test.yml writer-alerts.test.yml postgres-alerts.test.yml
 
-      # T-056 (DL-158). The dashboards are generated; every series a panel or a rule
+      # The dashboards are generated; every series a panel or a rule
       # reads must be one the code or a named exporter exports; shared gauges are
-      # aggregated with max, never sum (DL-137).
+      # aggregated with max, never sum.
       - name: Validate Grafana dashboards and rule series
         run: python ops/grafana/check-dashboards.py
 
-      # DL-117. Catches OpenAPI defects a YAML parse cannot see — an unquoted
+      # Catches OpenAPI defects a YAML parse cannot see — an unquoted
       # description containing a comma silently becomes an extra schema key.
       # Version pinned: an unpinned linter can start failing CI on a release we
       # did not make. Rules and the two deliberate suppressions: redocly.yaml.
       - name: Lint OpenAPI contracts
         run: npx --yes @redocly/cli@2.51.2 lint
 
-      # DL-145. Both contracts rendered onto one reviewable page — the document ZC
-      # confirms or declines. Not committed (DL-117: a checked-in bundle goes stale);
+      # Both contracts rendered onto one reviewable page — the document ZC
+      # confirms or declines. Not committed (a checked-in bundle goes stale);
       # built here so a reviewer without Node downloads it from the run instead.
       - name: Render contracts HTML
         run: docs/contracts/build-html.sh

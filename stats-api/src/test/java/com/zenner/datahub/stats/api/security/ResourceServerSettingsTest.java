@@ -15,8 +15,8 @@ import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
 
 /**
- * T-028 review finding 1 (DL-172): an EMPTY issuer or audience stops the API, exactly as an
- * unset one does (ADR-006). Before this, {@code STATS_API_AUDIENCE=} bound to an empty list
+ * An EMPTY issuer or audience stops the API, exactly as an
+ * unset one does. Before this, {@code STATS_API_AUDIENCE=} bound to an empty list
  * and Boot validated no audience: a token minted for any client of the realm read data.
  */
 class ResourceServerSettingsTest {

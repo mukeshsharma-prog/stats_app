@@ -30,11 +30,11 @@ import java.util.regex.Pattern;
  * Moves a bounded batch from one dead-letter queue after confirming each replacement.
  * The command requires dedicated operator credentials and emits no payload values.
  *
- * <p><strong>A record it will not move does not stop the run (DL-168).</strong> One
+ * <p><strong>A record it will not move does not stop the run.</strong> One
  * that is past the retention window, declares another type, or is not JSON is
  * <em>skipped</em>: held unacknowledged for the rest of the run, so it cannot be fetched
  * twice, reported as {@code record_skipped} with a constant reason, and returned to the
- * DLQ — at its original position — when the run ends. Before DL-168 the first such record
+ * DLQ — at its original position — when the run ends. Once, the first such record
  * aborted the run and went back to the head of the queue, so every later run aborted on
  * it too; and because the DLQ is FIFO and never expires anything, its oldest record is
  * exactly the one that ages out first. Skipped records stay on the DLQ for the approved

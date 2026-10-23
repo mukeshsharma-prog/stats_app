@@ -197,7 +197,7 @@ class LorastatsConsumerIntegrationTest {
     }
 
     /**
-     * The other half of the T-020 contract, as T-024 changed it: a processing failure
+     * The other half of the manual-ACK contract: a processing failure
      * moves the record to retry tier 1 and acknowledges the original <em>only then</em>.
      *
      * <p><strong>This test asserted the opposite until 5 Sep 2026</strong>, and the old
@@ -206,12 +206,12 @@ class LorastatsConsumerIntegrationTest {
      * Nothing was lost, but nothing progressed either — the same record was redelivered
      * forever and only {@code records_write_failed} said so. With the arm in place the
      * record leaves the main queue, waits its tier delay, and comes back for a bounded
-     * number of attempts (DL-122).</p>
+     * number of attempts.</p>
      *
      * <p>The order is the load-bearing part and it is asserted as an end state: the main
      * queue is empty (the original was ACKed) <em>and</em> tier 1 holds the record (the
      * copy exists). ACK-then-publish would produce the same main-queue reading with an
-     * empty tier 1 for as long as the gap lasted (ADR-005).</p>
+     * empty tier 1 for as long as the gap lasted.</p>
      */
     @Test
     void aProcessingFailureMovesTheRecordToRetryTierOneBeforeAcknowledgingIt()

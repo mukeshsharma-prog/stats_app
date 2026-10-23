@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Entry point of the stats-tools image (docker/Dockerfile.tools, DL-171).
+# Entry point of the stats-tools image (docker/Dockerfile.tools).
 #   shell   an interactive bash with docker/stats-helpers.sh loaded (the default)
 #   demo    docker/demo.sh against the bundle's services
 #   other   run as given, e.g. `bash -c '. /tools/docker/stats-helpers.sh && tok alpha-reader'`

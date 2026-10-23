@@ -7,8 +7,7 @@ import java.util.Objects;
 import java.util.regex.Pattern;
 
 /**
- * The one range-checked coercion from a wire number to a {@code BIGINT} column (T-062;
- * STA-04C, ADR-003 D2, ADR-007 §6, DL-105 rule 3, DL-126).
+ * The one range-checked coercion from a wire number to a {@code BIGINT} column.
  *
  * <p>There is no single wire type for "a number" in this system: {@code timespan} is an
  * integer in {@code lorastats}/{@code omsstats}/{@code netstats} and the string
@@ -35,8 +34,8 @@ import java.util.regex.Pattern;
  * that is absent, because no test and no counter will ever see it.</p>
  *
  * <p>Every refusal is a {@link PermanentFailureException}: the bytes will not change on
- * redelivery, so the record is {@code unmappable} on its first attempt (DL-126) and skips
- * the retry tiers. Messages name the <em>field</em>, never the value (guard P2, DL-124).</p>
+ * redelivery, so the record is {@code unmappable} on its first attempt and skips
+ * the retry tiers. Messages name the <em>field</em>, never the value.</p>
  */
 public final class WireNumbers {
 

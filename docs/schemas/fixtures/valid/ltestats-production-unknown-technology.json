@@ -18,5 +18,5 @@
   "status": [
     "conversion ok"
   ],
-  "$comment": "Shape of a live record seen on 18 Sep 2026; uid and clsbox are synthesised, everything else is as observed. A modem that never registered on any network sends data: {\"etxt\": \"unknown technology\"} and no measurement at all - the record ops most needs when a site goes dark. Dead-lettered under the schema of 29 Aug 2026 (four required fields missing); valid since DL-146 as the second, closed shape of the ltestats oneOf (shapeUnknownTechnology). Note status is still [\"conversion ok\"]: Heimdal converted it fine, the modem simply had nothing to report."
+  "$comment": "Shape of a live record seen on 18 Sep 2026; uid and clsbox are synthesised, everything else is as observed. A modem that never registered on any network sends data: {\"etxt\": \"unknown technology\"} and no measurement at all - the record ops most needs when a site goes dark. Dead-lettered under the schema of 29 Aug 2026 (four required fields missing); valid since 18 Sep 2026 as the second, closed shape of the ltestats oneOf (shapeUnknownTechnology). Note status is still [\"conversion ok\"]: Heimdal converted it fine, the modem simply had nothing to report."
 }

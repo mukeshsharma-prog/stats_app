@@ -93,7 +93,7 @@ class LorastatsMessageProcessorTest {
     }
 
     /**
-     * T-057, and the ordering is the assertion. A record that fails its payload schema
+     * The ordering is the assertion. A record that fails its payload schema
      * must not reach the writer at all: not one transaction is opened, and the failure
      * propagates so {@code LorastatsConsumer} routes the delivery instead of ACKing it.
      */
@@ -110,7 +110,7 @@ class LorastatsMessageProcessorTest {
     }
 
     /**
-     * T-026 / D5b. A record past its retention window is skipped, and "skipped" here means
+     * A record past its retention window is skipped, and "skipped" here means
      * the method RETURNS: LorastatsConsumer ACKs on a normal return, and an exception
      * would instead route a perfectly valid record into the retry arm and then a DLQ that
      * never expires — where every redrive would reach this same decision again, because

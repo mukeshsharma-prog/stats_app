@@ -7,7 +7,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 
-/** Source-level guard for the module-to-database capability boundary in T-009. */
+/** Source-level guard for the module-to-database capability boundary: only the Writer writes. */
 class DatabaseCapabilityIsolationTest {
 
     private static final Path ROOT = findProjectRoot();

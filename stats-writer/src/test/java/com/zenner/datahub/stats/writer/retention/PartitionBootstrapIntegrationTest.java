@@ -27,7 +27,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * <p>Before {@link PartitionBootstrap} the only trigger was the retention cron, so a
  * module deployed at any other hour came up against a parent table with no
  * partitions. Every insert then fails with {@code no partition of relation
- * "lorastats" found for row}; the T-020 manual-ACK contract correctly withholds the
+ * "lorastats" found for row}; the manual-ACK contract correctly withholds the
  * ACK, so nothing is lost, but the consumer wedges once its prefetch window is full
  * and does not recover when the cron finally fires — those deliveries stay
  * unacknowledged until the process restarts.</p>
@@ -37,11 +37,11 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * It then writes a row dated today, which is the assertion that actually matters:
  * ingestion works the moment the module is up.</p>
  *
- * <p><strong>And a row dated three weeks ago (DL-149).</strong> Ahead-only pre-creation
+ * <p><strong>And a row dated three weeks ago.</strong> Ahead-only pre-creation
  * closed the wedge above and opened a quieter one: a valid record inside the retention
  * window but before the deployment's first day had no partition, failed its INSERT with
  * SQLSTATE 23514 and was dead-lettered as permanent — the gateway-back-from-an-outage
- * path STA-23B calls normal, lost with every counter reading healthy. Startup now
+ * path retention on {@code ts.device} makes normal, lost with every counter reading healthy. Startup now
  * ensures the whole window, {@code [cutoffDay, today + pre-create-days]}.</p>
  */
 @SpringBootTest(
@@ -100,14 +100,14 @@ class PartitionBootstrapIntegrationTest {
                         StatType.LORASTATS.wireName(),
                         expected.toArray(String[]::new));
 
-        // The cutoff day through today plus seven: 30 + 7 + 1 partitions (DL-149).
+        // The cutoff day through today plus seven: 30 + 7 + 1 partitions.
         assertThat(actual)
                 .containsExactlyElementsOf(expected)
                 .hasSize(RETENTION_DAYS + PRE_CREATE_DAYS + 1);
     }
 
     /**
-     * The DL-149 regression: a record measured 21 days ago — a gateway back from three
+     * The whole-window regression: a record measured 21 days ago — a gateway back from three
      * weeks offline — inserts on a deployment that is minutes old. Before the fix this
      * was {@code no partition of relation "lorastats" found for row}, SQLSTATE 23514,
      * straight to the DLQ as a permanent failure.
@@ -118,7 +118,7 @@ class PartitionBootstrapIntegrationTest {
     }
 
     /**
-     * The boundary belongs to the retained side (DL-133): the cutoff day itself is
+     * The boundary belongs to the retained side: the cutoff day itself is
      * retained, so it has a partition. That the range starts <em>exactly</em> there and
      * not a day earlier is asserted against the precreator call in
      * {@link PartitionMaintenanceTest}; the shared test database may hold partitions

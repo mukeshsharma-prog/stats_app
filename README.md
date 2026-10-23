@@ -18,30 +18,34 @@ and `netstats`. The platform uses **Java 21**, **Spring Boot 3.5.16** and
 
 | Need | Read |
 |---|---|
-| Current work, owners and outstanding release gates | [Active project plan](docs/development/PROJECT_STATUS_AND_PLAN.md) |
-| Architecture and record delivery/failure paths | [Execution flow](docs/architecture/FLOW.md) and [ADRs](docs/architecture/adr/) |
-| Why a decision was made | [Complete decision log](docs/decisions/DECISIONS.md) |
-| Domain rules and known failure modes | [Project context](docs/development/PROJECT_CONTEXT.md) |
-| Build, configure, test or extend the code | [Development guide](docs/development/DEVELOPMENT.md), [implementation rules](docs/development/IMPLEMENTATION_RULES.md) and [engineering playbook](docs/development/ENGINEERING_PLAYBOOK.md) |
+| How the system works, its invariants and why | [Architecture](docs/ARCHITECTURE.md) |
+| Build, run, test or change the code | [Contributing](CONTRIBUTING.md) |
+| API and ingest contracts, schemas, runbooks | [Documentation index](docs/README.md) |
 | Run an offline Docker bundle | [Bundle guide](docker/BUNDLE.md) and [manual walkthrough](docker/MANUAL.md) |
-| Find a specification, contract or verification record | [Documentation index](docs/README.md) |
 
-## Current development status
+## Current status
 
 The Input, Writer and API support all five types. Publisher confirmations, manual
 acknowledgments, bounded retries, per-type dead-letter queues, partition retention,
 tenant filtering and operational metrics are implemented. LTE IMSI is masked on API
-reads; LTE/network payloads must not reach logs at any level.
+reads; LTE/network payloads never reach logs at any level. Keycloak users, roles and the
+administrator-only Tenant attribute are managed in the Keycloak console.
 
-The 19 October changes add persistent Keycloak user management, an administrator-only
-Tenant field, CLI login without per-user `.env` entries, and verified `zra_test`
-isolation. Evidence is retained in [docs/verification](docs/verification/).
+### Known gaps before production
 
-Open work remains in the [active plan](docs/development/PROJECT_STATUS_AND_PLAN.md),
-including independent security/isolation review, the inbound-auth branch decision,
-external contract/feed confirmation and operational threshold review. Local success
-does not close those release gates. The local bundle still uses unauthenticated
-Input mode and development Keycloak storage.
+* **Inbound authentication.** `stats.input.auth.mode=oauth2` is implemented (Keycloak
+  client-credentials token with the `stats.ingest` role), but Heimdal's mechanism has not
+  been agreed with ZC, and the local stack still runs `none`: anything that can reach the
+  Input port can write. `prod` refuses to start in that mode. The `/external/stats` door
+  binds nothing to the record's tenant yet, and `mtls` is not implemented.
+* **The Compose stack is a development stack.** Keycloak runs `start-dev` on its embedded
+  H2 database, credentials are generated locally, and every service is a single instance.
+* **No production deployment configuration.** There are no deployment manifests, no
+  secrets-manager integration and no per-environment configuration yet; the platform owner
+  provides those, along with log retention, encryption at rest and backup tooling.
+* **External confirmations** are still open: the ingest contract, Keycloak names, the data-
+  handling decision and the remaining ZC questions listed in
+  [docs/ARCHITECTURE.md §11](docs/ARCHITECTURE.md#11-open-external-decisions).
 
 ## Run a distributed bundle
 
@@ -79,7 +83,7 @@ docker compose --env-file .env -f docker/docker-compose.yml --profile apps up -d
 ```
 
 For IDE/Gradle development, start infrastructure only and follow the environment
-setup in the [development guide](docs/development/DEVELOPMENT.md):
+setup in [CONTRIBUTING.md](CONTRIBUTING.md):
 
 ```sh
 docker compose --env-file .env -f docker/docker-compose.yml up -d

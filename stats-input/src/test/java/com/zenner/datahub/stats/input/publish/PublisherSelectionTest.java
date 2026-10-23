@@ -14,7 +14,7 @@ import org.springframework.test.context.TestPropertySource;
  * The stand-in is gone, and there is exactly one publisher.
  *
  * <p>{@link UnconfirmedStatsPublisher} answers {@code NOT_CONFIRMED} to everything and
- * warns loudly at startup. Now that T-014 has landed, its continued presence would be
+ * warns loudly at startup. Now that the confirming publisher exists, its continued presence would be
  * a module that 503s every record while reporting a reason that is no longer true, so
  * "it drops out on its own" needs to be asserted rather than assumed.</p>
  *

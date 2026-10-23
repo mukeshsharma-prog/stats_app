@@ -8,7 +8,7 @@ import java.util.List;
 
 /**
  * {@code lorastats} (V1, V4, V5). Every counter is {@code bigint} and returned as an
- * integer: the Writer normalised all three wire dialects into these columns (DL-127),
+ * integer: the Writer normalised all three wire dialects into these columns,
  * so no prefixed name and no quoted counter can appear in a response, and the dialect a
  * record arrived in is neither stored nor returned.
  */

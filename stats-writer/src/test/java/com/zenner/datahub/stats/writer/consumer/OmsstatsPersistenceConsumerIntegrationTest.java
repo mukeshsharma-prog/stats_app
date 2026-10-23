@@ -29,11 +29,11 @@ import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
- * End to end for the third type (T-036): an omsstats record published to the ingress
+ * End to end for the third type: an omsstats record published to the ingress
  * exchange is consumed by the omsstats listener, committed, and ACKed; a redelivery is a
  * harmless no-op; a payload the schema refuses lands in <em>this type's</em> DLQ; and none
  * of it touches the lorastats path — with all three real consumers live in one context,
- * which is the development {@code all} shape (DL-148, DL-153).
+ * which is the development {@code all} shape.
  *
  * <p>Assertions are on shared state — rows, queue depths, DLQ depths — because other
  * cached contexts in this JVM may hold live listeners on the same broker; a
@@ -149,7 +149,7 @@ class OmsstatsPersistenceConsumerIntegrationTest {
             assertThat(depth(OMSSTATS_QUEUE)).isZero();
         });
         // What landed: the integer timespan, clsbox in ONE canonical case, and ts.converter
-        // preserved in passthrough with the stored clocks untouched (ADR-004, ADR-007 §2).
+        // preserved in passthrough with the stored clocks untouched.
         assertThat(
                         jdbc.queryForObject(
                                 "SELECT timespan || ':' || clsbox || ':' || rx_nr_pkts || ':' "
@@ -170,7 +170,7 @@ class OmsstatsPersistenceConsumerIntegrationTest {
     /**
      * Rule 6 and the head-of-line trap together, with the real consumers: an omsstats
      * payload the schema refuses dead-letters into the omsstats DLQ on its first attempt
-     * (T-057) while a lorastats record published beside it is committed through its own
+     * while a lorastats record published beside it is committed through its own
      * queue, and the lorastats DLQ stays empty.
      */
     @Test

@@ -19,7 +19,7 @@ class InputPropertiesTest {
     }
 
     @Test
-    @DisplayName("any other validation scope refuses to start — ADR-007 §5")
+    @DisplayName("any other validation scope refuses to start")
     void rejectsAWiderScope() {
         // Setting this to `payload` would make Input 400 a dialect disagreement, which
         // Heimdal never retries. The failure has to be at startup, not in production.
@@ -36,7 +36,7 @@ class InputPropertiesTest {
     }
 
     @Test
-    @DisplayName("a negative server-clock tolerance refuses to start — DL-168")
+    @DisplayName("a negative server-clock tolerance refuses to start")
     void rejectsNegativeServerClockTolerance() {
         assertThatIllegalArgumentException()
                 .isThrownBy(
@@ -69,7 +69,7 @@ class InputPropertiesTest {
     }
 
     /**
-     * DL-151: the split exists to tell the two doors apart. One path under two names
+     * The split exists to tell the two doors apart. One path under two names
      * would register every ingest filter twice and make the {@code source} label
      * meaningless, so it is refused at startup rather than discovered on a dashboard.
      */
@@ -83,7 +83,7 @@ class InputPropertiesTest {
 
     /**
      * The ingest filters — size, rate, authentication — are registered on these paths.
-     * A door under {@code /actuator} would put the readiness probe behind them (D13).
+     * A door under {@code /actuator} would put the readiness probe behind them.
      */
     @Test
     @DisplayName("an ingest path under /actuator refuses to start")

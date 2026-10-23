@@ -7,7 +7,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
 
 /**
- * Decides whether a failed delivery is worth another attempt (T-024; topology
+ * Decides whether a failed delivery is worth another attempt (topology
  * contract §4, "Error classification: explicit mapping from exception category to
  * retry, DLQ, or alert").
  *
@@ -23,17 +23,16 @@ import org.springframework.stereotype.Component;
  *
  * <ul>
  *   <li>{@link PermanentFailureException} — a processor said so explicitly. This is
- *       the channel the payload gate (T-057) and the dialect range-check (T-063,
- *       DL-105) use.</li>
+ *       the channel the payload gate and the dialect range-check use.</li>
  *   <li>{@link JsonProcessingException} — the body is not the JSON we thought. Input
  *       validated the envelope, so this means a shape the model cannot bind, and the
  *       bytes will not change on redelivery.</li>
  *   <li>{@link DataIntegrityViolationException} — a violated invariant: the
  *       {@code clsbox} CHECK, a NOT NULL, a type overflow. Note that a duplicate is
  *       <em>not</em> in this class: {@code ON CONFLICT (ts_device, uid) DO NOTHING}
- *       absorbs it and meters it long before an exception exists (ADR-005).</li>
+ *       absorbs it and meters it long before an exception exists.</li>
  *   <li>An {@link SQLException} whose SQLSTATE is class {@code 22} (data exception) or
- *       {@code 54} (program limit exceeded) — DL-168. Both describe the row, not the
+ *       {@code 54} (program limit exceeded). Both describe the row, not the
  *       database's health: U+0000 in {@code text} (22021) or {@code jsonb} (22P05), an
  *       index row past 2,704 bytes (54000). Spring translates some of these to
  *       {@link DataIntegrityViolationException} and others to transient-looking types —
@@ -63,7 +62,7 @@ public class FailureClassifier {
         return false;
     }
 
-    /** SQLSTATE classes whose verdict depends only on the row being written (DL-168). */
+    /** SQLSTATE classes whose verdict depends only on the row being written. */
     static boolean isRowDeterminedSqlState(String sqlState) {
         return sqlState != null
                 && sqlState.length() == 5
@@ -74,8 +73,8 @@ public class FailureClassifier {
      * A short, safe label for the header and the metric tag.
      *
      * <p>The exception's <em>message</em> is deliberately not used: a JDBC or validation
-     * message routinely quotes the offending value, and STA-03A forbids echoing payload
-     * content — into a response, a log, or a broker header that ops tooling will happily
+     * message routinely quotes the offending value, and payload content is never echoed
+     * — into a response, a log, or a broker header that ops tooling will happily
      * display. {@link SafeFailure} owns that judgement for the whole module; this method
      * is the metric- and header-shaped view of it.</p>
      */

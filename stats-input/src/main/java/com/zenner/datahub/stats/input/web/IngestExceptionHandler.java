@@ -21,7 +21,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 /**
  * Turns the two failures that happen <em>before</em> the envelope gate into the RFC 9457
- * bodies the contract promises (T-018).
+ * bodies the contract promises.
  *
  * <p>Without this, both arrive at Spring's default handler and are answered with a body
  * that is not {@code application/problem+json} — a shape no caller has been told about,

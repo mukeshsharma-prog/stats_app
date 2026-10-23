@@ -55,7 +55,7 @@ class LorastatsConsumerTest {
 
     @Test
     void routesAFailedDeliveryOnwardBeforeAcknowledgingIt() throws Exception {
-        // ADR-005's ordering hazard, asserted as an ORDER and not just as two calls.
+        // The ACK ordering hazard, asserted as an ORDER and not just as two calls.
         // ACK-then-publish leaves a window in which the original is gone and the copy
         // does not exist yet, and a crash inside it loses the record silently.
         StatsMessageProcessor processor = mock(StatsMessageProcessor.class);
@@ -104,7 +104,7 @@ class LorastatsConsumerTest {
 
         // Never ACKed — the onward copy may not exist. And not left unacknowledged on the
         // open channel either: in MANUAL mode the container never returns it, so it was
-        // not redelivered at all and held a prefetch slot for good (DL-168). The router
+        // not redelivered at all and held a prefetch slot for good. The router
         // returns it to its queue after a pause.
         InOrder order = inOrder(router);
         order.verify(router).route(StatType.LORASTATS, message, failure);
@@ -140,7 +140,7 @@ class LorastatsConsumerTest {
         assertAttemptMetered();
     }
 
-    /** T-050 / DL-147: the age is sampled at entry, before the processor runs. */
+    /** The age is sampled at entry, before the processor runs. */
     @Test
     void samplesTheDeliverysAgeBeforeProcessingIt() throws Exception {
         StatsMessageProcessor processor = mock(StatsMessageProcessor.class);
@@ -173,7 +173,7 @@ class LorastatsConsumerTest {
     @Test
     void rejectsAMissingRouterInsteadOfConsumingWithNoFailureArm() {
         // A consumer with no router would throw on failure and requeue forever, which
-        // looks like the pre-T-024 behaviour and is why it must not be constructible.
+        // is the failure the router exists to prevent, and is why it must not be constructible.
         assertThatNullPointerException()
                 .isThrownBy(
                         () ->

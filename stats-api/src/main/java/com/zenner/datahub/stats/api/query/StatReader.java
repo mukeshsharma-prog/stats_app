@@ -9,10 +9,10 @@ import java.util.List;
 /**
  * How one stat type's table is read back into the contract's {@code data} shape.
  *
- * <p><strong>One reader per table, and a new type is a new reader</strong> (rule 6,
- * STA-14A). Nothing here is shared between types except the envelope, which
+ * <p><strong>One reader per table, and a new type is a new reader</strong>, so adding a
+ * type never edits an existing one. Nothing here is shared between types except the envelope, which
  * {@link StatsQueryBuilder} and {@link RecordAssembler} own. A type with no reader has no
- * table yet (T-034, T-037); {@code StatReadersCoverEveryTableTest} fails the build when a
+ * table yet; {@code StatReadersCoverEveryTableTest} fails the build when a
  * migration creates a table that no reader serves, so a new type cannot silently answer
  * every read with an empty page.</p>
  *

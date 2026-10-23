@@ -73,7 +73,7 @@ class StatsSchemaValidatorTest {
         ValidationResult badPattern = validator.validate(readFixture("invalid/envelope-clsbox-not-hex.json"));
         ValidationResult outOfRange = validator.validate(readFixture("invalid/envelope-ts-in-milliseconds.json"));
 
-        // The fixture omits access_Technology - not rsrp, which DL-146 made optional.
+        // The fixture omits access_Technology - not rsrp, which is optional (a 2G modem omits it).
         // Since ltestats data is a closed oneOf, the report also names what the OTHER
         // shape wanted (/data/etxt) and flags /data itself; all three are pointers
         // and static messages, never a value from the record.
@@ -90,9 +90,9 @@ class StatsSchemaValidatorTest {
 
     @Test
     void acceptsTheLegacyConverterTimestampThatUsedToBeRejected() throws IOException {
-        // ADR-004 once declared a record carrying ts.converter INVALID. Production
-        // sends it on 100% of records, so that rule rejected everything Heimdal sends
-        // (ADR-007 §2). The fixture moved from invalid/ to valid/ on 29 Aug 2026 and
+        // An early rule declared a record carrying ts.converter INVALID. Production
+        // sends it on 100% of records, so that rule rejected everything Heimdal sends.
+        // The fixture moved from invalid/ to valid/ on 29 Aug 2026 and
         // this test is the guard against the rule being reinstated.
         ValidationResult result =
                 validator.validate(readFixture("valid/omsstats-ts-converter-present.json"));
@@ -103,11 +103,11 @@ class StatsSchemaValidatorTest {
 
     @Test
     void bothGatesAcceptEveryKnownProductionDialect() throws IOException {
-        // Q15a was answered "make it work for all the known dialects" (DL-105), which
-        // reverses ADR-007 §4. These three are unmodified production records in three
+        // ZC answered "make it work for all the known dialects", which reversed the
+        // earlier one-dialect decision. These three are unmodified production records in three
         // mutually incompatible payload dialects, all carrying the same record marker, so
         // nothing on any of them could have discriminated it. Both gates admit all three;
-        // the Writer normalises them into ONE typed row (T-063).
+        // the Writer normalises them into ONE typed row.
         for (String fixture : List.of(
                 "valid/lorastats-production-canonical.json",
                 "valid/lorastats-dialect-prefixed.json",
@@ -118,15 +118,15 @@ class StatsSchemaValidatorTest {
                     .as("%s must pass the Input gate", fixture)
                     .isTrue();
             assertThat(validator.validate(record).valid())
-                    .as("%s must pass the Writer gate since DL-105", fixture)
+                    .as("%s must pass the Writer gate", fixture)
                     .isTrue();
         }
     }
 
     @Test
     void envelopeGateAcceptsAnUnknownDialectThatTheWriterGateDeadLetters() throws IOException {
-        // The two gates have different consequences (ADR-007 §5), and this is the record
-        // that still exercises the difference. DL-105 rule 4 keeps the enumeration CLOSED
+        // The two gates have different consequences, and this is the record
+        // that still exercises the difference. The enumeration is CLOSED
         // AT THREE: a fourth spelling is refused by the payload schema. Input MUST still
         // accept it - a 400 here is unrecoverable, because Heimdal only retries on a
         // non-2xx and would never resend - so the disagreement lands in the DLQ where it
@@ -143,7 +143,7 @@ class StatsSchemaValidatorTest {
 
     @Test
     void theWriterGateAdmitsAValueTheBigintColumnCannotHold() throws IOException {
-        // DL-105 rule 3, stated as an assertion rather than as a comment. A string
+        // String coercion is range-checked, stated as an assertion rather than as a comment. A string
         // counter is capped at NINETEEN digits by pattern and the signed BIGINT maximum
         // is also nineteen digits, so no regex expresses the gap: the schema admits this
         // record and the Writer must be the thing that refuses it, before conversion.

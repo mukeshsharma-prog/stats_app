@@ -71,22 +71,22 @@ class LorastatsMigrationIntegrationTest {
                         "SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank",
                         String.class);
         // The lorastats history is V1..V5, in order; later versions belong to later types
-        // (V6 is sysstats, T-035) and this test has no opinion about them.
+        // (V6 is sysstats) and this test has no opinion about them.
         assertThat(versions).startsWith("1", "2", "3", "4", "5");
     }
 
     /**
-     * The index set ADR-003 "Required table and index direction" specifies, and
+     * The index set the storage design specifies, and
      * nothing else.
      *
      * <p>V2 shipped {@code (ts_device DESC, uid DESC)}, which the planner never
      * selects: {@code PRIMARY KEY (ts_device, uid)} already provides an equivalent
      * btree and PostgreSQL answers a DESC/DESC ordering from it with a backward
-     * scan. V3 drops it and creates the two indexes ADR-003 actually requires — the
-     * covering index for the dominant tenant-scoped query (STA-21C) and the
+     * scan. V3 drops it and creates the two indexes actually required — the
+     * covering index for the dominant tenant-scoped query and the
      * {@code (tenant, uid)} probe for the time-unbounded {@code uid} lookup. Both
      * lead on {@code tenant}, because the tenant predicate is mandatory on every
-     * query (rule 3, STA-35).</p>
+     * query.</p>
      */
     @Test
     void carriesExactlyTheAdr003IndexDirection() {
@@ -121,7 +121,7 @@ class LorastatsMigrationIntegrationTest {
     }
 
     /**
-     * Both ADR-003 indexes are declared on the partitioned parent, so PostgreSQL
+     * Both indexes are declared on the partitioned parent, so PostgreSQL
      * propagates them to every partition. Asserting only the parent would pass while
      * every child scanned sequentially.
      */
@@ -142,10 +142,10 @@ class LorastatsMigrationIntegrationTest {
     }
 
     /**
-     * D14b: unknown {@code data} members are preserved rather than dropped. Nullable,
+     * Unknown {@code data} members are preserved rather than dropped. Nullable,
      * so the column costs one null-bitmap bit on the overwhelming majority of rows
      * that carry no unmapped member — it does not reintroduce the per-row key-name
-     * overhead ADR-003 D2 rejected.
+     * overhead typed columns exist to avoid.
      */
     @Test
     void preservesUnknownDataMembersInANullableJsonbColumn() {

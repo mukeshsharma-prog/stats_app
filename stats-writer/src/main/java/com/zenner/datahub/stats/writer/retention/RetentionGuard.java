@@ -14,16 +14,16 @@ import org.springframework.stereotype.Component;
 
 /**
  * Late arrival: a record whose {@code ts.device} is already past the retention window
- * (T-026; STA-23B; ADR-003 option B, signed as D5b → DL-112).
+ * — skip, meter, log and ACK.
  *
  * <h2>Why the record is skipped rather than stored</h2>
  *
- * <p>Retention keys on {@code ts.device} — measurement time, not arrival time — and Q15b
- * confirmed that really is what the device stamps (DL-106). So a gateway back from a long
+ * <p>Retention keys on {@code ts.device} — measurement time, not arrival time — and ZC
+ * confirmed that really is what the device stamps. So a gateway back from a long
  * outage delivers records that are already outside the window, and the daily partition
  * that would hold them no longer exists. Storing one is not an option the database offers:
  * the insert fails with {@code no partition of relation … found for row}. Of the three
- * options ADR-003 weighed, a {@code DEFAULT} catch-all partition degrades pruning and
+ * options weighed, a {@code DEFAULT} catch-all partition degrades pruning and
  * grows unwatched, and clamping the timestamp to the oldest live partition falsifies the
  * time series. Skipping is the one that neither corrupts the data nor hides the loss.</p>
  *
@@ -31,12 +31,12 @@ import org.springframework.stereotype.Component;
  *
  * <p>The record is <em>valid</em>. Nothing about it is malformed, so the dead-letter queue
  * would be describing it wrongly, and worse: the DLQ carries no TTL and never expires
- * anything (ADR-002 §12), disposition is manual, and a redrive re-derives the identical
+ * anything, disposition is manual, and a redrive re-derives the identical
  * verdict — the record can only have got <em>older</em> since. It would sit there forever
- * being rejected on every attempt. That is also trap 18 read from the other end: a message
+ * being rejected on every attempt. That is also the redrive-age trap read from the other end: a message
  * redriven from the DLQ after roughly ninety days lands in this class and increments this
  * counter. <strong>That is a no-op that looks like a recovery</strong>, and the runbook
- * (T-052) has to say so out loud.</p>
+ * has to say so out loud.</p>
  *
  * <h2>Why this returns {@code false} where {@link
  * com.zenner.datahub.stats.writer.validation.PayloadGate} throws</h2>
@@ -87,8 +87,8 @@ public class RetentionGuard {
 
         metrics.expiredOnArrival(type);
         // Envelope members only, and the identifying ones — uid, statType, clsbox — come
-        // from the delivery's MDC scope, never repeated here (DL-150). No payload reaches
-        // this line at any level (guard P1, DL-102).
+        // from the delivery's MDC scope, never repeated here. No payload reaches
+        // this line at any level.
         LOGGER.atWarn()
                 .addKeyValue("event", "expired_on_arrival")
                 .addKeyValue("tsDevice", tsDevice)

@@ -1,6 +1,6 @@
 # Stats App — one Dockerfile, three images.
 #
-# Each application module is a separately deployable image (Q2, answered), but
+# Each application module is a separately deployable image, but
 # they are built from one multi-module Gradle project, so a single parameterised
 # Dockerfile keeps the three builds honestly identical instead of letting them
 # drift apart in three near-copies.
@@ -34,7 +34,7 @@ COPY stats-api/build.gradle.kts         ./stats-api/
 # when something first resolves the test classpath.
 RUN chmod +x gradlew && ./gradlew --no-daemon dependencies --quiet || true
 
-# Every module settings.gradle.kts includes — FIVE since 3 Sep 2026 (DL-099).
+# Every module settings.gradle.kts includes — FIVE since 3 Sep 2026.
 # stats-testsupport is test-only and becomes no image, but Gradle still has to
 # configure it: settings.gradle.kts includes it, so a missing copy is a build that
 # breaks the moment anything resolves the test classpath. `bootJar -x test` does not,
@@ -75,6 +75,6 @@ USER stats
 WORKDIR /app
 COPY --from=build --chown=stats:stats /workspace/app.jar /app/app.jar
 
-# Structured JSON to stdout, uid as correlation ID (D1). Docker collects stdout;
+# Structured JSON to stdout, uid as correlation ID. Docker collects stdout;
 # nothing writes a log file.
 ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75", "-jar", "/app/app.jar"]

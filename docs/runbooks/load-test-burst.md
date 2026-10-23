@@ -1,17 +1,17 @@
-# Burst load test — T-048
+# Burst load test
 
-**NFR-04 · Q13a / DL-104 (13,333/s is configured headroom) · DL-109 (2,667/s replay cap,
-unenforceable) · DL-121 (4,000 req/s per instance) · DL-159**
+**13,333/s is the configured design headroom · 2,667/s is the agreed (and unenforceable)
+replay cap · 4,000 req/s is the per-instance ingest limit**
 
 ## What is being measured, and why it is the confirm
 
-A 2xx from Input is returned only after the broker's publisher confirm (rule 8, STA-04A).
+A 2xx from Input is returned only after the broker's publisher confirm.
 Under a burst, throughput is not what fails first — **confirm latency** is: every request
 holds a servlet thread for the length of the confirm wait, and when that wait grows the
 thread pool fills, requests queue, and the confirm timeout (`stats.amqp.confirm-timeout`,
 5 s) turns them into 503s. So the test drives Input at a fixed *offered* rate (open loop —
 it does not slow down when Input does, exactly as a Heimdal replay would not) and reads
-`records_publish_confirm_seconds{type,outcome}`, the histogram Input exports since DL-159,
+`records_publish_confirm_seconds{type,outcome}`, the histogram Input exports,
 before and after the run. Client-side latency is reported beside it; the difference between
 the two is queueing in front of the confirm.
 
@@ -22,7 +22,7 @@ the two is queueing in front of the confirm.
 java ops/load/BurstLoad.java --url http://localhost:8081/internal/stats --rate 13333 --duration 30 [--json out.json]
 
 # the three-run drill (A, B, C below)
-ops/drills/t048-burst-load.sh [url] [seconds]
+ops/drills/burst-load.sh [url] [seconds]
 ```
 
 Every record gets a unique `uid` and `ts.*` re-stamped to now, so nothing is absorbed as
@@ -52,13 +52,13 @@ Three things to carry:
    thread held for one confirm wait, gives 200 ÷ 0.017 s ≈ **11,700 req/s** — which is
    where it stopped. 36,441 requests were never sent because the generator's own
    in-flight cap (2,000) filled. At 13,333/s a single instance therefore needs either
-   ~700 request threads or fewer requests; ADR-003 D8 already answers with instances.
+   ~700 request threads or fewer requests; the deployment shape already answers with instances.
 3. **The limiter and the thread pool are sized together, and that is not a coincidence.**
    At the shipped 4,000/s limit, 4,000 × 50 ms (the p99 confirm under load) = **200
    concurrent** = Tomcat's default. Run B shows what the limiter buys: 13,206/s offered,
    ~4,250/s accepted, 134,263 × 429, **zero 503s**, confirm p99 49.5 ms on what got
-   through — the 429 is the backpressure channel working (DL-121), and Heimdal's retry on
-   it is bounded by `maxRetry` (Q8a-3). Raise `stats.input.limits.max-requests-per-second`
+   through — the 429 is the backpressure channel working, and Heimdal's retry on
+   it is bounded by `maxRetry`. Raise `stats.input.limits.max-requests-per-second`
    without raising `server.tomcat.threads.max` and run C is what you get: the confirm is
    fine and the requests queue in front of it anyway.
 
@@ -70,7 +70,7 @@ the p99 to use is the one this test measures at that rate on that broker, not th
 
 * **503s appearing in the per-second list** while the achieved rate is below target: the
   confirm timeout is being hit. Check `queue_oldest_message_age_seconds` on the Writer
-  side (T-050) — a broker that is flow-controlling publishers because a queue is filling
+  side — a broker that is flow-controlling publishers because a queue is filling
   slows confirms first. Read the `outcome` label: `timeout` versus `nack` versus `error`
   are different incidents.
 * **`could not send` climbing** with 200s still at 100 %: the generator's in-flight cap,
@@ -80,12 +80,12 @@ the p99 to use is the one this test measures at that rate on that broker, not th
 
 ## Not measured here
 
-* More than one Input instance behind a balancer — D8's shape. The generator takes one
+* More than one Input instance behind a balancer — the production shape. The generator takes one
   URL; run one per instance, or point it at the balancer.
 * The Writer keeping up: run C left a 244,371-record backlog on `app_statsstore.lorastats`
-  for the single local Writer to drain, which is the T-050 alert's job to watch, not this
-  test's. The DLQ took nothing. *(Measured since by T-049: one Writer consumed at a peak
+  for the single local Writer to drain, which is the queue-age alert's job to watch, not this
+  test's. The DLQ took nothing. *(Measured since by the replay drill: one Writer consumed at a peak
   3,137/s on one type — `docs/runbooks/replay-drill.md`.)*
-* ~~A replay at 2,667/s on top of steady state (DL-109) — run A at 4,000/s covers the sum.~~
-  **Measured 22 Sep 2026 — T-049, `docs/runbooks/replay-drill.md`**: the same 4,000/s, but
+* ~~A replay at 2,667/s on top of steady state — run A at 4,000/s covers the sum.~~
+  **Measured 22 Sep 2026 — `docs/runbooks/replay-drill.md`**: the same 4,000/s, but
   two thirds of it duplicates, which is what run A cannot say anything about.

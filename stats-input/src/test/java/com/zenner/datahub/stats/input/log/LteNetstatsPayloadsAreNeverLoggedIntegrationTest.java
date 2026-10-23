@@ -35,7 +35,8 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
- * D-12 (DL-167): an {@code ltestats} or {@code netstats} payload reaches no Input log line
+ * An {@code ltestats} or {@code netstats} payload (subscriber and network identifiers)
+ * reaches no Input log line
  * at ANY level — not ours, and not the frameworks' Input runs on.
  *
  * <p>The Writer half is {@code stats-writer}'s test of the same name. Here every Input

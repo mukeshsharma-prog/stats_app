@@ -7,7 +7,7 @@ import java.util.Objects;
 /**
  * Safe per-field validation detail for RFC 9457 responses.
  *
- * <p>STA-03A forbids echoing an offending value. This type therefore has no
+ * <p>An error response must never echo an offending value. This type therefore has no
  * public constructor and accepts message text only through {@link SafeMessage},
  * whose values are static, reviewed strings. Callers can supply the field path
  * and machine-readable reason code, but cannot pass a runtime value as the
@@ -82,14 +82,14 @@ public final class FieldError {
 
     /**
      * Reviewed messages that are safe to expose without including payload values.
-     * T-004 maps schema keywords to these constants and discards validator text.
+     * The schema validator maps keywords to these constants and discards its own text.
      */
     public enum SafeMessage {
         MANDATORY_FIELD_ABSENT("Mandatory field is absent."),
         INVALID_FIELD_TYPE("Field has an invalid type."),
         INVALID_PARAMETER("Field has an invalid value."),
         UNSUPPORTED_STAT_TYPE("Not a supported stat type."),
-        // Read API (openapi.yaml FieldError catalogue, T-044). The wording of the first
+        // Read API (openapi.yaml FieldError catalogue). The wording of the first
         // two is the contract's own example text.
         TIME_RANGE_INVERTED("Must be earlier than 'to'."),
         QUERY_WINDOW_EXCEEDED(

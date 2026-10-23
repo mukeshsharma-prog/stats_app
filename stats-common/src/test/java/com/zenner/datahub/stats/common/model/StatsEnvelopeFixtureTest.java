@@ -38,24 +38,24 @@ class StatsEnvelopeFixtureTest {
     }
 
     /**
-     * Four fixtures joined valid/ with T-063 and T-064 on 8 Sep 2026: the two production
-     * dialect records that moved out of invalid/ when DL-105 was built, the BIGINT
-     * overflow record the Writer refuses after the schema admits it, and the non-OK
-     * upstream status of DL-108.
+     * Four fixtures joined valid/ on 8 Sep 2026: the two production dialect records
+     * that moved out of invalid/ when all three lorastats dialects became accepted, the
+     * BIGINT overflow record the Writer refuses after the schema admits it, and a non-OK
+     * upstream status.
      *
-     * <p>Five more on 18 Sep 2026 with DL-146, all shaped from live data: the two
+     * <p>Five more on 18 Sep 2026, all shaped from live data: the two
      * ltestats records the old schema dead-lettered (2G without rsrp/rsrq, and
      * etxt-only), a dialect-B lorastats record with an integer extra member, Heimdal's
      * {@code meta} / {@code ts.deviceOrig}, and {@code expiresOn} as Extended JSON. The
-     * last two are the ones this round-trip test exists for: before DL-146 the typed
+     * last two are the ones this round-trip test exists for: before then the typed
      * view dropped {@code meta} and {@code deviceOrig} silently and threw on the
      * object-form {@code expiresOn}.</p>
      *
-     * <p>One more on 19 Sep 2026 with T-035 (DL-148): the sysstats {@code timespan}
+     * <p>One more on 19 Sep 2026: the sysstats {@code timespan}
      * overflow record, schema-valid and refused by the Writer, so the typed view must
      * still bind it losslessly.</p>
      *
-     * <p>One more on 21 Sep 2026 with T-036 (DL-153): the omsstats counter overflow, a JSON
+     * <p>One more on 21 Sep 2026: the omsstats counter overflow, a JSON
      * integer wider than 64 bits — the typed view must hold it as a {@code BigInteger} node
      * rather than wrap it, or the Writer's range check would have nothing to refuse.</p>
      */

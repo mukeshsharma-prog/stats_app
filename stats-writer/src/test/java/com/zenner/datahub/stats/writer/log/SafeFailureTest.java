@@ -8,7 +8,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataIntegrityViolationException;
 
 /**
- * Guard P2 at the unit level (T-066, DEVELOPMENT.md §7).
+ * Guard P2 at the unit level.
  *
  * <p>The fixture below is the real thing: a unique violation on the lorastats primary
  * key, with PostgreSQL's {@code DETAIL:} line in the driver's message exactly as the
@@ -70,7 +70,7 @@ class SafeFailureTest {
     @Test
     @DisplayName("our own exception messages are dropped too, not only the driver's")
     void ourOwnMessagesAreDroppedAsWell() {
-        // T-057 is about to add throws like this one. The rule is not "no driver
+        // The payload gate throws like this one. The rule is not "no driver
         // messages", it is "no messages" — an application message is no safer.
         assertThat(
                         SafeFailure.describe(

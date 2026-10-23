@@ -20,9 +20,9 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
- * V7 (T-036) carries every invariant the lorastats table reached across V1..V5 and the
+ * V7 carries every invariant the lorastats table reached across V1..V5 and the
  * sysstats table took whole in V6, from its first row: the partition key and key order,
- * the two ADR-003 indexes and no third, {@code passthrough}, {@code data_extra}, and the
+ * the two indexes and no third, {@code passthrough}, {@code data_extra}, and the
  * canonical-{@code clsbox} CHECK.
  */
 @SpringBootTest(
@@ -129,7 +129,7 @@ class OmsstatsMigrationIntegrationTest {
     }
 
     /**
-     * ADR-004: there is no normalised-timestamp column. {@code ts.converter} is preserved
+     * There is no normalised-timestamp column. {@code ts.converter} is preserved
      * inside {@code passthrough} and nowhere else — a dedicated column would be the first
      * step toward acting on it.
      */
@@ -165,7 +165,7 @@ class OmsstatsMigrationIntegrationTest {
                 });
     }
 
-    /** DL-115: the table itself refuses a non-canonical clsbox, whatever bypassed the Writer. */
+    /** The table itself refuses a non-canonical clsbox, whatever bypassed the Writer. */
     @Test
     void theTableRefusesANonCanonicalClsboxEvenWhenTheWriterIsBypassed() {
         assertThatThrownBy(() -> insertMinimumRow("lowercase-clsbox", "a1b2c3d4e5f6"))

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The hand-run tools of the Docker bundle (DL-171), without Docker or Keycloak.
+"""The hand-run tools of the Docker bundle, without Docker or Keycloak.
 
 A fake curl stands in for Keycloak. The case that matters is the one that produced the
 13 Oct report: a .env from another stack, Keycloak refusing the password, and the old

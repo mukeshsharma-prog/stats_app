@@ -23,7 +23,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.test.context.TestPropertySource;
 
 /**
- * T-032 declaration parity: every ltestats declaration matches the shared definition,
+ * Declaration parity: every ltestats declaration matches the shared definition,
  * and an ltestats deployment still declares the two shared exchanges — from
  * {@link WriterAmqpConfiguration}, not from the lorastats file.
  */
@@ -104,7 +104,7 @@ class LtestatsTopologyDeclarationTest {
     @DisplayName("the lorastats and sysstats queues are still declared — the slices share nothing but the exchanges")
     void theOtherTypesQueuesAreUntouched() {
         // Declarations are unconditional so the topology exists whichever type is
-        // deployed first (DL-123); only the CONSUMER is conditional.
+        // deployed first; only the CONSUMER is conditional.
         assertThat(context.containsBean("lorastatsMainQueue")).isTrue();
         assertThat(context.containsBean("lorastatsConsumer")).isFalse();
         assertThat(context.containsBean("sysstatsMainQueue")).isTrue();

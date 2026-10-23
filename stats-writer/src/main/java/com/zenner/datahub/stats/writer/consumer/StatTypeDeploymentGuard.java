@@ -15,21 +15,21 @@ import org.springframework.stereotype.Component;
 /**
  * Refuses to start a Writer whose {@code stats.writer.stat-type} cannot be honoured.
  *
- * <p>ADR-003 D8 and T-019 both require <strong>exactly one stat type per deployment</strong>
+ * <p>Production runs <strong>exactly one stat type per deployment</strong>
  * in production: one image, deployed once per type, so prefetch, consumer concurrency and
- * replica count can be tuned per type (STA-11A, STA-20A, STA-26A). That is the entire
- * reason D8 chose per-type deployment over one Writer consuming everything.</p>
+ * replica count can be tuned per type. That is the entire
+ * reason for per-type deployment over one Writer consuming everything.</p>
  *
  * <p>The property nevertheless defaults to {@code all}, which is right for a developer
  * running the whole stack on one machine and wrong for production — and until now
  * <strong>nothing refused it</strong>. An {@code all} deployment starts cleanly, consumes
  * every queue, silently defeats every per-type tuning knob, and reports nothing: the
  * failure is a capacity one that appears under load, long after the deploy that caused
- * it. (D-10, audited 4 Sep 2026.)</p>
+ * it.</p>
  *
  * <p>This mirrors the {@code stats.input.auth.mode} precedent — a deliberately unsafe
  * default that is allowed to exist for local work and is made impossible under the
- * {@code prod} profile — and the {@code intended-scope} guard of DL-101: a property that
+ * {@code prod} profile — and the same reasoning as the validation-scope guard: a property that
  * only documents an intention is one edit away from being wrong. Failing the context is
  * the point. A container that will not start is a deploy that rolls back; a Writer that
  * quietly consumes five queues is an incident three weeks later.</p>
@@ -61,7 +61,7 @@ public class StatTypeDeploymentGuard {
         if (production && ALL_TYPES.equals(configured)) {
             throw new IllegalArgumentException(
                     STAT_TYPE_PROPERTY + "=" + ALL_TYPES + " is not permitted under the '"
-                            + PRODUCTION_PROFILE + "' profile. ADR-003 D8 requires exactly one "
+                            + PRODUCTION_PROFILE + "' profile. Production requires exactly one "
                             + "stat type per deployment — set it to one of " + knownTypes()
                             + " and deploy this image once per type.");
         }
@@ -73,7 +73,7 @@ public class StatTypeDeploymentGuard {
                     .log(
                             "stats-writer is running in all-types mode. This defeats per-type "
                                     + "prefetch, concurrency and replica tuning and is intended "
-                                    + "for local development only (ADR-003 D8)");
+                                    + "for local development only");
         }
     }
 

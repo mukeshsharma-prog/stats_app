@@ -18,27 +18,25 @@ import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MvcResult;
 
 /**
- * T-028 (read half), T-041, T-067 — tenant isolation on every read path, proved on rows
- * built to catch the wrong filter (STA-35, STA-35A, STA-35B; ADR-006).
+ * Tenant isolation on every read path, proved on rows
+ * built to catch the wrong filter.
  *
  * <p><strong>The fixtures are the test.</strong> Real records cannot catch a filter on
- * {@code maintenant}: it equals {@code tenant} on every tenant but one (DL-139). So:</p>
+ * {@code maintenant}: it equals {@code tenant} on every tenant but one. So:</p>
  * <ul>
  *   <li>tenant-beta's rows carry {@code maintenant = iso-alpha} — alpha's own tenant
  *       name. A filter on {@code maintenant} hands every one of them to alpha.</li>
  *   <li>the minol shape: {@code tenant = iso-minol-gateway}, {@code maintenant =
  *       iso-minol}. A filter on {@code maintenant} silently drops these rows for their
- *       own tenant, and hands them to a token that says {@code iso-minol} (DL-146).</li>
- *   <li>one gateway that moved from beta to alpha (D16, DL-142): its pre-move rows stay
+ *       own tenant, and hands them to a token that says {@code iso-minol}.</li>
+ *   <li>one gateway that moved from beta to alpha: its pre-move rows stay
  *       beta's.</li>
  *   <li>one {@code uid} held by both tenants — the key {@code (ts_device, uid)} leaves
- *       {@code tenant} out on purpose (rule 13), so this can exist.</li>
+ *       {@code tenant} out on purpose, so this can exist.</li>
  * </ul>
  *
- * <p>This suite and the code it tests were written by the same author, which T-028 asks
- * not to happen for a security control. DL-162 records it. DL-172 records a Claude review
- * of it (four findings, all fixed, nine mutations); that review is not independent of the
- * author's tooling, and T-028 closes on Mukesh's sign-off of it.</p>
+ * <p>This suite and the code it tests were written by the same author. It is a security
+ * control, so a change to either needs a reviewer who wrote neither.</p>
  */
 class TenantIsolationIntegrationTest extends ApiIntegrationTest {
 
@@ -100,7 +98,7 @@ class TenantIsolationIntegrationTest extends ApiIntegrationTest {
     }
 
     @Test
-    @DisplayName("a uid held only by another tenant is a 404 identical to a uid that exists nowhere (T-041)")
+    @DisplayName("a uid held only by another tenant is a 404 identical to a uid that exists nowhere")
     void aForeignUidIsIndistinguishableFromAMissingOne() throws Exception {
         String alpha = TestJwks.reader(ALPHA);
         MvcResult foreign = mvc.perform(get(alpha, "/v1/stats/lorastats/ISO-B-1")).andReturn();
@@ -125,7 +123,7 @@ class TenantIsolationIntegrationTest extends ApiIntegrationTest {
     }
 
     @Test
-    @DisplayName("another tenant's gateway is an empty 200 identical to an unknown gateway (T-067)")
+    @DisplayName("another tenant's gateway is an empty 200 identical to an unknown gateway")
     void aForeignGatewayIsIndistinguishableFromAnUnknownOne() throws Exception {
         String alpha = TestJwks.reader(ALPHA);
         MvcResult foreign = mvc.perform(get(alpha, "/v1/stats/lorastats/{c}/{f}", BETA_GATEWAY, FROM)).andReturn();
@@ -136,7 +134,7 @@ class TenantIsolationIntegrationTest extends ApiIntegrationTest {
     }
 
     @Test
-    @DisplayName("a gateway that moved tenant: its pre-move rows stay with the old tenant (D16)")
+    @DisplayName("a gateway that moved tenant: its pre-move rows stay with the old tenant")
     void aMovedGatewayKeepsItsHistoryWithTheOldTenant() throws Exception {
         JsonNode alpha =
                 json(mvc.perform(get(TestJwks.reader(ALPHA), "/v1/stats/lorastats/{c}/{f}", MOVED_GATEWAY, FROM)).andReturn());
@@ -185,7 +183,7 @@ class TenantIsolationIntegrationTest extends ApiIntegrationTest {
     void everyPageOfAWalkIsTheCallersTenant() throws Exception {
         // The first page is the one every other test reads. A keyset predicate joined by OR
         // instead of AND leaves page one correct and hands over the other tenants' rows from
-        // page two on (T-028 review, finding 3; DL-172).
+        // page two on.
         assertThat(walk(TestJwks.reader(ALPHA))).containsExactly("ISO-A-moved", "ISO-SHARED", "ISO-A-2", "ISO-A-1");
         assertThat(walk(TestJwks.reader(BETA))).containsExactly("ISO-SHARED", "ISO-B-premove", "ISO-B-2", "ISO-B-1");
     }

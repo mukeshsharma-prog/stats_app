@@ -6,8 +6,8 @@ describes the data returned by the read API. Two types map directly. Lorastats
 maps three accepted wire dialects onto one canonical response shape. Netstats
 uses an explicit extension to retain the authoritative interface-name pattern
 while representing patternProperties with broadly supported OpenAPI keywords.
-Ltestats maps directly except for one member: the API returns ``imsi`` masked
-(D-12 P3, DL-167), so its read schema is the masked form, and only if the ingest
+Ltestats maps directly except for one member: the API returns ``imsi`` masked,
+so its read schema is the masked form, and only if the ingest
 schema still accepts exactly the digits the masking was written against.
 """
 
@@ -47,7 +47,7 @@ IGNORED_SCHEMA_KEYS = {
 
 NETSTATS_PATTERN_EXTENSION = "x-interface-name-pattern"
 
-# D-12 P3 (DL-167): what the ingest schema accepts for imsi, and what the API returns.
+# What the ingest schema accepts for imsi, and what the API returns.
 # The masking in stats-api's ImsiMask was written against the first; if the ingest
 # rule changes, the projection must be revisited rather than silently carried along.
 LTESTATS_INGEST_IMSI = {"type": "string", "pattern": "^[0-9]{1,20}$"}
@@ -197,7 +197,7 @@ def canonical_ltestats_projection(schema):
     if imsi != expected_ingest:
         raise ValueError(
             "ltestats imsi ingest rule changed; revisit the masked read projection "
-            f"(DL-167): expected {expected_ingest!r}, found {imsi!r}"
+            f": expected {expected_ingest!r}, found {imsi!r}"
         )
     measured[0]["properties"]["imsi"] = copy.deepcopy(LTESTATS_MASKED_IMSI)
     return data

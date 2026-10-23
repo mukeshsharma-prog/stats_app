@@ -1,6 +1,6 @@
 # Partition restore runbook — one day, one type, parent stays online
 
-**T-051 · ADR-003 D5 · DL-111 (RPO ≤ 5 min, RTO 1 h per partition / 24 h full cluster) · DL-155**
+**RPO ≤ 5 min · RTO 1 h per partition / 24 h full cluster**
 
 ## Purpose and the two numbers this procedure is measured against
 
@@ -8,7 +8,7 @@ Use this procedure to put back **one daily partition of one stat type** — `lor
 say — after it has been lost or corrupted, **without taking the parent table offline**: the
 Writer keeps inserting into every other day the whole time, and the API keeps reading them.
 
-It is timed. D5a (DL-111) signed **RTO 1 h per partition**, and a target nobody measures is
+It is timed. The signed target is **RTO 1 h per partition**, and a target nobody measures is
 not a target, so every step below has a stopwatch column and the drill that rehearses this
 runbook (`PartitionRestoreDrillIntegrationTest`) prints the same table. The measured run on
 21 September 2026 — a 200,000-row day on PostgreSQL 17, a writer inserting into the
@@ -19,9 +19,9 @@ the writer saw 6,517 inserts, no failures, worst case 55 ms.
 makes this runbook *possible*. It needs continuous WAL archiving to be **on** and **watched**:
 `archive_mode=on`, `archive_timeout=300` (a segment is shipped at least every five minutes
 even if it is not full), and an alert when the archiver falls behind or fails
-(`ops/prometheus/postgres-alerts.yml`). The Compose stack has both since DL-155. On a managed
+(`ops/prometheus/postgres-alerts.yml`). The Compose stack has both. On a managed
 PostgreSQL, confirm the equivalent with the platform owner — it is the same conversation as
-encryption at rest (D-12 → platform, DL-114).
+encryption at rest, which belongs to the platform.
 
 ## What you are restoring from
 
@@ -49,12 +49,12 @@ is the same.
    ```
 
    If the day is *outside* the window, stop: nothing you restore will survive, and a record
-   that old is `expired_on_arrival` by policy (D5b) — the same trap as a 90-day-old redrive.
+   that old is `expired_on_arrival` by policy — the same trap as a 90-day-old redrive.
 
 2. **The parent exists and is healthy.** `SELECT to_regclass('<type>')` is not null and
    `SELECT count(*) FROM pg_inherits WHERE inhparent = '<type>'::regclass AND inhdetachpending`
-   is **zero**. A pending detach (trap 27) means a sweep was interrupted; let the next
-   maintenance pass finalise it (`DETACH … FINALIZE`, DL-132) before you attach anything.
+   is **zero**. A pending detach means a sweep was interrupted; let the next
+   maintenance pass finalise it (`DETACH … FINALIZE`) before you attach anything.
 
 3. **The partition you are restoring is absent.** `SELECT to_regclass('<partition>')` is
    **null**. If it exists and is *corrupt*, detach and drop it first — the sweep's own
@@ -116,7 +116,7 @@ maintaining indexes as it goes; and the dump's own `ADD CONSTRAINT … PRIMARY K
 exists"* — so `pg_restore` reports **"errors ignored on restore: 2" and exits 1**. The rows
 are correct. An operator following a runbook that says "run pg_restore" sees a non-zero exit
 at 03:00 and has no way to know it is the harmless one. Dropping the two `ATTACH` entries
-from the TOC gives the D5 shape instead: load and index off-line, attach in one statement,
+from the TOC gives the per-partition shape instead: load and index off-line, attach in one statement,
 the day appears atomically.
 
 ## Two things that make this slower than the drill
@@ -125,20 +125,20 @@ the day appears atomically.
   scan every row to prove the bound, holding its lock for the duration. On a 23-million-row
   production day that is minutes, not a millisecond. The CHECK is what the RTO depends on.
 * **A day that is still live.** The nightly dump of *yesterday* misses any late record
-  (STA-23B: an offline gateway delivers weeks later) that arrived after the dump. Restoring
+  (an offline gateway delivers weeks later) that arrived after the dump. Restoring
   it loses those. For a day still inside the pre-create horizon, prefer PITR to the moment
   before the loss; for an older day, accept the dump and record the dump timestamp so the
   gap is known. `ON CONFLICT (ts_device, uid) DO NOTHING` means a Heimdal replay over the
-  restored day is harmless either way (ADR-005).
+  restored day is harmless either way.
 
 ## What this runbook does not cover
 
 * **Full-cluster recovery** (24 h RTO): PITR of the whole instance from base backup + WAL.
-  Platform's procedure; this runbook is the *per-partition* case D5 carved out of it.
+  Platform's procedure; this runbook is the *per-partition* case carved out of it.
 * **A corrupt parent.** If the parent itself is damaged, detaching a healthy child does not
   help; that is the full-cluster case.
 * **Rows that never reached PostgreSQL.** A record lost between Heimdal and the INSERT is
-  in one of `docs/architecture/FLOW.md` §8's fifteen windows, not in a backup — look at the DLQ and the
+  in a delivery path, not in a backup — look at the DLQ and the
   counters, not here.
 
 ## The drill

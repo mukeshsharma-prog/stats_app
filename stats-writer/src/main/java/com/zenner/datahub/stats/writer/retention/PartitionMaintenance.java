@@ -19,10 +19,10 @@ import org.springframework.stereotype.Component;
  * Resolves which stat types this deployment maintains, and runs one maintenance pass over
  * them: pre-create, then retain.
  *
- * <p>Requirement STA-23A/STA-23C; ADR-003 D1 (pre-creation is a scheduled task in this
- * module, {@code pg_partman} is never a dependency), D3 (one advisory lock per stat type,
- * because D8 runs N replicas per type, and stagger the types rather than firing them
- * together) and D4 (retention runs once daily, off-peak).</p>
+ * <p>Pre-creation is a scheduled task in this module, and {@code pg_partman} is never a
+ * dependency. There is one advisory lock per stat type, because each type runs N
+ * replicas, and the types are staggered rather than fired together. Retention runs once
+ * daily, off-peak.</p>
  *
  * <p><strong>Pre-creation runs before retention, in that order, in one pass.</strong> They
  * are two halves of one job — the same lock, the same schedule, the same partition set —
@@ -30,13 +30,13 @@ import org.springframework.stereotype.Component;
  * before tomorrow exists. Two separately scheduled tasks on one cron would have left the
  * order to whatever the scheduler happened to register first.</p>
  *
- * <p><strong>Pre-creation covers the whole retention window, not just the days ahead
- * (DL-149).</strong> The range ensured on every pass is {@code [cutoffDay, today +
+ * <p><strong>Pre-creation covers the whole retention window, not just the days ahead.
+ * </strong> The range ensured on every pass is {@code [cutoffDay, today +
  * pre-create-days]}, both ends from {@link RetentionWindow} — the same cutoff the sweep
  * drops on and the guard admits on. Ahead-only pre-creation left every retained day
  * before first deployment, and every day a scheduled run missed, without a partition;
  * a valid record for such a day — a gateway back from three weeks offline, exactly the
- * path STA-23B says is normal — failed its INSERT with SQLSTATE 23514 and was
+ * path retention on {@code ts.device} makes normal — failed its INSERT with SQLSTATE 23514 and was
  * dead-lettered as <em>permanent</em>, where a redrive re-derives the same verdict
  * forever. Empty partitions are catalogue entries; a lost record is a lost record.</p>
  *
@@ -46,8 +46,8 @@ import org.springframework.stereotype.Component;
  * {@link #maintainOnSchedule()} runs on the cron in an already-serving process, where
  * killing four healthy stat types because a fifth failed would be the worse
  * outcome, so it isolates each type and logs at ERROR. Both are loud; only one is
- * fatal. ADR-003 D1 requires the loudness — "a silent failure here stops ingestion
- * for a whole stat type".</p>
+ * fatal. The loudness is required: a silent failure here stops ingestion
+ * for a whole stat type.</p>
  *
  * <p>Retention is isolated from pre-creation within a type as well. They fail for
  * unrelated reasons — pre-creation needs DDL permission and a correct horizon, retention
@@ -93,7 +93,7 @@ public class PartitionMaintenance {
      * cannot.
      *
      * <p>An insert with no matching partition fails with {@code no partition of
-     * relation ... found for row}. Under the T-020 manual-ACK contract that failure
+     * relation ... found for row}. Under the manual-ACK contract that failure
      * leaves the delivery unacknowledged, so a writer started into an unpartitioned
      * table does not lose data — it wedges, silently, holding its whole prefetch
      * window until someone restarts it. Refusing to start is the louder and cheaper
@@ -126,7 +126,7 @@ public class PartitionMaintenance {
     /**
      * One scheduled maintenance pass, isolating each stat type from the others.
      *
-     * <p>Types are taken in turn at their own stagger offset (ADR-003 D3). In the
+     * <p>Types are taken in turn at their own stagger offset. In the
      * production shape — one deployment per type, all five firing on the same cron — the
      * offset is what separates them; in development {@code all} mode it separates the five
      * passes inside one process. One mechanism covers both because the offset is derived
@@ -173,14 +173,14 @@ public class PartitionMaintenance {
     private void ensureOne(StatType type, String trigger) {
         // From the first retained day through the pre-creation horizon, inclusive. The
         // cutoff is RetentionWindow's, so the ensured set and the guard's admitted set
-        // cannot disagree (DL-133, DL-149); the sweep that follows drops strictly before
+        // cannot disagree; the sweep that follows drops strictly before
         // the same day, so the two halves of the pass never fight over one partition.
         LocalDate firstDay = window.cutoffDay(type);
         int daysAfterFirst = window.retentionDaysFor(type) + properties.preCreateDays();
         PartitionPrecreationResult result =
                 precreator.ensurePartitions(type, firstDay, daysAfterFirst);
         if (!result.lockAcquired()) {
-            // ADR-003 D3: another replica owns this type's maintenance run. Not an error.
+            // Another replica owns this type's maintenance run. Not an error.
             LOGGER.atDebug()
                     .addKeyValue("event", "partition_precreation_skipped")
                     .addKeyValue("statType", type.wireName())
@@ -265,7 +265,7 @@ public class PartitionMaintenance {
     /**
      * The types this deployment maintains.
      *
-     * <p>ADR-003 D8 deploys one instance per stat type in production, so this is
+     * <p>Production deploys one instance per stat type, so this is
      * normally exactly one. In development {@code all} mode it is discovered from the
      * catalogue, which lets a single local container grow as each type's migration
      * lands without this class enumerating them.</p>

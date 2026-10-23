@@ -9,14 +9,14 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Registers the two request bounds on the ingest paths, and only there (T-018).
+ * Registers the two request bounds on the ingest paths, and only there.
  *
  * <p>Scoping them to the two {@code stats.input.endpoint.*-path} values is deliberate. A rate limit
  * covering {@code /actuator/health/readiness} would let ingest load fail the container
  * health check and take the instance out of rotation — an incident manufactured by the
- * defence against one (D13, D-10).</p>
+ * defence against one.</p>
  *
- * <p>Both ingest doors share <em>one</em> rate-limit bucket (DL-151). The limit exists
+ * <p>Both ingest doors share <em>one</em> rate-limit bucket. The limit exists
  * to protect this instance, and the instance does not have twice the capacity because
  * it has two paths; a per-door budget would let the two together exceed what the
  * publisher was sized for.</p>

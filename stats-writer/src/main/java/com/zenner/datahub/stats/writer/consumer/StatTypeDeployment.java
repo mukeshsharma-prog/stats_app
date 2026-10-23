@@ -5,8 +5,7 @@ import java.util.Objects;
 import org.springframework.core.env.Environment;
 
 /**
- * The one reading of {@code stats.writer.stat-type} that every per-type condition shares
- * (ADR-003 D8; T-035, DL-148).
+ * The one reading of {@code stats.writer.stat-type} that every per-type condition shares.
  *
  * <p>Held here rather than on the lorastats condition so that a sibling type's condition
  * does not import a constant from another type's file — the second type is the moment
@@ -19,15 +18,15 @@ public final class StatTypeDeployment {
 
     /**
      * The start of every consumer's {@code @RabbitListener(autoStartup = …)} expression;
-     * each consumer appends only its wire name and {@link #AUTO_STARTUP_SUFFIX} (DL-167).
+     * each consumer appends only its wire name and {@link #AUTO_STARTUP_SUFFIX}.
      */
     public static final String AUTO_STARTUP_PREFIX = "#{@statsMessageProcessorAvailability.available('";
 
     /**
-     * Closes the expression and applies Spring's own listener switch to EVERY type alike
-     * (DL-167). An explicit {@code autoStartup} on {@code @RabbitListener} overrides the
+     * Closes the expression and applies Spring's own listener switch to EVERY type alike.
+     * An explicit {@code autoStartup} on {@code @RabbitListener} overrides the
      * container factory, so {@code spring.rabbitmq.listener.simple.auto-startup} reaches a
-     * listener only if its expression names it. Before DL-167 two consumers named it and
+     * listener only if its expression names it. Once, two consumers named it and
      * three did not: {@code false} silently stopped two of five types. Held once here so
      * the five consumers cannot drift apart again; {@code ConsumerAutoStartupIsUniformTest}
      * checks every listener against it.

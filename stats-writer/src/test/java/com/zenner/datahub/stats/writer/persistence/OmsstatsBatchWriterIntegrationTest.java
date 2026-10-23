@@ -34,10 +34,10 @@ import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
- * Real PostgreSQL proof of the omsstats writer (T-036): the per-type parse ADR-003 calls
- * for, the integer-to-{@code BIGINT} range check on a type with no string coercion, the
- * D14b residue, the passthrough projection — {@code ts.converter} preserved and not acted
- * on (ADR-004) — canonical {@code clsbox} and idempotency.
+ * Real PostgreSQL proof of the omsstats writer: the per-type parse, the
+ * integer-to-{@code BIGINT} range check on a type with no string coercion, the
+ * {@code data_extra} residue, the passthrough projection — {@code ts.converter} preserved and not acted
+ * on — canonical {@code clsbox} and idempotency.
  */
 @SpringBootTest(
         classes = StatsWriterApplication.class,
@@ -108,7 +108,7 @@ class OmsstatsBatchWriterIntegrationTest {
     }
 
     /**
-     * ADR-004 as amended by ADR-007 §2: {@code ts.converter} is on every production omsstats
+     * {@code ts.converter} is on every production omsstats
      * record. It is preserved in {@code passthrough} in the wire's own units and nothing
      * derives from it — {@code ts_server} and {@code ts_device} are exactly what arrived.
      */
@@ -138,7 +138,7 @@ class OmsstatsBatchWriterIntegrationTest {
         assertThat(passthrough.path("status").get(0).asText()).isEqualTo("conversion ok");
     }
 
-    /** DL-146's other spelling: {@code expiresOn} as Extended JSON survives verbatim. */
+    /** The other spelling: {@code expiresOn} as Extended JSON survives verbatim. */
     @Test
     void preservesExpiresOnInTheExtendedJsonFormTheDatastoreReturns() throws Exception {
         StatsEnvelope record =
@@ -160,7 +160,7 @@ class OmsstatsBatchWriterIntegrationTest {
     }
 
     /**
-     * STA-04C on a type with no string coercion. The schema types every member as
+     * The range check on a type with no string coercion. The schema types every member as
      * {@code integer} with no maximum, and JSON Schema's integer has no width, so
      * {@code 9223372036854775808} is schema-valid; the column cannot hold it. The record is
      * refused before any conversion and nothing is written — the alternative, a wrapped or
@@ -186,7 +186,7 @@ class OmsstatsBatchWriterIntegrationTest {
             assertThat(classifier.isPermanent(failure)).isTrue();
         });
         assertThat(storedCount("counter-overflow")).isZero();
-        // Counted as a payload nobody can map, NOT as a database write failure (DL-126).
+        // Counted as a payload nobody can map, NOT as a database write failure.
         assertThat(payloadRejected(WriterGateMetrics.REASON_UNMAPPABLE)).isEqualTo(unmappableBefore + 1.0d);
         assertThat(counter(LorastatsBatchWriter.WRITE_FAILED_METRIC)).isEqualTo(writeFailedBefore);
     }
@@ -231,7 +231,7 @@ class OmsstatsBatchWriterIntegrationTest {
         double duplicatesBefore = counter(LorastatsBatchWriter.DUPLICATE_METRIC);
         StatsEnvelope first = envelope("duplicate-proof", "tenant-a", completeData());
         // Same (ts_device, uid), a different tenant: tenant is deliberately NOT in the
-        // key (ADR-003), and this counter is what would reveal a cross-tenant collision.
+        // key, and this counter is what would reveal a cross-tenant collision.
         StatsEnvelope second = envelope("duplicate-proof", "tenant-b", completeData());
 
         assertThat(writer.write(List.of(admitted(first), admitted(second))))
@@ -284,7 +284,7 @@ class OmsstatsBatchWriterIntegrationTest {
 
     /**
      * A stored record rebuilds into the record that was received, member for member and
-     * value for value — the promise the API will make (ADR-003 D2, ADR-007 §2).
+     * value for value — the promise the API will make.
      */
     @Test
     void aStoredRecordRebuildsIntoTheRecordThatWasReceived() throws Exception {

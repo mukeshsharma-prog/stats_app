@@ -56,7 +56,7 @@ public final class NetstatsConsumer {
         // Count before decoding so malformed records remain observable.
         consumed.increment();
         // Sampled at entry: this delivery was the head of a FIFO queue when the broker
-        // handed it over, so its age is the queue's oldest-message age (T-050, DL-147).
+        // handed it over, so its age is the queue's oldest-message age.
         queueAge.observe(NetstatsConsumerDescriptor.TYPE, message);
         Timer.Sample sample = Timer.start(registry);
         try (WriterLogContext.Scope ignored =
@@ -67,7 +67,7 @@ public final class NetstatsConsumer {
                         .process(NetstatsConsumerDescriptor.TYPE, message);
             } catch (InterruptedException shutdown) {
                 // Lifecycle, not a failed record: leave the original unacknowledged so
-                // closing the channel returns it to its main queue (DL-143).
+                // closing the channel returns it to its main queue.
                 Thread.currentThread().interrupt();
                 throw shutdown;
             } catch (Exception failure) {
@@ -75,7 +75,7 @@ public final class NetstatsConsumer {
                     failedDeliveryRouter.route(NetstatsConsumerDescriptor.TYPE, message, failure);
                 } catch (UnconfirmedHandoffException unconfirmed) {
                     // The onward copy may not exist, so the original must not be ACKed —
-                    // and must not be stranded unacknowledged either (DL-168).
+                    // and must not be stranded unacknowledged either.
                     failedDeliveryRouter.requeueUnconfirmed(
                             NetstatsConsumerDescriptor.TYPE, message, channel);
                     return;

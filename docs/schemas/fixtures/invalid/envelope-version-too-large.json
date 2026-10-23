@@ -18,5 +18,5 @@
     "runable": "2/139"
   },
   "version": 40000,
-  "$comment": "version 40000 exceeds the envelope's maximum of 32767, the smallint record_version column (DL-168). Before that, Input answered 200 and the Writer's narrowing threw a transient error: 35.5 minutes of retries, then the DLQ."
+  "$comment": "version 40000 exceeds the envelope's maximum of 32767, the smallint record_version column. Before that, Input answered 200 and the Writer's narrowing threw a transient error: 35.5 minutes of retries, then the DLQ."
 }

@@ -142,7 +142,7 @@ class LteNetstatsReadIntegrationTest extends ApiIntegrationTest {
 
     /**
      * Everything goes back exactly as stored except {@code imsi}, which leaves the API
-     * masked on every route (D-12 P3, DL-167): same length, the carrier prefix and at most
+     * masked on every route: same length, the carrier prefix and at most
      * the last four digits visible, and the raw value nowhere in the response.
      */
     private static void assertReadBack(JsonNode actual, ObjectNode stored) {

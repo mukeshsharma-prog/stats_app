@@ -15,7 +15,7 @@ import org.springframework.test.util.ReflectionTestUtils;
  * Keeps the writer's field mapping in step with the normative schema.
  *
  * <p>{@code MAPPED_DATA_FIELDS} decides what goes into a typed column and what is
- * preserved in {@code data_extra} (D14b). If the schema gains a member and this set
+ * preserved in {@code data_extra}. If the schema gains a member and this set
  * does not, that member silently starts landing in {@code data_extra} instead of its
  * column — valid JSON, no error, and invisible until someone queries for a column
  * that is always null. Deriving the expectation from
@@ -47,7 +47,7 @@ class LorastatsColumnMappingTest {
      * The envelope members that are preserved but never read must reach the database
      * too. They are not in {@code data}, so the mapping test above cannot see them,
      * and every one of them is optional — which is exactly why dropping them stayed
-     * invisible (ADR-004, ADR-007 §2).
+     * invisible.
      */
     @Test
     void theInsertStatementCarriesTheAdr003EnvelopeColumns() {
@@ -65,7 +65,7 @@ class LorastatsColumnMappingTest {
     /**
      * The union of the three dialect branches, folded back to canonical (bare) spelling.
      *
-     * <p>Since T-063 the schema's {@code data} is a {@code oneOf} of three branches
+     * <p>The schema's {@code data} is a {@code oneOf} of three branches
      * rather than one property map, and the union is the right question to ask of it: a
      * member that has a typed column must be named by whichever branch can carry it, and
      * the Writer normalises {@code lora_}-prefixed names to bare ones before the INSERT,
@@ -90,7 +90,7 @@ class LorastatsColumnMappingTest {
                 }
             }
             assertThat(dialects)
-                    .as("data.oneOf — the closed three-dialect enumeration (DL-105)")
+                    .as("data.oneOf — the closed three-dialect enumeration")
                     .isNotNull();
             assertThat(dialects)
                     .as("the enumeration is CLOSED AT THREE; a fourth branch is a decision")

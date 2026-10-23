@@ -22,5 +22,5 @@
     },
     "timespan": 300
   },
-  "$comment": "wwan interface absent. Q4a answered 18 Aug 2026: eth0 and wwan are MANDATORY. PAYLOAD failure, so Input returns 200 and publishes, and the WRITER dead-letters it (ADR-007 \u00a75)."
+  "$comment": "wwan interface absent. Decided 18 Aug 2026: eth0 and wwan are MANDATORY. PAYLOAD failure, so Input returns 200 and publishes, and the WRITER dead-letters it."
 }

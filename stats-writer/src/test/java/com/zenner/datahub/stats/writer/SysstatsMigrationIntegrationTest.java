@@ -20,8 +20,8 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
- * V6 (T-035) carries every invariant the lorastats table reached across V1..V5, from
- * its first row: the partition key and key order, the two ADR-003 indexes and no
+ * V6 carries every invariant the lorastats table reached across V1..V5, from
+ * its first row: the partition key and key order, the two indexes and no
  * third, {@code data_extra}, and the canonical-{@code clsbox} CHECK.
  */
 @SpringBootTest(
@@ -155,7 +155,7 @@ class SysstatsMigrationIntegrationTest {
                 });
     }
 
-    /** DL-115: the table itself refuses a non-canonical clsbox, whatever bypassed the Writer. */
+    /** The table itself refuses a non-canonical clsbox, whatever bypassed the Writer. */
     @Test
     void theTableRefusesANonCanonicalClsboxEvenWhenTheWriterIsBypassed() {
         assertThatThrownBy(() -> insertMinimumRow("lowercase-clsbox", "a1b2c3d4e5f6"))

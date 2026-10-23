@@ -122,7 +122,7 @@
             "uid": "prometheus"
           },
           "expr": "sum (rate(records_expired_on_arrival_total[5m]))",
-          "legendFormat": "expired on arrival (D5b)",
+          "legendFormat": "expired on arrival",
           "refId": "D"
         }
       ],
@@ -134,7 +134,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "One going to zero is the DL-105 residual: a dialect being retired.",
+      "description": "One going to zero means a dialect is being retired upstream.",
       "fieldConfig": {
         "defaults": {
           "unit": "reqps"
@@ -168,7 +168,7 @@
           "refId": "A"
         }
       ],
-      "title": "lorastats dialect mix / s (DL-127)",
+      "title": "lorastats dialect mix / s",
       "type": "timeseries"
     },
     {
@@ -176,7 +176,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Non-zero on ordinary traffic means Heimdal added a field \u2014 or a dialect was mapped from the wire shape (trap 22).",
+      "description": "Non-zero on ordinary traffic means Heimdal added a field \u2014 or a dialect was mapped from the wire shape instead of the normalised one.",
       "fieldConfig": {
         "defaults": {
           "unit": "reqps"
@@ -210,7 +210,7 @@
           "refId": "A"
         }
       ],
-      "title": "Unmapped data members preserved / s (D14b)",
+      "title": "Unmapped data members preserved / s",
       "type": "timeseries"
     },
     {
@@ -231,7 +231,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "write_failed means the INSERT was attempted and refused (DL-126). Retried through three tiers unless permanent.",
+      "description": "write_failed means the INSERT was attempted and refused. Retried through three tiers unless permanent.",
       "fieldConfig": {
         "defaults": {
           "unit": "reqps"
@@ -316,7 +316,7 @@
           "refId": "A"
         }
       ],
-      "title": "Payload rejected at the gate / s, by reason (DL-126)",
+      "title": "Payload rejected at the gate / s, by reason",
       "type": "timeseries"
     },
     {
@@ -408,7 +408,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Stored regardless (DL-108). The alert threshold is PROVISIONAL at 1% until the first 24 h set it (DL-128 residual).",
+      "description": "Stored regardless. The alert threshold is PROVISIONAL at 1% until the first 24 h set it.",
       "fieldConfig": {
         "defaults": {
           "unit": "percentunit"
@@ -484,7 +484,7 @@
           "refId": "A"
         }
       ],
-      "title": "Expired on arrival / h (D5b \u2014 deliberate loss)",
+      "title": "Expired on arrival / h (deliberate loss)",
       "type": "timeseries"
     },
     {
@@ -602,7 +602,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Sampled at delivery; stops moving when deliveries stop \u2014 read with 'no consumer' and 'consumer stalled' (DL-147). Alert at 300 s / 1,800 s.",
+      "description": "Sampled at delivery; stops moving when deliveries stop \u2014 read with 'no consumer' and 'consumer stalled'. Alert at 300 s / 1,800 s.",
       "fieldConfig": {
         "defaults": {
           "thresholds": {
@@ -653,7 +653,7 @@
           "refId": "A"
         }
       ],
-      "title": "Oldest message age on app_statsstore.<type> (T-050)",
+      "title": "Oldest message age on app_statsstore.<type>",
       "type": "timeseries"
     },
     {
@@ -661,7 +661,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "A failed poll writes NaN into every broker gauge by design (DL-137). When this is 0 the depth and age panels are blind, not empty.",
+      "description": "A failed poll writes NaN into every broker gauge by design. When this is 0 the depth and age panels are blind, not empty.",
       "fieldConfig": {
         "defaults": {
           "thresholds": {
@@ -716,7 +716,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Under jitter a cyclic depth spike is evidence the jitter answer is wrong, not the buffer working (DL-104).",
+      "description": "Under jitter a cyclic depth spike is evidence the jitter answer is wrong, not the buffer working.",
       "fieldConfig": {
         "defaults": {
           "unit": "short"
@@ -750,7 +750,7 @@
           "refId": "A"
         }
       ],
-      "title": "Main queue depth (diagnostic \u2014 never the alert, Q13b)",
+      "title": "Main queue depth (diagnostic \u2014 never the alert)",
       "type": "timeseries"
     },
     {
@@ -805,7 +805,7 @@
           "refId": "A"
         }
       ],
-      "title": "DLQ depth (T-060) \u2014 no TTL, manual disposition within 14 days",
+      "title": "DLQ depth \u2014 no TTL, manual disposition within 14 days",
       "type": "timeseries"
     },
     {
@@ -928,7 +928,7 @@
       },
       "id": 23,
       "panels": [],
-      "title": "Retention \u2014 the sweep reports; nothing here is polled (DL-132, DL-156)",
+      "title": "Retention \u2014 the sweep reports; nothing here is polled",
       "type": "row"
     },
     {
@@ -936,7 +936,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "NaN until the first sweep on a replica (DL-156). Sits just under the window when healthy; climbing past it means the sweep has stopped.",
+      "description": "NaN until the first sweep on a replica. Sits just under the window when healthy; climbing past it means the sweep has stopped.",
       "fieldConfig": {
         "defaults": {
           "unit": "d"
@@ -987,7 +987,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Only the lock winner stamps it (D8) \u2014 max across replicas. Empty means no replica has ever swept: StatsAppRetentionSweepMissing after 26 h.",
+      "description": "Only the lock winner stamps it \u2014 max across replicas. Empty means no replica has ever swept: StatsAppRetentionSweepMissing after 26 h.",
       "fieldConfig": {
         "defaults": {
           "thresholds": {
@@ -1207,7 +1207,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "The advisory lock is session-level: a connection that never returns to idle after maintenance is the leak T-054 guards against.",
+      "description": "The advisory lock is session-level: a connection that never returns to idle after maintenance is the leak the sweep-missing alert guards against.",
       "fieldConfig": {
         "defaults": {
           "unit": "short"

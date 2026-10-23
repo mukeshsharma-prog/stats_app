@@ -22,5 +22,5 @@
   ],
   "$expect": "writer-dlq",
   "$expectCode": "payload_schema",
-  "$comment": "Synthetic. etxt NEXT TO a partial measurement (rssi and plmn, no access_Technology). Matches NEITHER shape of the closed ltestats oneOf (DL-146): shapeUnknownTechnology forbids additional members, shapeMeasured requires access_Technology/operator/imsi/lac/cid. PAYLOAD failure: accepted by Input (the envelope is fine), dead-lettered by the WRITER (ADR-007 section 5). This is the ltestats counterpart of lorastats-dialect-unknown.json - the enumeration is closed at two, and half a measurement is not a known shape."
+  "$comment": "Synthetic. etxt NEXT TO a partial measurement (rssi and plmn, no access_Technology). Matches NEITHER shape of the closed ltestats oneOf: shapeUnknownTechnology forbids additional members, shapeMeasured requires access_Technology/operator/imsi/lac/cid. PAYLOAD failure: accepted by Input (the envelope is fine), dead-lettered by the WRITER. This is the ltestats counterpart of lorastats-dialect-unknown.json - the enumeration is closed at two, and half a measurement is not a known shape."
 }

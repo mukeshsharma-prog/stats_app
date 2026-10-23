@@ -10,7 +10,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 /**
- * The two values that cannot be wrong quietly (T-024, G4).
+ * The two values that cannot be wrong quietly.
  *
  * <p>A zero delay turns the retry arm into a hot loop against a database that is
  * already failing and spends the whole attempt budget in milliseconds; a
@@ -68,7 +68,7 @@ class WriterAmqpPropertiesTest {
     }
 
     @Test
-    @DisplayName("a zero unconfirmed-hand-off requeue delay refuses to start — rule 5, DL-168")
+    @DisplayName("a zero unconfirmed-hand-off requeue delay refuses to start")
     void unconfirmedHandoffRequeueDelayMustBePositive() {
         assertThatIllegalArgumentException()
                 .isThrownBy(

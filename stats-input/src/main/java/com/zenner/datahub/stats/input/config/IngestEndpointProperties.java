@@ -8,7 +8,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 /**
  * The inbound HTTP surface — {@code stats.input.endpoint}.
  *
- * <p><strong>Two paths, one behaviour (DL-151, 21 Sep 2026).</strong> Management asked
+ * <p><strong>Two paths, one behaviour (21 Sep 2026).</strong> Management asked
  * for two ingest endpoints: one for <em>internal</em> callers — Heimdal Core — and one
  * for <em>external</em> callers. Both run the same gate, the same publisher, the same
  * confirm-then-2xx rule, the same size and rate bounds and the same authentication
@@ -16,12 +16,13 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * them separately and so that every metric and log line says which door the record
  * came through ({@link IngestSource}). The split is therefore observability plus an
  * ingress rule — it is <em>not</em> a second authentication mechanism and it does
- * <em>not</em> bind the record's {@code tenant} to the caller. That residual is recorded
- * in DL-151, not hidden here.</p>
+ * <em>not</em> bind the record's {@code tenant} to the caller: anything that can reach
+ * the external path can write under any tenant's name. Keep that path off any shared
+ * network until a token-tenant check exists.</p>
  *
  * <p>The success code is the <em>draft</em> one from
  * {@code docs/contracts/heimdal-input-contract-v1.md} §2 — "200 or 202, exact code
- * pending" — and the paths are drafts under D-03. All three are externalised so ZC's
+ * pending" — and the paths are drafts until ZC confirms them. All three are externalised so ZC's
  * answer is a property change rather than a code change, and the success code is
  * constrained to the two the contract actually admits — a deployment cannot quietly
  * start returning 204, which would tell Heimdal "accepted" with no body and no
@@ -86,7 +87,7 @@ public record IngestEndpointProperties(String internalPath, String externalPath,
         if (path.startsWith("/actuator")) {
             // The ingest filters — size, rate, authentication — are registered on these
             // paths. Put one under /actuator and the readiness probe the container
-            // health-checks with would be rate-limited and authenticated (D13, D-10).
+            // health-checks with would be rate-limited and authenticated.
             throw new IllegalArgumentException(property + " must not be under /actuator");
         }
     }

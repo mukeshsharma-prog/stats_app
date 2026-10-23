@@ -36,22 +36,21 @@ import org.springframework.transaction.TransactionException;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * Individual, idempotent sysstats inserts behind the batch-shaped contract (T-035,
- * DL-148; STA-21A, STA-25A, STA-27A; ADR-003 D2/D7, ADR-005, D14/D14b, DL-115).
+ * Individual, idempotent sysstats inserts behind the batch-shaped contract.
  *
  * <p>A sibling of {@link LorastatsBatchWriter} with the same two-stage shape — bind the
  * row outside any transaction, then let the database have its turn — and the same
- * three metered outcomes. What differs is the parse, and ADR-003 says it must:
- * <em>"the parse is per type, not one shared coercion"</em>. sysstats has one dialect
+ * three metered outcomes. What differs is the parse, as it must:
+ * <em>the parse is per type, not one shared coercion</em>. sysstats has one dialect
  * and no {@code lora_} spelling, so there is no normaliser; but it is the type where
  * {@code timespan} is the <strong>string</strong> {@code "300"} while every other type
  * sends an integer, and where the load averages and uptimes are real numbers rather
  * than counters. Each column is parsed for what the wire actually sends, and the one
  * digit-string is range-checked against {@code BIGINT} <em>before</em> conversion
- * (STA-04C) — an overflow dead-letters, and is never zeroed or truncated.</p>
+ * — an overflow dead-letters, and is never zeroed or truncated.</p>
  *
- * <p>Unknown {@code data} members go to {@code data_extra} verbatim and are metered
- * (D14b). The schema is {@code additionalProperties: true}, so a member Heimdal adds
+ * <p>Unknown {@code data} members go to {@code data_extra} verbatim and are metered.
+ * The schema is {@code additionalProperties: true}, so a member Heimdal adds
  * between releases is valid and must survive the INSERT.</p>
  */
 @Component(SysstatsConsumerDescriptor.BATCH_WRITER_BEAN)
@@ -120,7 +119,7 @@ public final class SysstatsBatchWriter implements StatsBatchWriter {
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
         this.gateMetrics = Objects.requireNonNull(gateMetrics, "gateMetrics");
         // The gate's and retention's series for this type export at zero from startup
-        // too (DL-158): a deployed type is exactly one with a writer, and a series that
+        // too: a deployed type is exactly one with a writer, and a series that
         // waits for its first event or its first maintenance pass is absent until then.
         gateMetrics.registerFor(TYPE);
         Objects.requireNonNull(retentionMetrics, "retentionMetrics").registerFor(TYPE);
@@ -136,7 +135,7 @@ public final class SysstatsBatchWriter implements StatsBatchWriter {
                 Counter.builder(LorastatsBatchWriter.UNMAPPED_DATA_METRIC)
                         .description(
                                 "Records carrying a data member the schema does not name, "
-                                        + "preserved in data_extra (D14b)")
+                                        + "preserved in data_extra")
                         .tag("type", TYPE.wireName())
                         .register(meterRegistry);
         this.writeFailures =
@@ -170,7 +169,7 @@ public final class SysstatsBatchWriter implements StatsBatchWriter {
 
         List<RecordWriteResult> results = new ArrayList<>(records.size());
         for (int index = 0; index < records.size(); index++) {
-            // Two stages, two failure meanings (DL-126): binding is payload work and
+            // Two stages, two failure meanings: binding is payload work and
             // opens no transaction; the INSERT is the database's turn. A record nobody
             // can map is `unmappable`, never `write_failed`.
             final MapSqlParameterSource parameters;
@@ -205,7 +204,7 @@ public final class SysstatsBatchWriter implements StatsBatchWriter {
                 }
             } catch (RuntimeException failure) {
                 // Never silent, never dropped: the consumer hands the delivery to the
-                // failure arm. The failure is DESCRIBED, never passed (guard P2).
+                // failure arm. The failure is DESCRIBED, never passed.
                 writeFailures.increment();
                 if (isDatabaseFailure(failure)) {
                     postgresErrors.increment();
@@ -270,14 +269,14 @@ public final class SysstatsBatchWriter implements StatsBatchWriter {
                 .addValue("uid", requiredText(record.uid(), "uid"))
                 .addValue("tenant", requiredText(record.tenant(), "tenant"))
                 .addValue("maintenant", requiredText(record.maintenant(), "maintenant"))
-                // One canonical case before the index sees it (DL-115); Locale.ROOT so a
+                // One canonical case before the index sees it; Locale.ROOT so a
                 // Turkish-locale host cannot map 'i' outside A-F and fail the CHECK.
                 .addValue(
                         "clsbox",
                         requiredText(record.clsbox(), "clsbox").toUpperCase(Locale.ROOT))
                 .addValue("ts_server", timestamp(ts.server(), "ts.server"))
                 .addValue("ts_device", timestamp(ts.device(), "ts.device"))
-                // Stored as received, never a discriminator (ADR-007 §4).
+                // Stored as received, never a discriminator.
                 .addValue("record_version", shortOrNull(record.version()), Types.SMALLINT)
                 // Which of OUR schemas admitted the row, from the validator's result.
                 .addValue("schema_version", validated.schemaVersion())
@@ -298,7 +297,7 @@ public final class SysstatsBatchWriter implements StatsBatchWriter {
                 .addValue("wan_if", optionalString(data, "wan_if"), Types.VARCHAR)
                 .addValue("rebootcause", optionalString(data, "rebootcause"), Types.VARCHAR)
                 // The string "300": digits on the wire, BIGINT in the column, and the
-                // range check happens BEFORE the narrowing conversion (STA-04C).
+                // range check happens BEFORE the narrowing conversion.
                 .addValue(
                         "timespan",
                         WireNumbers.optionalDigitString(data, "timespan", WireNumbers.Sign.UNSIGNED),
@@ -308,7 +307,7 @@ public final class SysstatsBatchWriter implements StatsBatchWriter {
 
     /**
      * The envelope members production sends that this system preserves and never
-     * reads (ADR-003, ADR-007 §2, DL-146), in the wire's own shape and units — the same
+     * reads, in the wire's own shape and units — the same
      * projection the lorastats writer stores, so the API reads one {@code passthrough}
      * shape for every type.
      */
@@ -380,7 +379,7 @@ public final class SysstatsBatchWriter implements StatsBatchWriter {
             return null;
         }
         if (version < Short.MIN_VALUE || version > Short.MAX_VALUE) {
-            // Permanent: no redelivery changes the value (DL-168). The envelope refuses it at
+            // Permanent: no redelivery changes the value. The envelope refuses it at
             // Input now; this is the backstop for anything already queued.
             throw new PermanentFailureException("version does not fit the record_version column");
         }
@@ -389,7 +388,7 @@ public final class SysstatsBatchWriter implements StatsBatchWriter {
 
     private static String requiredText(String value, String field) {
         if (value == null || value.isBlank()) {
-            // Permanent, as above (DL-168): the envelope requires a non-blank value now.
+            // Permanent, as above: the envelope requires a non-blank value now.
             throw new PermanentFailureException(field + " must be present");
         }
         return value;

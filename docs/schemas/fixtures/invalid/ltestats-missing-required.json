@@ -18,5 +18,5 @@
     "lac": "63AE",
     "cid": "2648604"
   },
-  "$comment": "Mandatory data.access_Technology removed. Until 18 Sep 2026 this fixture removed rsrp, which DL-146 made OPTIONAL (a 2G modem reports neither rsrp nor rsrq) - so the field it omits had to move to one that is still required, or the fixture would have started validating and the gate would have failed for the right reason. PAYLOAD failure: accepted by Input, dead-lettered by the WRITER with code 'missing' on that field (ADR-007 \u00a75). Never a 400 -- Heimdal would never retry it."
+  "$comment": "Mandatory data.access_Technology removed. Until 18 Sep 2026 this fixture removed rsrp, which is now OPTIONAL (a 2G modem reports neither rsrp nor rsrq) - so the field it omits had to move to one that is still required, or the fixture would have started validating and the gate would have failed for the right reason. PAYLOAD failure: accepted by Input, dead-lettered by the WRITER with code 'missing' on that field. Never a 400 -- Heimdal would never retry it."
 }

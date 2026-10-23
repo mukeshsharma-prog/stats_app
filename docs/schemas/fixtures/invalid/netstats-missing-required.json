@@ -30,5 +30,5 @@
       "mask": "255.255.255.248"
     }
   },
-  "$comment": "RETARGETED 29 Aug 2026 (ADR-007 §5). This fixture used to remove data.wwan entirely, which duplicated netstats-missing-wwan.json. The interface required-set is now tx/rx ONLY - gw, ip, mask and dns became optional because production sends a down modem with no address at all. So this fixture now asserts the surviving interface-level requirement: a wwan that is fully addressed but reports no counters. Expect code 'missing' on /data/wwan/tx and /data/wwan/rx."
+  "$comment": "RETARGETED 29 Aug 2026. This fixture used to remove data.wwan entirely, which duplicated netstats-missing-wwan.json. The interface required-set is now tx/rx ONLY - gw, ip, mask and dns became optional because production sends a down modem with no address at all. So this fixture now asserts the surviving interface-level requirement: a wwan that is fully addressed but reports no counters. Expect code 'missing' on /data/wwan/tx and /data/wwan/rx."
 }

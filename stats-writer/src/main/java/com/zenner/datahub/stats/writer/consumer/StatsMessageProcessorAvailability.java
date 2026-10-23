@@ -16,7 +16,7 @@ import org.springframework.beans.factory.ObjectProvider;
  * <p>Selection is <strong>by stat type</strong>, never "the only bean of this
  * interface". Phase 3 adds four more processors; resolving by uniqueness would then
  * throw {@code NoUniqueBeanDefinitionException} and adding a type would break the
- * existing ones, which rule 6 forbids. Two processors claiming the same type is a
+ * existing ones, which a new type must never do. Two processors claiming the same type is a
  * configuration error and fails loudly rather than picking one.</p>
  */
 public final class StatsMessageProcessorAvailability {

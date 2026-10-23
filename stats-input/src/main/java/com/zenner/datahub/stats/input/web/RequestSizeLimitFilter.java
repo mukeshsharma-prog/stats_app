@@ -22,7 +22,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
  * Refuses a body larger than {@code stats.input.limits.max-request-bytes} with 413
- * (STA-06B, T-018; contract §2).
+ * (contract §2).
  *
  * <p><strong>Why this is not a container setting.</strong> The obvious implementation
  * is {@code server.tomcat.max-http-form-post-size}, and it does nothing here: that
@@ -77,7 +77,7 @@ public class RequestSizeLimitFilter extends OncePerRequestFilter {
         metrics.requestTooLarge(IngestLoggingFilter.source(request));
         IngestLogContext.errorCode(ErrorCode.PAYLOAD_TOO_LARGE);
         // The declared length is ours, not the sender's payload, so logging it discloses
-        // nothing (STA-03A).
+        // nothing.
         log.atWarn()
                 .addKeyValue("event", "request_too_large")
                 .addKeyValue("declaredBytes", declaredLength)

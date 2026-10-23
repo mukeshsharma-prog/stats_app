@@ -19,19 +19,18 @@ import org.junit.jupiter.api.Test;
  * key, schema filename, and table name derives from {@link StatType#wireName()}, so
  * adding an enum constant fans out for free — until someone writes
  * {@code if (type == NETSTATS)} or {@code "lorastats"} somewhere, at which point the
- * next type needs that site edited too and the fan-out is silently gone. (STA-14A,
- * STA-22)</p>
+ * next type needs that site edited too and the fan-out is silently gone.</p>
  *
- * <p>This does not forbid special-casing. ADR-003 D2 already requires one: `netstats`
- * is a `jsonb` hybrid where the other four are typed columns, and T-037 will need code
- * that knows it. What it forbids is <strong>undocumented</strong> special-casing —
+ * <p>This does not forbid special-casing. The storage design already requires one:
+ * `netstats` is a `jsonb` hybrid where the other four are typed columns, and its writer
+ * has code that knows it. What it forbids is <strong>undocumented</strong> special-casing —
  * every exception must be listed in {@link #JUSTIFIED_SPECIAL_CASES} with a reason,
  * which turns "someone quietly branched on a type" into a reviewed decision.</p>
  *
  * <p>Scanning is shared with the other guards in this package — see
  * {@link MainSourceScan}. Java main sources only. Per-type configuration keys such as
  * {@code stats.consumer.lorastats.prefetch} are legitimate and expected — per-type
- * concurrency and prefetch are a MUST (STA-11A) — so properties files are out of
+ * concurrency and prefetch are a MUST — so properties files are out of
  * scope.</p>
  */
 class StatTypeFanOutTest {
@@ -46,25 +45,25 @@ class StatTypeFanOutTest {
                     + "the identities are allowed to exist."),
             Map.entry("stats-writer/src/main/java/com/zenner/datahub/stats/writer/consumer/"
                     + "LorastatsConsumerDescriptor.java",
-            "T-019 requires one additive consumer artifact per type. The descriptor is "
+            "Each type gets one additive consumer artifact. The descriptor is "
                     + "the single identity point for that artifact; adding another type "
                     + "adds a sibling descriptor and never edits this one."),
             Map.entry("stats-writer/src/main/java/com/zenner/datahub/stats/writer/consumer/"
                     + "SysstatsConsumerDescriptor.java",
-            "The sysstats sibling of the above (T-035, DL-148): the one place the "
+            "The sysstats sibling of the above: the one place the "
                     + "sysstats identity is spelled in the Writer."),
             Map.entry("stats-writer/src/main/java/com/zenner/datahub/stats/writer/consumer/"
                     + "OmsstatsConsumerDescriptor.java",
-            "The omsstats sibling (T-036, DL-153): the one place the omsstats identity "
+            "The omsstats sibling: the one place the omsstats identity "
                     + "is spelled in the Writer."),
             Map.entry("stats-api/src/main/java/com/zenner/datahub/stats/api/query/LorastatsReader.java",
-            "The API's one per-type artifact (T-040, DL-162), as the consumer descriptor is "
+            "The API's one per-type artifact, as the consumer descriptor is "
                     + "the Writer's: the single place the lorastats identity is spelled in "
                     + "stats-api. A new type adds a sibling reader and never edits this one."),
             Map.entry("stats-api/src/main/java/com/zenner/datahub/stats/api/query/SysstatsReader.java",
-            "The sysstats sibling of the above (DL-162)."),
+            "The sysstats sibling of the above."),
             Map.entry("stats-api/src/main/java/com/zenner/datahub/stats/api/query/OmsstatsReader.java",
-            "The omsstats sibling of the above (DL-162)."),
+            "The omsstats sibling of the above."),
             Map.entry("stats-writer/src/main/java/com/zenner/datahub/stats/writer/consumer/LtestatsConsumerDescriptor.java", "Per-type consumer identity; additive sibling of the reference descriptor."),
             Map.entry("stats-writer/src/main/java/com/zenner/datahub/stats/writer/consumer/NetstatsConsumerDescriptor.java", "Per-type consumer identity; additive sibling of the reference descriptor."),
             Map.entry("stats-api/src/main/java/com/zenner/datahub/stats/api/query/LtestatsReader.java", "Per-type read identity; one reader per migrated table."),
@@ -88,8 +87,8 @@ class StatTypeFanOutTest {
         assertThat(offences)
                 .as(
                         "Main source must derive every per-type name from StatType.wireName(), "
-                                + "so a new type is an additive change (STA-22, trap 15). If a "
-                                + "branch is genuinely required — ADR-003 D2's netstats jsonb "
+                                + "so a new type is an additive change. If a "
+                                + "branch is genuinely required — the netstats jsonb "
                                 + "hybrid is the known case — add it to "
                                 + "JUSTIFIED_SPECIAL_CASES with the reason.")
                 .isEmpty();

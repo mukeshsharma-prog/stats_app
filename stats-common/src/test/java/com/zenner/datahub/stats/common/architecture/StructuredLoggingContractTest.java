@@ -11,7 +11,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 
-/** Build guard for the structured fields and payload boundary of T-005. */
+/** Build guard for the structured logging fields and the payload boundary. */
 class StructuredLoggingContractTest {
 
     private static final Pattern LOG_STATEMENT = Pattern.compile(
@@ -45,7 +45,7 @@ class StructuredLoggingContractTest {
 
         assertThat(statements).as("the guard must see the application's log statements").isGreaterThan(10);
         assertThat(offences)
-                .as("Every application-owned log statement needs a bounded T-005 event field")
+                .as("Every application-owned log statement needs a bounded event field")
                 .isEmpty();
     }
 

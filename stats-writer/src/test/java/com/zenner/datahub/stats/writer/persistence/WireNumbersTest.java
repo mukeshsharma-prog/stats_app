@@ -14,10 +14,10 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 /**
- * The one coercion, on every wire shape the five types send (T-062, STA-04C): the two
+ * The one coercion, on every wire shape the five types send: the two
  * halves that were built (lorastats dialect B, sysstats {@code "300"}, omsstats integers)
  * and the two that are not yet ({@code ltestats} signed strings, {@code netstats} nineteen-
- * digit counters), so that T-034 and T-037 have nothing left to write here.
+ * digit counters), so that their writers have nothing left to write here.
  */
 class WireNumbersTest {
 
@@ -155,7 +155,7 @@ class WireNumbersTest {
                 .hasMessage("data.absent must be present");
     }
 
-    /** Guard P2 (DL-124): a refusal names the field and never echoes the value. */
+    /** Guard P2: a refusal names the field and never echoes the value. */
     @Test
     void noRefusalEverCarriesThePayloadValue() throws Exception {
         String secret = "9223372036854775808";

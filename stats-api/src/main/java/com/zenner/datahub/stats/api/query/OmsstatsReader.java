@@ -9,8 +9,8 @@ import java.util.List;
 /**
  * {@code omsstats} (V7). Five integer members, all {@code NOT NULL bigint}. There is no
  * converter column and no normalised timestamp to read: {@code ts.converter} is in
- * {@code passthrough} and comes back verbatim with the other envelope members (ADR-004,
- * ADR-007 §2).
+ * {@code passthrough} and comes back verbatim with the other envelope members: the
+ * Stats App performs no timestamp normalisation.
  */
 public final class OmsstatsReader implements StatReader {
 

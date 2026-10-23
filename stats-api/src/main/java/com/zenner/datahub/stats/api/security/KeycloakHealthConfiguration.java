@@ -7,7 +7,7 @@ import org.springframework.context.annotation.Configuration;
 
 /**
  * Registers the issuer probe as the {@code keycloak} health contributor, which the
- * readiness group names (D13). {@code management.health.keycloak.enabled=false} removes
+ * readiness group names. {@code management.health.keycloak.enabled=false} removes
  * it — for tests that exercise authorization without a key server, never in a
  * deployment.
  */

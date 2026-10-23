@@ -24,5 +24,5 @@
   "status": [
     "conversion ok"
   ],
-  "$comment": "Shape of a live record as the datastore-stats aggregate endpoint returns it on 18 Sep 2026 (uid and clsbox synthesised): ts.expiresOn is MongoDB Extended JSON, {\"$date\": \"<ISO-8601>\"}, not the plain string of the 29 Aug 2026 sample. Which form the HTTP forward emits is OPEN (Q15e); the envelope accepts both since DL-146 because the value is a passthrough member that is stored verbatim and never read, and guessing wrong would have cost 100% of ingest. The Java model holds it as a JsonNode for the same reason. An epoch integer here is still invalid."
+  "$comment": "Shape of a live record as the datastore-stats aggregate endpoint returns it on 18 Sep 2026 (uid and clsbox synthesised): ts.expiresOn is MongoDB Extended JSON, {\"$date\": \"<ISO-8601>\"}, not the plain string of the 29 Aug 2026 sample. Which form the HTTP forward emits is OPEN; the envelope accepts both because the value is a passthrough member that is stored verbatim and never read, and guessing wrong would have cost 100% of ingest. The Java model holds it as a JsonNode for the same reason. An epoch integer here is still invalid."
 }

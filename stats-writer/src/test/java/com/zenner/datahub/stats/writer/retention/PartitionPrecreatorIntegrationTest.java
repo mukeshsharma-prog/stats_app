@@ -30,7 +30,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 import org.testcontainers.containers.PostgreSQLContainer;
 
-/** T-012 proof against the real PostgreSQL 17 partition and advisory-lock behavior. */
+/** Partition pre-creation against the real PostgreSQL 17 partition and advisory-lock behavior. */
 @SpringBootTest(
         classes = StatsWriterApplication.class,
         properties = {
@@ -107,7 +107,7 @@ class PartitionPrecreatorIntegrationTest {
                 .contains("FOR VALUES FROM")
                 .contains("2098-03-01")
                 .contains("2098-03-02");
-        // A new partition inherits the parent's whole ADR-003 index direction: the
+        // A new partition inherits the parent's whole index direction: the
         // primary key plus both indexes V3 creates. Asserting the shape rather than a
         // bare count means a partition created without the tenant-leading indexes --
         // which would silently scan in production -- fails here.

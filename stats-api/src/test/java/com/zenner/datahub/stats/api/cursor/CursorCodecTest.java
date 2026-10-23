@@ -22,7 +22,7 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 /**
- * T-042, STA-36A: a cursor is honoured only for exactly the walk it was issued for, under
+ * A cursor is honoured only for exactly the walk it was issued for, under
  * the tenant it was issued to, before it expires, unedited. Everything else is the same
  * {@code InvalidCursorException} — and, above it, the same {@code 400 invalid_cursor}.
  */

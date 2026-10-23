@@ -253,6 +253,14 @@
       "realmRoles": [
         "${STATS_READ_ONLY_ROLE:stats.readOnly}"
       ]
+    },
+    {
+      "username": "service-account-${STATS_INPUT_CLIENT_ID:stats-input}",
+      "enabled": true,
+      "serviceAccountClientId": "${STATS_INPUT_CLIENT_ID:stats-input}",
+      "realmRoles": [
+        "${STATS_INGEST_ROLE:stats.ingest}"
+      ]
     }
   ],
   "components": {

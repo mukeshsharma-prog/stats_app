@@ -10,7 +10,7 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Fail closed: the paging, window, cursor and security settings have no defaults in code,
- * and an unset or unsafe one stops the context (T-038, T-040, T-042; ADR-006).
+ * and an unset or unsafe one stops the context.
  */
 class ApiPropertiesTest {
 

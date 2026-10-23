@@ -12,7 +12,7 @@ import org.springframework.dao.QueryTimeoutException;
 import org.springframework.dao.TransientDataAccessResourceException;
 
 /**
- * Which failures skip the three retry tiers (T-024, DL-168).
+ * Which failures skip the three retry tiers.
  *
  * <p>The default is retry, and these tests keep it that way: only failures that the
  * same bytes will reproduce on every attempt are permanent.</p>
@@ -27,7 +27,7 @@ class FailureClassifierTest {
     void rowDeterminedSqlStatesArePermanent(String sqlState) {
         // 54000 is what an index row over 2,704 bytes raises; Spring translates it to
         // DataAccessResourceFailureException, which used to buy it 35½ minutes of retries
-        // for a verdict no retry could change (DL-168).
+        // for a verdict no retry could change.
         Throwable translated =
                 new DataAccessResourceFailureException(
                         "translated", new SQLException("driver message", sqlState));

@@ -35,7 +35,7 @@ class SysstatsColumnMappingTest {
 
         assertThat(SysstatsBatchWriter.REQUIRED_FIELDS).containsExactlyInAnyOrderElementsOf(required);
         assertThat(SysstatsBatchWriter.OPTIONAL_FIELDS).doesNotContainAnyElementsOf(required);
-        // The one wire-type trap this type carries (ADR-007 §6): timespan is a STRING here.
+        // The one wire-type trap this type carries: timespan is a STRING here.
         assertThat(data.path("properties").path("timespan").path("type").asText()).isEqualTo("string");
         assertThat(SysstatsBatchWriter.OPTIONAL_FIELDS).contains("timespan");
     }

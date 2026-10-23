@@ -48,7 +48,7 @@ class TimestampsTest {
 
     @Test
     void keepsExpiresOnInExtendedJsonFormAndDeviceOrigWhenHeimdalSendsThem() throws Exception {
-        // Live records on 18 Sep 2026 (DL-146): expiresOn as Mongo Extended JSON rather
+        // Live records on 18 Sep 2026: expiresOn as Mongo Extended JSON rather
         // than a plain string, and deviceOrig holding the gateway's own clock after
         // Heimdal rewrote device. Both must survive the typed view untouched - a String
         // field would have thrown on the first, and ignoreUnknown would have silently

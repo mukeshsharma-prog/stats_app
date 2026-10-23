@@ -6,9 +6,9 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 /**
  * Module 3 — Stats API.
  *
- * <p>Read-only, versioned, Keycloak-secured REST endpoints (STA-32, STA-38).
+ * <p>Read-only, versioned, Keycloak-secured REST endpoints.
  * GET only — no write verb is exposed, ever. Every query is scoped to the
- * {@code tenant} derived from the validated token claim (STA-35).
+ * {@code tenant} derived from the validated token claim.
  */
 @SpringBootApplication
 public class StatsApiApplication {

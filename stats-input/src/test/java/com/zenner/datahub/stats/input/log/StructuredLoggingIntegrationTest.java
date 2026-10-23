@@ -65,7 +65,7 @@ class StructuredLoggingIntegrationTest {
         assertThat(event.path("tenant").asText()).isEqualTo("mzc");
         assertThat(event.path("clsbox").asText()).isEqualTo("04B64810652B");
         assertThat(event.path("errorCode").asText()).isEqualTo("none");
-        // DL-151: which door, on every line of the request.
+        // Which door, on every line of the request.
         assertThat(event.path("ingestSource").asText()).isEqualTo("internal");
 
         assertThat(line)

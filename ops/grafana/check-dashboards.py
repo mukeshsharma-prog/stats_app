@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CI gate for the Grafana dashboards and the Prometheus rule files (T-056, DL-158).
+"""CI gate for the Grafana dashboards and the Prometheus rule files.
 
 Three checks, each for a failure that is silent in Grafana:
 
@@ -12,7 +12,7 @@ Three checks, each for a failure that is silent in Grafana:
      suffixes), or one of the named infrastructure series below. A panel over a series
      that does not exist renders as an empty graph, indistinguishable from "nothing
      happened", which is the one thing a dashboard must never say by accident.
-  3. No broker or retention GAUGE is aggregated with sum (DL-137). Each Writer replica
+  3. No broker or retention GAUGE is aggregated with sum. Each Writer replica
      polls the same shared queue; summing N replicas reports N times the backlog.
 
 Exit code is non-zero on any failure, so CI can gate on it.
@@ -40,7 +40,7 @@ INFRASTRUCTURE_SERIES = {
     "hikaricp_connections_active", "jvm_memory_used_bytes", "process_uptime_seconds",
     "http_server_requests_seconds_count", "http_server_requests_seconds_sum", "http_server_requests_seconds_max",
     # postgres_exporter: three from the built-in pg_stat_archiver collector, verified on a
-    # live scrape on 22 Sep 2026 (DL-160) -- and pg_settings_archive_mode, which the built-in
+    # live scrape on 22 Sep 2026 -- and pg_settings_archive_mode, which the built-in
     # settings collector does NOT export (archive_mode is an enum). It exists only because
     # ops/postgres-exporter/queries.yml defines it; keep the name in step with that file.
     "pg_up", "pg_stat_archiver_failed_count", "pg_stat_archiver_last_archive_age", "pg_settings_archive_mode",
@@ -49,10 +49,10 @@ INFRASTRUCTURE_SERIES = {
 # Application series whose name is composed at runtime, so the literal scan cannot see
 # them. Each entry says where the composition is; a new entry is a reviewed decision.
 COMPOSED_APPLICATION_SERIES = {
-    "records_lorastats_dialect": "LorastatsBatchWriter.DIALECT_METRIC = \"records_\" + wireName + \"_dialect\" (DL-127)",
+    "records_lorastats_dialect": "LorastatsBatchWriter.DIALECT_METRIC = \"records_\" + wireName + \"_dialect\"",
 }
 
-# Gauges that describe ONE shared resource observed by every replica (DL-137, DL-156).
+# Gauges that describe ONE shared resource observed by every replica.
 SHARED_GAUGES = {
     "queue_depth", "dlq_depth", "consumer_availability", "queue_oldest_message_age_seconds",
     "broker_metrics_collection_success", "broker_metrics_last_success_timestamp_seconds",
@@ -131,7 +131,7 @@ def main():
             if not is_known(metric, bases):
                 failures.append(f"{where}: `{metric}` is not a series this project or a named exporter exports")
         for hit in SUM_OF_GAUGE.finditer(expr):
-            failures.append(f"{where}: sum over the shared gauge `{hit.group(1)}` — aggregate replicas with max (DL-137)")
+            failures.append(f"{where}: sum over the shared gauge `{hit.group(1)}` — aggregate replicas with max")
 
     print(f"{len(generated)} dashboards, {len(exprs)} expressions, {seen} metric references checked "
           f"against {len(bases)} application series and {len(INFRASTRUCTURE_SERIES)} infrastructure series")

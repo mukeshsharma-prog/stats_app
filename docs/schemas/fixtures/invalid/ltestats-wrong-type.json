@@ -19,5 +19,5 @@
     "lac": "63AE",
     "cid": "2648604"
   },
-  "$comment": "RETARGETED 29 Aug 2026 (ADR-007). This fixture used to assert that data.plmn as a STRING was the wrong type. Production sends every ltestats numeric as a string, so that assertion inverted: the string is now correct and the integer is the defect. data.rssi therefore carries an integer where the wire format is the string \"-52\". Expect code 'invalid_type', dead-lettered at the Writer, not 400 at Input - payload validation is the Writer's gate (ADR-007 §5). The response must NOT echo the offending value."
+  "$comment": "RETARGETED 29 Aug 2026. This fixture used to assert that data.plmn as a STRING was the wrong type. Production sends every ltestats numeric as a string, so that assertion inverted: the string is now correct and the integer is the defect. data.rssi therefore carries an integer where the wire format is the string \"-52\". Expect code 'invalid_type', dead-lettered at the Writer, not 400 at Input - payload validation is the Writer's gate. The response must NOT echo the offending value."
 }

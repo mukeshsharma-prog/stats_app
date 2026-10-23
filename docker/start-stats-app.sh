@@ -55,6 +55,8 @@ KEYCLOAK_JWK_SET_URI=
 KC_BOOTSTRAP_ADMIN_USERNAME=admin
 KC_BOOTSTRAP_ADMIN_PASSWORD=$admin_password
 STATS_INPUT_AUTH_MODE=none
+STATS_INPUT_OAUTH2_ISSUER_URI=http://localhost:8080/realms/statsapp
+STATS_INPUT_OAUTH2_AUDIENCE=stats-input
 STATS_API_CLIENT_SECRET=$api_secret
 STATS_INPUT_CLIENT_SECRET=$input_secret
 STATS_ALPHA_READER_USERNAME=alpha-reader
@@ -164,7 +166,7 @@ fi
 printf 'Starting PostgreSQL, RabbitMQ, Keycloak, Input, Writer, API, and monitoring...\n'
 docker compose -p "$PROJECT" --env-file "$ENV_FILE" -f "$COMPOSE" --profile apps up -d --no-build
 
-# Monitoring is waited for BEFORE the applications (DL-167): Prometheus no longer waits
+# Monitoring is waited for BEFORE the applications: Prometheus no longer waits
 # for the apps to be healthy, so when an app fails below, its target already reads
 # up == 0 at http://localhost:9090/targets instead of there being no Prometheus at all.
 deadline=$(( $(date +%s) + 300 ))
@@ -196,15 +198,13 @@ done
 # Every application is healthy by now. A monitoring failure from here on does not
 # make the stack unusable, so it does not hide the banner either: the stack is reported
 # ready, the failing targets are printed, and the script exits 3 — "applications
-# ready, monitoring degraded" — so automation can still tell the difference (DL-167).
+# ready, monitoring degraded" — so automation can still tell the difference.
 monitoring_status=0
 "$ROOT/docker/check-monitoring.sh" || monitoring_status=$?
 
 cat <<'EOF'
 
-Stats App is ready. Open these service pages in your browser:
-  Input:       http://localhost:8081/
-  Writer:      http://localhost:8082/
+Stats App is ready.
 
 Readiness checks:
   Input:       http://localhost:8081/actuator/health/readiness

@@ -10,7 +10,7 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Guard — the wire-number range check is written once, in {@code WireNumbers}, and no
- * other {@code stats-writer} main source may re-implement it (T-062, DL-154; STA-04C).
+ * other {@code stats-writer} main source may re-implement it.
  *
  * <p><strong>What went wrong.</strong> Between 8 and 21 September 2026 three writers each
  * grew a private {@code BigInteger} / {@code canConvertToLong} range check, written weeks
@@ -74,7 +74,7 @@ class WireNumbersIsTheOnlyCoercionTest {
         assertThat(sawTheOnePlace).as("WireNumbers exists where this guard expects it").isTrue();
         assertThat(offences)
                 .as(
-                        "The BIGINT range check is WireNumbers' alone (T-062, DL-154). Three "
+                        "The BIGINT range check is WireNumbers' alone. Three "
                                 + "private copies written weeks apart disagreed on whether an "
                                 + "overflow was permanent and on whether a negative string was "
                                 + "admissible, and no test could see it. Read the number through "

@@ -6,11 +6,11 @@ the platform configuration routes notifications to the approved contact points. 
 either file inspects, consumes or requeues a message, and there is no application
 property that pretends to configure an external evaluator.
 
-| File | Task | Watches |
-|---|---|---|
-| `dlq-alerts.yml` | T-060 (DL-144) | `dlq_depth` — non-empty now, for 7 days, for 12 days |
-| `writer-alerts.yml` | T-050 (DL-147), T-054 (DL-156) | `queue_oldest_message_age_seconds`, `consumer_availability`, `queue_depth` + `records_consumed`, `broker_metrics_collection_success`, `records_expired_on_arrival`, `records_upstream_status_not_ok`, `retention_last_sweep_timestamp_seconds` + `process_uptime_seconds` |
-| `postgres-alerts.yml` | T-051 (DL-155) | `pg_stat_archiver_failed_count`, `pg_stat_archiver_last_archive_age`, `pg_settings_archive_mode`, `pg_up` — the WAL archiver, i.e. whether RPO ≤ 5 min (ADR-003 D5, DL-111) is actually being met |
+| File | Watches |
+|---|---|
+| `dlq-alerts.yml` | `dlq_depth` — non-empty now, for 7 days, for 12 days |
+| `writer-alerts.yml` | `queue_oldest_message_age_seconds`, `consumer_availability`, `queue_depth` + `records_consumed`, `broker_metrics_collection_success`, `records_expired_on_arrival`, `records_upstream_status_not_ok`, `retention_last_sweep_timestamp_seconds` + `process_uptime_seconds` |
+| `postgres-alerts.yml` | `pg_stat_archiver_failed_count`, `pg_stat_archiver_last_archive_age`, `pg_settings_archive_mode`, `pg_up` — the WAL archiver, i.e. whether RPO ≤ 5 min is actually being met |
 
 `prometheus.yml` is mounted automatically with the Compose `apps` profile:
 
@@ -47,16 +47,16 @@ command and open http://localhost:3000. On other deployments replace the static
 targets and configure scrape access for that environment; keep the rules.
 
 Every rule aggregates replica observations with `max by (type)` — each Writer replica
-polls the same broker queue (DL-137) — or sums per-replica counters, which are genuinely
+polls the same broker queue — or sums per-replica counters, which are genuinely
 per replica. Never `sum` a gauge.
 
 ## Main queues — age, never depth
 
-Under jitter (Q13b, DL-104) a cyclic depth spike on `app_statsstore.<type>` is not the
+Under jitter a cyclic depth spike on `app_statsstore.<type>` is not the
 buffer working; it is evidence the jitter answer is wrong. The signal that says "the
 Writer is not keeping up" is how long the oldest message has waited.
 
-`queue_oldest_message_age_seconds{type}` is sampled at delivery (DL-147): the delivery in
+`queue_oldest_message_age_seconds{type}` is sampled at delivery: the delivery in
 hand was the head of a FIFO queue when the broker handed it over, so its age at listener
 entry — receive time minus the AMQP `timestamp` Input stamps at publish — is the queue's
 oldest-message age at that moment. The Writer's poll zeroes it whenever the queue is
@@ -80,22 +80,22 @@ The two age exclusions are deliberate: a delivery back from a retry tier
 business (`records_retried`, `records_write_failed`), and a delivery with no timestamp is
 skipped rather than guessed at. The DLQ's own age is **not** in the gauge — the DLQ has no
 consumer to sample it — which is why `dlq-alerts.yml` still alerts on how long the queue
-has been continuously non-empty (DL-144).
+has been continuously non-empty.
 
-## Late arrival — D5b's signed obligation
+## Late arrival — a signed obligation
 
 `StatsAppLateArrival` (warning) fires on
 `sum by (type) (increase(records_expired_on_arrival_total[1h])) > 0`: a valid record
 arrived with `ts.device` already past the retention window and was skipped, metered and
-ACKed (DL-133). One late record alerts for the following hour; a fleet doing it every
-cycle keeps it firing. D5b says "alert when non-zero", and a counter is non-zero forever
+ACKed. One late record alerts for the following hour; a fleet doing it every
+cycle keeps it firing. The policy says "alert when non-zero", and a counter is non-zero forever
 once it has moved, so the rule is on the *increase*.
 
 If a DLQ redrive is in progress when this fires, it is the ~90-day trap
 (`docs/runbooks/dlq-redrive.md`): the redriven records are too old to store and are not
 being recovered. Stop the redrive.
 
-## Failure hand-off unconfirmed — DL-168
+## Failure hand-off unconfirmed
 
 `StatsAppFailureHandoffUnconfirmed` (critical, `for: 0m`) fires on
 `sum by (type) (increase(records_handoff_unconfirmed_total[5m])) > 0`: the broker did not
@@ -105,8 +105,8 @@ acknowledging it. Nothing is lost, but nothing that needs the failure arm progre
 the pause slows the whole type. The usual causes are a missing `retry.1-3`/`.dlq` queue or
 binding and a broker memory/disk alarm; restarting the Writer redeclares missing queues.
 The counter is registered at zero for every type at startup. Summed, not `max`: each replica
-counts its own requeues. Before DL-168 this fault had no symptom at all on a confirm
-*timeout* — the delivery sat unacknowledged on the channel, one prefetch slot gone per
+counts its own requeues. Without the requeue this fault would have no symptom at all on a
+confirm *timeout* — the delivery would sit unacknowledged on the channel, one prefetch slot gone per
 record, until the consumer received nothing.
 
 ## Upstream status — a PROVISIONAL threshold
@@ -120,7 +120,7 @@ sum by (type) (increase(records_upstream_status_not_ok_total[1h]))
 ```
 
 **The 1 % is provisional and is written as such in the rule.** The counter is
-value-agnostic by design (DL-108, DL-128), and DL-139 found that some upstream documents
+value-agnostic by design, and some upstream documents
 carry `["ok"]` where stats records carry `["conversion ok"]`, so a healthy baseline may be
 non-zero. After the first 24 hours of ingest:
 
@@ -131,11 +131,11 @@ sum by (type) (increase(records_upstream_status_not_ok_total[24h]))
 ```
 
 Set the threshold to a small multiple of that baseline, update the rule, the test in
-`writer-alerts.test.yml` and this paragraph, and record the number against the DL-128
-residual in `claude/DECISIONS.md` §12. Do not set it to zero, and do not leave it at 1 %
+`writer-alerts.test.yml` and this paragraph, and record the number and the date in
+the pull request. Do not set it to zero, and do not leave it at 1 %
 because nobody looked.
 
-## The publisher-confirm histogram — an Input metric (T-048, DL-159)
+## The publisher-confirm histogram — an Input metric
 
 `records_publish_confirm_seconds{type,outcome}` times every publish from hand-off to the
 broker's answer (`confirmed` / `nack` / `returned` / `timeout` / `error`), fixed edges 1 ms
@@ -144,17 +144,17 @@ is the number that turns a burst into 503s; measured at 15.7 ms (4,000/s) and 49
 (11,400/s) in `docs/runbooks/load-test-burst.md`. No alert on it yet: the confirm timeout
 is 5 s and the 503 rate on `records_publish_failed` already says when it is hit.
 
-## The Q13b histogram — an Input metric, not an alert
+## The reporting-cycle histogram — an Input metric, not an alert
 
 > **Every `stats-input` series except `records_unroutable` carries `source="internal"|"external"`
-> since 21 Sep 2026 (DL-151)** — which ingest door the request used. The queries below
+> since 21 Sep 2026** — which ingest door the request used. The queries below
 > already aggregate with `sum by (type, le)` / `sum by (type)`, so they are unaffected; a
 > new query that reads an Input series per type must do the same or filter on `source`, or
 > it sees two series. Writer series are unlabelled by door — the Writer does not know it.
 
-`records_ts_server_cycle_offset_seconds{type}` is exported by **stats-input** (DL-147):
+`records_ts_server_cycle_offset_seconds{type}` is exported by **stats-input**:
 `ts.server mod 600` for every accepted record, in twenty cumulative 30-second buckets. It
-answers the question DL-104 made the precondition for sizing hardware down — do gateways
+answers the question that is the precondition for sizing hardware down — do gateways
 report on synchronised ten-minute boundaries, or jitter across them?
 
 ```promql
@@ -166,15 +166,16 @@ sum by (type, le) (increase(records_ts_server_cycle_offset_seconds_bucket[24h]))
 Read the *non-cumulative* slot shares (Grafana's histogram transform, or subtract
 adjacent `le` values). Jitter is twenty slots at roughly 5 % each; a synchronised fleet
 is one or two slots holding most of the mass. Hardware is not sized down until 24 hours
-of this say jitter (T-050, DL-104). One data point already: a device seen on 18 Sep 2026
-reports `ltestats` every ~29 minutes, not 10 (DL-146).
+of this say jitter. One data point already: a device seen on 18 Sep 2026
+reports `ltestats` every ~29 minutes, not 10.
 
 Beside it, `records_ts_device_corrected{type}` counts records Heimdal flagged with
-`meta.tsDeviceCorrected` (DL-146) — the number to put beside Q15f. Neither is alerted on.
+`meta.tsDeviceCorrected` — the number to put beside the open question of when Heimdal
+corrects. Neither is alerted on.
 
 ## Dashboards
 
-`ops/grafana/` holds the three generated Grafana dashboards (T-056, DL-158) and
+`ops/grafana/` holds the three generated Grafana dashboards and
 `check-dashboards.py`, which also validates every metric name in the rule files here.
 
 ## Validate
@@ -204,7 +205,7 @@ on an empty queue; late arrival firing for an hour and clearing; the ratio breac
 after its pending hour; and a baseline below threshold, with zero traffic not dividing
 into an alert.
 
-## WAL archiver — the RPO half of ADR-003 D5
+## WAL archiver — the RPO half of the backup strategy
 
 `postgres-alerts.yml` exists because the failure it watches has no other symptom. With
 `archive_mode=on` the archiver retries a failing `archive_command` forever and reports it
@@ -222,7 +223,7 @@ before the server starts; the rule is what catches the next cause.
 | `StatsAppPostgresExporterDown` | `pg_up == 0` for 5 min — every rule above is blind while this is true | warning |
 
 Three of the four series are `postgres_exporter`'s built-in `pg_stat_archiver` collector
-(v0.15+), verified on the first live scrape on 22 Sep 2026 (DL-160). **The fourth is not
+(v0.15+), verified on the first live scrape on 22 Sep 2026. **The fourth is not
 built in.** The exporter's settings collector exports only numeric and boolean settings;
 `archive_mode` is an enum (`off | on | always`) and is skipped — so `pg_settings_archive_mode`
 did not exist, `StatsAppWalArchiveStale` (gated on it) and `StatsAppWalArchiveDisabled`
@@ -231,12 +232,12 @@ did not exist, `StatsAppWalArchiveStale` (gated on it) and `StatsAppWalArchiveDi
 loads it with `--extend.query-path`. On any other exporter deployment, carry that query — or
 the two rules are decoration. The runbook they point at is `docs/runbooks/partition-restore.md`.
 
-## Retention sweep missing — T-054's alert
+## Retention sweep missing
 
 `StatsAppRetentionSweepMissing` (critical, `for: 30m`) fires when no replica has completed
 a retention sweep for a type in over 26 hours. It reads
-`retention_last_sweep_timestamp_seconds{type}`, which the sweep stamps as its last act
-(DL-156), aggregated `max by (type)` because only the lock winner stamps it (ADR-003 D8).
+`retention_last_sweep_timestamp_seconds{type}`, which the sweep stamps as its last act,
+aggregated `max by (type)` because only the lock winner stamps it.
 The gauge is `NaN` until a replica's first sweep; `max` ignores `NaN` unless every replica
 is `NaN`, and that case — the sweep has never run anywhere — is the rule's second arm,
 gated on `process_uptime_seconds > 26h` so a fresh deployment is not paged before its

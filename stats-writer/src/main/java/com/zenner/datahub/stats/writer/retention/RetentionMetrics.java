@@ -11,8 +11,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.springframework.stereotype.Component;
 
 /**
- * What retention did, and what it decided about a record (T-025, T-026; STA-23A, STA-23B,
- * STA-27A, NFR-05).
+ * What retention did, and what it decided about a record.
  *
  * <p>These are deliberately separate from the gate and failure-arm counters. Those answer
  * "what was wrong with this record" and "what did the retry arm do"; these answer "is
@@ -26,17 +25,17 @@ import org.springframework.stereotype.Component;
  * absence. A retention job that stops working stops incrementing
  * {@link #PARTITIONS_DROPPED}, and a counter that has stopped moving looks exactly like a
  * counter with nothing to do. The age gauge climbs instead: past the configured window it
- * is unambiguous, and it is what T-050 should alert on.</p>
+ * is unambiguous, and it is what the alert reads.</p>
  *
- * <h2>Never observed is NaN, never zero (DL-156)</h2>
+ * <h2>Never observed is NaN, never zero</h2>
  *
  * <p>Both gauges are {@code NaN} until the first completed sweep on this replica. The
  * first stack run (21 Sep 2026) found the daily pass had not run for 29 hours — the host
  * had slept through the cron slot — and the age gauge read {@code 0.0}: a healthy number,
  * from a sweep that had never happened. A gauge at zero is indistinguishable from a
- * partition zero days old; a gauge at {@code NaN} says "nobody has looked". That is DL-137's
- * rule for the broker gauges, applied here. {@link #LAST_SWEEP_TIMESTAMP} is the companion
- * that makes "no sweep for a day" alertable at all: under ADR-003 D8 only the replica that
+ * partition zero days old; a gauge at {@code NaN} says "nobody has looked". The broker
+ * gauges follow the same rule. {@link #LAST_SWEEP_TIMESTAMP} is the companion
+ * that makes "no sweep for a day" alertable at all: only the replica that
  * wins the lock sets it, so a rule aggregates with {@code max by (type)}.</p>
  */
 @Component
@@ -44,7 +43,7 @@ public class RetentionMetrics {
 
     /**
      * Records skipped because their {@code ts.device} was already past the retention
-     * window on arrival (D5b, DL-112). Deliberate data loss, by a signed decision — which
+     * window on arrival. Deliberate data loss, by a signed decision — which
      * is exactly why it is counted and alerted rather than merely logged.
      */
     public static final String EXPIRED_ON_ARRIVAL = "records_expired_on_arrival";
@@ -91,7 +90,7 @@ public class RetentionMetrics {
      * <p>A counter that first appears on its first occurrence is absent exactly when
      * someone goes looking — and "has anything expired on arrival?" is a question whose
      * answer must be readable as <em>zero</em>, not as a missing series. The dialect
-     * counters were registered up front for the same reason (DL-127).</p>
+     * counters were registered up front for the same reason.</p>
      */
     public void registerFor(StatType type) {
         Objects.requireNonNull(type, "type");
@@ -102,7 +101,7 @@ public class RetentionMetrics {
         lastSweepHolder(type);
     }
 
-    /** One record skipped, not stored, and acknowledged (D5b). */
+    /** One record skipped, not stored, and acknowledged. */
     public void expiredOnArrival(StatType type) {
         expiredOnArrivalCounter(type).increment();
     }
@@ -139,7 +138,7 @@ public class RetentionMetrics {
                 .description(
                         "Records skipped because ts.device was already past the retention "
                                 + "window on arrival; metered, logged and acknowledged, never "
-                                + "dead-lettered (D5b)")
+                                + "dead-lettered")
                 .tag("type", type.wireName())
                 .register(meterRegistry);
     }

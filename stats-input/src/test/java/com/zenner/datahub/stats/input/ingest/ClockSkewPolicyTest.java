@@ -8,7 +8,7 @@ import java.time.Instant;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/** Q14a / ADR-003 D9. The rule is one-sided, and both sides are asserted here. */
+/** The clock-skew rule is one-sided, and both sides are asserted here. */
 class ClockSkewPolicyTest {
 
     private static final Instant SERVER = Instant.ofEpochSecond(1_787_054_400L);
@@ -43,9 +43,9 @@ class ClockSkewPolicyTest {
     @DisplayName("a device clock BEHIND the server is accepted, however far behind")
     void acceptsArbitrarilyOldRecords() {
         // An offline gateway backfilling months of readings is the case retention on
-        // ts.device exists for (STA-23B). Rejecting the past here would discard
+        // ts.device exists for. Rejecting the past here would discard
         // exactly the records operations most needs; late arrival is the Writer's
-        // concern (D5b), not the HTTP boundary's.
+        // concern, not the HTTP boundary's.
         assertThat(policy.exceeded(SERVER.minus(Duration.ofDays(400)), SERVER)).isFalse();
     }
 

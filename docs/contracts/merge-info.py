@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Put both contracts' `info` back into a `redocly join` output (DL-145).
+"""Put both contracts' `info` back into a `redocly join` output.
 
 `redocly join` keeps the first input's `info` verbatim and discards the rest. Each of
 our two contracts carries its principles in `info.description` — the ingest file's
@@ -34,7 +34,7 @@ UMBRELLA_PREAMBLE = """\
 
 | Half | Caller | Operations | Authentication | Source |
 |---|---|---|---|---|
-| **Ingest** | Heimdal Core (ZC) | `POST /stats` | Deferred — Q8a-2 / Q8a-3 | `docs/contracts/openapi-input.yaml` |
+| **Ingest** | Heimdal Core (ZC) | `POST /stats` | OAuth2 client credentials implemented; mechanism awaiting ZC | `docs/contracts/openapi-input.yaml` |
 | **Read API** | Tenant users and integrations | `GET /v1/stats/{type}`, `GET /v1/stats/{type}/{uid}` | Keycloak bearer token, tenant from the claim | `docs/contracts/openapi.yaml` |
 
 They are separate sources on purpose — different caller, different authentication,

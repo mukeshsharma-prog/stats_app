@@ -9,7 +9,7 @@ import java.util.Objects;
  * The outcome of Input's envelope gate: either an accepted record with its resolved
  * stat type, or a rejection carrying the RFC 9457 body to return.
  *
- * <p>A rejection always carries a body. STA-03A forbids dropping a bad record
+ * <p>A rejection always carries a body. A bad record is never dropped
  * silently, and "return 400 with nothing in it" is the same failure wearing a status
  * code.</p>
  */
@@ -17,8 +17,7 @@ public sealed interface GateResult {
 
     /**
      * The envelope is valid and the clock skew is inside tolerance. The record has
-     * not been published yet — acceptance is only complete after publisher confirm
-     * (STA-04A).
+     * not been published yet — acceptance is only complete after publisher confirm.
      */
     record Accepted(
             StatType statType,
@@ -26,10 +25,10 @@ public sealed interface GateResult {
             /**
              * The record's own {@code ts.server} — Heimdal's receipt clock, already
              * validated as an epoch-second integer. Carried out so the controller can
-             * meter where in the ten-minute cycle the record arrived (T-050, DL-147).
+             * meter where in the ten-minute cycle the record arrived.
              */
             Instant tsServer,
-            /** {@code meta.tsDeviceCorrected == true}: Heimdal rewrote {@code ts.device} (DL-146). */
+            /** {@code meta.tsDeviceCorrected == true}: Heimdal rewrote {@code ts.device}. */
             boolean tsDeviceCorrected)
             implements GateResult {
         public Accepted {
@@ -40,7 +39,7 @@ public sealed interface GateResult {
 
     /**
      * The record is rejected at the HTTP boundary and <strong>nothing is
-     * published</strong> (STA-03A, rule 7).
+     * published</strong>.
      *
      * <p>{@code statType} is null when the type itself was unreadable, which is why
      * the metric label falls back to {@code unknown} rather than being omitted — a
@@ -60,11 +59,11 @@ public sealed interface GateResult {
         MALFORMED_JSON,
         /** The envelope schema rejected it, or the stat type is unknown. */
         INVALID_ENVELOPE,
-        /** {@code ts.device} is beyond the configured tolerance (Q14a). */
+        /** {@code ts.device} is beyond the configured tolerance. */
         CLOCK_SKEW_EXCEEDED,
-        /** U+0000 or an unpaired surrogate: valid JSON PostgreSQL cannot store (DL-168). */
+        /** U+0000 or an unpaired surrogate: valid JSON PostgreSQL cannot store. */
         UNSTORABLE_CHARACTER,
-        /** {@code ts.server} is ahead of real time beyond the tolerance (DL-168). */
+        /** {@code ts.server} is ahead of real time beyond the tolerance. */
         SERVER_CLOCK_AHEAD
     }
 }

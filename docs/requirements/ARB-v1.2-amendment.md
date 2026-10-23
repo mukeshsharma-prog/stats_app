@@ -41,13 +41,13 @@ The application has **three independently deployable services**: `stats-input`, 
 
 **Decision:** PostgreSQL is the only V1 persistence technology. MongoDB is removed from the implementation scope.
 
-PostgreSQL is selected for the clarified high-volume workload, SQL query patterns, per-type tables, explicit uniqueness, and operational control over indexes, partitioning, retention, backup, and restore. The expected average workload is 23.04 million records per type per day, 92.16 million/day for four types, or **115.2 million/day for five types including `netstats` — the figure of record since Q5a closed on 29 August 2026**; synchronized ten-minute reporting may create a much higher burst rate, and the design target is 13,333/s.
+PostgreSQL is selected for the clarified high-volume workload, SQL query patterns, per-type tables, explicit uniqueness, and operational control over indexes, partitioning, retention, backup, and restore. The expected average workload is 23.04 million records per type per day, 92.16 million/day for four types, or **115.2 million/day for five types including `netstats` — the figure of record since 29 August 2026**; synchronized ten-minute reporting may create a much higher burst rate, and the design target is 13,333/s.
 
 | PostgreSQL implementation implication | Required clarification / control |
 |---|---|
 | One table per stat type | Table naming convention: `<stat-type>`, e.g. `lorastats`; include `omsstats` and `netstats`. |
 | Dominant query pattern | Index and query design must prioritize `(tenant, clsbox, ts.device)` with a deterministic unique tie-breaker. |
-| Duplicate safety | `uid` is a normal PostgreSQL column. Uniqueness is `PRIMARY KEY (ts_device, uid)` scoped **per partition** (ADR-003, G2); a global unique index is not creatable on a partitioned table. Suppressed duplicates are metered, never silent. |
+| Duplicate safety | `uid` is a normal PostgreSQL column. Uniqueness is `PRIMARY KEY (ts_device, uid)` scoped **per partition**; a global unique index is not creatable on a partitioned table. Suppressed duplicates are metered, never silent. |
 | Retention | The answer selects `ts.device`; choose partition drop/detach or controlled batched deletion and document late-arrival consequences. |
 | Schema design | Decide typed columns versus `jsonb` per type; do not use JSON path scans for dominant filters. |
 | Disaster recovery | Backup frequency, PITR/restore target, retention, encryption, and restore testing are production requirements—not local-development assumptions. |
@@ -77,10 +77,10 @@ Each main queue must be durable. Accepted messages must be published as persiste
 |---|---|---|
 | Exchange type | **TopicExchange**, while using exact type routing keys; it allows future pattern subscriptions without changing existing bindings. | ANSWERED |
 | Topology declaration | Every broker-connected module declares identical exchange/queue/binding definitions; confirm whether `stats-api` is broker-connected. | ANSWERED / CLARIFY API SCOPE |
-| Retry design | **Three** per-type retry tiers `app_statsstore.<type>.retry.<tier>`; fixed delays, not a backoff multiplier; all delays and the attempt cap externalised to `application.properties`, starting at 30 s / 5 min / 30 min. Immediate requeue is never used for a persistent failure. | **DECIDED (G1/G4, ADR-002)** |
-| DLQ design | Per-type DLQ `app_statsstore.<type>.dlq` via DLX `app_stats_dlx`, with a documented redrive process and restricted access. **No `x-message-ttl` on any DLQ** — a TTL'd dead-letter queue is silent data loss. Alert on depth > 0 and oldest-message age; manual disposition within 14 days; redrive by an authorized role, per type, at ≤ 2× nominal, root cause first. No automatic DLQ consumer exists. Manual redrive gives one processing attempt with the existing attempt/failure metadata; another failure returns directly to the DLQ without fresh retry tiers. | **DECIDED (G1, ADR-002 §12 — retention added 29 Aug 2026; manual-attempt policy clarified 11 Sep 2026)** |
-| Producer success | Publisher confirm succeeds before HTTP acceptance response. Broker unavailable/time-out returns 503; no local buffering. | **DECIDED (D4, ADR-005)** |
-| Consumer acknowledgement | Manual acknowledgement after a successful PostgreSQL transaction; duplicate-safe via `ON CONFLICT (ts_device, uid) DO NOTHING`, metered. The retry/DLQ handoff must be publish-confirmed **before** the original is ACKed. | **DECIDED (D7, ADR-005)** |
+| Retry design | **Three** per-type retry tiers `app_statsstore.<type>.retry.<tier>`; fixed delays, not a backoff multiplier; all delays and the attempt cap externalised to `application.properties`, starting at 30 s / 5 min / 30 min. Immediate requeue is never used for a persistent failure. | **DECIDED** |
+| DLQ design | Per-type DLQ `app_statsstore.<type>.dlq` via DLX `app_stats_dlx`, with a documented redrive process and restricted access. **No `x-message-ttl` on any DLQ** — a TTL'd dead-letter queue is silent data loss. Alert on depth > 0 and oldest-message age; manual disposition within 14 days; redrive by an authorized role, per type, at ≤ 2× nominal, root cause first. No automatic DLQ consumer exists. Manual redrive gives one processing attempt with the existing attempt/failure metadata; another failure returns directly to the DLQ without fresh retry tiers. | **DECIDED (18 Aug 2026; retention added 29 Aug 2026; manual-attempt policy clarified 11 Sep 2026)** |
+| Producer success | Publisher confirm succeeds before HTTP acceptance response. Broker unavailable/time-out returns 503; no local buffering. | **DECIDED** |
+| Consumer acknowledgement | Manual acknowledgement after a successful PostgreSQL transaction; duplicate-safe via `ON CONFLICT (ts_device, uid) DO NOTHING`, metered. The retry/DLQ handoff must be publish-confirmed **before** the original is ACKed. | **DECIDED** |
 
 ## 5. Security architecture
 
@@ -88,8 +88,8 @@ The target API follows OAuth2/OIDC through Keycloak. The SRS also requires that 
 
 | Surface | Required specification before code | Default direction, not a final decision |
 |---|---|---|
-| Heimdal -> Input | Authentication protocol, issuer/client identity, audience/scope, certificate/secret rotation, endpoint allow-list, 401/403 behavior. | **Deferred by decision (Q8a).** A config-selected filter `stats.input.auth.mode=none\|mtls\|oauth2`, no default in code, `WARN` on every `none` startup, and a test refusing `prod`. **Risk accepted: the Input port is unauthenticated until Q8a-2 closes** — must close before any shared deployment. |
-| API -> consumer | Keycloak realm, resource/client identifier, issuer/JWK configuration, roles/scopes, tenant claim, claim-to-authority mapper, 401/403 behavior. | **Proposed and live in the dev realm (Q8b, ADR-006):** realm `statsapp`, confidential client/audience `stats-api`, read role **`stats.readOnly`**, tenant claim `tenant` single-valued String. Awaiting ZC confirmation (Q8b-2), which is a config change. |
+| Heimdal -> Input | Authentication protocol, issuer/client identity, audience/scope, certificate/secret rotation, endpoint allow-list, 401/403 behavior. | **Deferred by decision.** A config-selected filter `stats.input.auth.mode=none\|mtls\|oauth2`, no default in code, `WARN` on every `none` startup, and a test refusing `prod`. **Risk accepted: the Input port is unauthenticated in `none` mode** — an authenticated mode is required before any shared deployment. |
+| API -> consumer | Keycloak realm, resource/client identifier, issuer/JWK configuration, roles/scopes, tenant claim, claim-to-authority mapper, 401/403 behavior. | **Proposed and live in the dev realm:** realm `statsapp`, confidential client/audience `stats-api`, read role **`stats.readOnly`**, tenant claim `tenant` single-valued String. Awaiting ZC confirmation, which is a config change. |
 | Tenant isolation | Authoritative tenant claim, mapping validation, tenantless record policy, privileged support/admin model, audit behavior. | Store/filter `tenant`; `maintenant` is not a substitute. No user-supplied tenant override. |
 | Data handling | Classification of IMSI, gateway MAC, tenant data; payload logging configuration; redaction of secrets; log/DLQ access; retention; encryption; backup. | Payload logging is permitted in V1 Java/Docker logs; never log tokens/secrets; configure retention/access and document the sensitivity. |
 
@@ -111,9 +111,9 @@ The target API follows OAuth2/OIDC through Keycloak. The SRS also requires that 
 
 | Topic | Required measurable decision |
 |---|---|
-| Capacity | Baseline is 160,000 gateways every 10 minutes: 266.67 records/sec/type, 1,066.67/sec for four types, 1,333.33/sec for five types **average**. The **design target is 13,333/s** — a 10× synchronised burst, assumed until Heimdal telemetry proves otherwise (Q13a). Input is sized for peak, the Writer for drain (~2,000/s per type), prefetch 500, `max_wal_size` for the burst. Replay is requested at a 2× cap (2,667/s). Still to validate: payload sizes and the PostgreSQL storage/index projection. **Q13b — gateway jitter — is worth 10× on hardware.** |
+| Capacity | Baseline is 160,000 gateways every 10 minutes: 266.67 records/sec/type, 1,066.67/sec for four types, 1,333.33/sec for five types **average**. The **design target is 13,333/s** — a 10× synchronised burst, assumed until Heimdal telemetry proves otherwise. Input is sized for peak, the Writer for drain (~2,000/s per type), prefetch 500, `max_wal_size` for the burst. Replay is requested at a 2× cap (2,667/s). Still to validate: payload sizes and the PostgreSQL storage/index projection. **Gateway jitter — still to be measured — is worth 10× on hardware.** |
 | Performance | Ingestion response target, end-to-end persistence lag target, API latency/page target, max query window and page size. |
-| Availability | Target availability, planned maintenance policy, RTO, RPO, broker/database dependency availability. **Engineering proposal on the table (D5a, 29 Aug 2026): RPO ≤ 5 min via continuous WAL archiving; RTO 1 h per partition, 24 h full cluster.** Unsigned. |
+| Availability | Target availability, planned maintenance policy, RTO, RPO, broker/database dependency availability. **Signed 4 Sep 2026: RPO ≤ 5 min via continuous WAL archiving; RTO 1 h per partition, 24 h full cluster.** |
 | Scaling | Replica count, consumer concurrency/prefetch per type, autoscaling signal, queue backlog budget, connection limits. |
 | Observability | Dashboard and alert owners; processed/error/duration/queue depth/DLQ-depth metric definitions and thresholds. |
 | Disaster recovery | Backup schedule, restore procedures, data-loss acceptance, routine restore testing. |
@@ -122,7 +122,7 @@ The target API follows OAuth2/OIDC through Keycloak. The SRS also requires that 
 
 | Risk | Impact | Mitigation and release gate |
 |---|---|---|
-| ~~`netstats` sample is not yet a formal schema~~ — **CLOSED (Q4a, 18 Aug 2026)** | Residual: the counter schema caps at 19 digits, which is wider than signed `BIGINT`. An unchecked overflow corrupts the value silently. | The Writer MUST range-check counters before conversion (STA-04C). Fixture: `invalid/netstats-counter-overflow.json`. |
+| ~~`netstats` sample is not yet a formal schema~~ — **CLOSED (18 Aug 2026)** | Residual: the counter schema caps at 19 digits, which is wider than signed `BIGINT`. An unchecked overflow corrupts the value silently. | The Writer MUST range-check counters before conversion. Fixture: `invalid/netstats-counter-overflow.json`. |
 | Upstream retry/replay is unknown | Broker/Input outage may cause data loss or an untested surge. | Approve inbound contract and test replay at peak rate. |
 | Tenant claim/record policy is unclear | Cross-tenant exposure or unusable data. | Security approval and tests with `tenant != maintenant`. |
 | Shared queue interpretation is implemented | Head-of-line blocking and failed independent scale requirement. | Approve per-type topology; test poison-message isolation. |
@@ -157,7 +157,7 @@ The target API follows OAuth2/OIDC through Keycloak. The SRS also requires that 
 | ARB-06 | Retention | `ts.device` is selected; approve partitioning or bounded deletion, per-type properties, and late-arrival behavior. | ARB + data owner | PENDING APPROVAL |
 | ARB-07 | Security | Approve inbound auth, Keycloak client/claim mapping, data handling. | Security/ARB | PENDING APPROVAL |
 | ARB-08 | Scale/SLO | Approve capacity envelope, deployment, monitoring, RTO/RPO. | Operations/ARB | PENDING APPROVAL |
-| ARB-09 | V1 type scope | All five types. `netstats` nested-field rules answered 18 Aug 2026 (Q4a); the schema is strict. Only IPv6 support (Q4b) is open, and it widens one `$def`. | Product/ARB | **DECIDED** |
+| ARB-09 | V1 type scope | All five types. `netstats` nested-field rules answered 18 Aug 2026; the schema is strict. Only IPv6 support is open, and it widens one `$def`. | Product/ARB | **DECIDED** |
 
 ## 10. Board approval condition
 

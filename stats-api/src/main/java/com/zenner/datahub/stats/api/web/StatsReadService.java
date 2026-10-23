@@ -21,8 +21,7 @@ import java.util.Optional;
 import java.util.function.Function;
 
 /**
- * The three read operations, and the order their checks run in (T-040, T-041, T-042,
- * T-044, T-067).
+ * The three read operations, and the order their checks run in.
  *
  * <p><strong>Order.</strong> Stat type ({@code unknown_stat_type}) → every parameter
  * ({@code invalid_parameter}, all fields at once) → the range ({@code invalid_time_range},
@@ -56,7 +55,7 @@ public final class StatsReadService {
         this.cursors = Objects.requireNonNull(cursors, "cursors");
     }
 
-    /** {@code GET /v1/stats/{type}?from&to} — tenant-wide, windowed (T-040). */
+    /** {@code GET /v1/stats/{type}?from&to} — tenant-wide, windowed. */
     public StatsPage list(
             String tenant, String rawType, String rawFrom, String rawTo, String rawLimit, String cursor) {
         RequestParameters parameters = RequestParameters.forType(rawType);
@@ -85,8 +84,8 @@ public final class StatsReadService {
     }
 
     /**
-     * {@code GET /v1/stats/{type}/{clsbox}/{from}[/{to}]} — one gateway, no window
-     * (T-067, DL-151). {@code rawTo} is {@code null} on the open-ended form.
+     * {@code GET /v1/stats/{type}/{clsbox}/{from}[/{to}]} — one gateway, no window.
+     * {@code rawTo} is {@code null} on the open-ended form.
      */
     public StatsPage device(
             String tenant,
@@ -118,7 +117,7 @@ public final class StatsReadService {
     }
 
     /**
-     * {@code GET /v1/stats/{type}/{uid}} (T-041). Empty when the caller's tenant holds no
+     * {@code GET /v1/stats/{type}/{uid}}. Empty when the caller's tenant holds no
      * such {@code uid} — whether it exists nowhere or under another tenant, which this
      * method cannot tell apart and must not.
      */

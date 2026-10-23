@@ -13,10 +13,10 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 /**
- * The guard that keeps "empty page for a type with no table" honest (DL-162).
+ * The guard that keeps "empty page for a type with no table" honest.
  *
- * <p>{@code ltestats} and {@code netstats} read as empty because they have no table yet.
- * The day T-034 or T-037 adds one, this fails until the type's {@link StatReader} is
+ * <p>A type with no table reads as empty.
+ * The day a migration adds its table, this fails until the type's {@link StatReader} is
  * registered — otherwise the API would go on answering every read of a now-populated type
  * with an empty 200, and nothing else would notice. The set of tables is read from the
  * catalogue after the Writer's real migrations, not from a list kept here.</p>

@@ -1,13 +1,13 @@
 // Stats App — module registration.
 //
-// Five modules, three of which become Docker images (Q2, answered):
+// Five modules, three of which become Docker images:
 //   stats-common      — shared library, not deployable
 //   stats-testsupport — Docker-backed test infrastructure, test-only, not deployable
 //   stats-input   — Module 1, HTTP POST -> AMQP
 //   stats-writer  — Module 2, AMQP -> PostgreSQL
 //   stats-api     — Module 3, read-only REST
 //
-// Module dependency rule (claude/DEVELOPMENT.md §2): each application module may depend
+// Module dependency rule: each application module may depend
 // on stats-common and NEVER on another application module.
 
 rootProject.name = "stats-app"

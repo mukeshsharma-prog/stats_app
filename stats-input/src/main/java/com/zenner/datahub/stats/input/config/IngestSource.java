@@ -3,7 +3,7 @@ package com.zenner.datahub.stats.input.config;
 import java.util.Locale;
 
 /**
- * Which of the two ingest doors a request came through (DL-151).
+ * Which of the two ingest doors a request came through.
  *
  * <p>This is a <em>label</em> — on every Input counter as {@code source} and on every
  * ingest log line as {@code ingestSource} — and nothing else. No gate, publisher or

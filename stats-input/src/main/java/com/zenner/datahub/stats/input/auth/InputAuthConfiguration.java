@@ -1,59 +1,87 @@
 package com.zenner.datahub.stats.input.auth;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zenner.datahub.stats.input.config.IngestEndpointProperties;
 import com.zenner.datahub.stats.input.config.InputAuthProperties;
+import com.zenner.datahub.stats.input.ingest.IngestMetrics;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
  * Selects the inbound authentication mechanism, and refuses the combinations that must
- * never run (Q8a, T-017; ADR-006).
+ * never run.
  *
- * <p><strong>Why this is a servlet filter and not Spring Security (DL-120).</strong>
+ * <p><strong>Why this is a servlet filter and not Spring Security's filter chain.</strong>
  * Adding {@code spring-boot-starter-security} would change the default posture of the
  * whole application — every actuator endpoint included, and the readiness probe that
- * docker-compose health-checks with it — before the mechanism Q8a-2 will choose is
- * even known. The starter arrives <em>with</em> the OAuth2 implementation, where its
- * defaults can be reasoned about against a real requirement. What T-017 owes is the
- * seam, and a filter registered on one path is the smallest thing that is honestly a
- * seam.</p>
+ * docker-compose health-checks with it. The ingest filter is registered on the two ingest
+ * paths and nothing else, so authentication cannot leak onto the probes and the probes
+ * cannot open a hole in ingest. {@code oauth2} uses Spring Security's JWT decoder and
+ * validators only.</p>
  *
  * <p><strong>An unimplemented mode fails at startup, not per request.</strong>
- * Selecting {@code mtls} or {@code oauth2} today throws while the context is building.
- * The alternative — accept the mode and let requests through until someone implements
- * it — produces an endpoint that reports itself as authenticated and is not, which is
- * strictly worse than {@code none}, because {@code none} is at least honest.</p>
+ * Selecting {@code mtls} throws while the context is building. The alternative — accept
+ * the mode and let requests through until someone implements it — produces an endpoint
+ * that reports itself as authenticated and is not, which is strictly worse than
+ * {@code none}, because {@code none} is at least honest.</p>
  */
 @Configuration(proxyBeanMethods = false)
 public class InputAuthConfiguration {
 
     private static final Logger log = LoggerFactory.getLogger(InputAuthConfiguration.class);
 
+    /**
+     * The ingest authentication filter for the selected mode, on both ingest paths only.
+     *
+     * <p>Actuator is deliberately outside it: the container health-checks
+     * {@code /actuator/health/readiness}, and an authenticated probe fails the deployment
+     * rather than protecting anything. In {@code oauth2} mode a {@link JwtDecoder} bean, when
+     * one exists, replaces the one built from {@code stats.input.auth.oauth2.*}; the settings
+     * are validated either way.</p>
+     */
     @Bean
-    public FilterRegistrationBean<UnauthenticatedIngestFilter> ingestAuthenticationFilter(
-            InputAuthProperties authProperties, IngestEndpointProperties endpointProperties) {
+    public FilterRegistrationBean<OncePerRequestFilter> ingestAuthenticationFilter(
+            InputAuthProperties authProperties,
+            IngestEndpointProperties endpointProperties,
+            ObjectProvider<JwtDecoder> jwtDecoder,
+            ObjectProvider<IngestMetrics> metrics,
+            ObjectProvider<ObjectMapper> objectMapper) {
 
-        switch (authProperties.mode()) {
-            case NONE -> warnThatIngestIsUnauthenticated(endpointProperties);
-            case MTLS, OAUTH2 -> throw new IllegalStateException(
-                    "stats.input.auth.mode="
-                            + authProperties.mode().propertyValue()
-                            + " is selected but not implemented — Q8a-2 has not been answered, so "
-                            + "there is no issuer, audience, client identity or rotation policy to "
-                            + "implement against. Refusing to start rather than serving an endpoint "
-                            + "that reports itself as authenticated and is not (ADR-006).");
-        }
+        OncePerRequestFilter filter =
+                switch (authProperties.mode()) {
+                    case NONE -> {
+                        warnThatIngestIsUnauthenticated(endpointProperties);
+                        yield new UnauthenticatedIngestFilter();
+                    }
+                    case OAUTH2 -> {
+                        InputAuthProperties.OAuth2 settings = authProperties.oauth2();
+                        settings.requireComplete();
+                        JwtDecoder decoder = jwtDecoder.getIfAvailable(() -> IngestJwtDecoders.create(settings));
+                        announceBearerAuthentication(authProperties, endpointProperties);
+                        yield new BearerTokenIngestFilter(
+                                decoder,
+                                authProperties.requiredRole(),
+                                metrics.getObject(),
+                                objectMapper.getObject());
+                    }
+                    case MTLS -> throw new IllegalStateException(
+                            "stats.input.auth.mode="
+                                    + authProperties.mode().propertyValue()
+                                    + " is selected but not implemented — Heimdal's inbound authentication "
+                                    + "mechanism has not been agreed, so there is no trust chain or "
+                                    + "subject to implement against. Refusing to start rather than serving "
+                                    + "an endpoint that reports itself as authenticated and is not.");
+                };
 
-        FilterRegistrationBean<UnauthenticatedIngestFilter> registration =
-                new FilterRegistrationBean<>(new UnauthenticatedIngestFilter());
-        // Both ingest paths and only those (DL-151: one mechanism, two doors). Actuator
-        // is deliberately outside this: the container health-checks
-        // /actuator/health/readiness, and an authenticated probe fails the deployment
-        // rather than protecting anything (D13, D-10).
+        FilterRegistrationBean<OncePerRequestFilter> registration = new FilterRegistrationBean<>(filter);
+        // Both ingest paths and only those: one mechanism, two doors.
         registration.addUrlPatterns(endpointProperties.paths().toArray(String[]::new));
         registration.setOrder(UnauthenticatedIngestFilter.ORDER);
         return registration;
@@ -80,6 +108,21 @@ public class InputAuthConfiguration {
                 .log(
                         "INGEST IS UNAUTHENTICATED: stats.input.auth.mode=none. This is acceptable "
                                 + "on a local dev stack and nowhere else; the prod profile refuses "
-                                + "to start in this mode (Q8a)");
+                                + "to start in this mode");
+    }
+
+    private static void announceBearerAuthentication(
+            InputAuthProperties authProperties, IngestEndpointProperties endpoint) {
+        InputAuthProperties.OAuth2 settings = authProperties.oauth2();
+        log.atInfo()
+                .addKeyValue("event", "authentication_enabled")
+                .addKeyValue("mode", authProperties.mode().propertyValue())
+                .addKeyValue("issuer", settings.issuerUri())
+                .addKeyValue("audience", settings.audience())
+                .addKeyValue("requiredRole", authProperties.requiredRole())
+                .addKeyValue("keys", settings.hasJwkSetUri() ? "jwk-set-uri" : "issuer discovery")
+                .addKeyValue("internalPath", endpoint.internalPath())
+                .addKeyValue("externalPath", endpoint.externalPath())
+                .log("Ingest requires a bearer token with the ingest realm role on both ingest paths");
     }
 }

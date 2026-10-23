@@ -8,8 +8,7 @@ import java.io.IOException;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
- * The {@code stats.input.auth.mode=none} branch: it authenticates nothing and says so
- * (Q8a, T-017).
+ * The {@code stats.input.auth.mode=none} branch: it authenticates nothing and says so.
  *
  * <p>It exists as a real filter rather than as an absent one because the seam has to
  * be occupied. A mode that quietly registers no filter is indistinguishable at every
@@ -23,11 +22,11 @@ import org.springframework.web.filter.OncePerRequestFilter;
 public final class UnauthenticatedIngestFilter extends OncePerRequestFilter {
 
     /**
-     * Runs after the request-size check and before the rate limit (T-018).
+     * Runs after the request-size check and before the rate limit.
      *
      * <p>Size first because it is a header comparison that admits nothing, and because
      * an oversized body should be refused before anything reads it. Rate limiting after
-     * authentication so that, once Q8a-2 lands, an unauthenticated caller cannot spend
+     * authentication so that, once ingest is authenticated, an unauthenticated caller cannot spend
      * a legitimate sender's budget.</p>
      */
     public static final int ORDER = 20;

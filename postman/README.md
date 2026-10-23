@@ -89,4 +89,4 @@ wwan, including WWAN driver and string mtu. Degraded WWAN, extra interfaces,
 unknown members and exact 19-digit counters remain covered by regression fixtures
 and integration tests. The immutable v5 archive predates this example update.
 LTE identifiers follow the current
-string contract for local evaluation; D-12 still gates merge/shared release.
+string contract for local evaluation; the data-sensitivity sign-off still gates shared release.

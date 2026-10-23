@@ -32,7 +32,7 @@ import org.springframework.stereotype.Component;
  * Input's gate: parse, validate the <strong>envelope only</strong>, then check clock
  * skew. Nothing here publishes, and nothing here touches the payload.
  *
- * <p><strong>Why the payload is not validated (ADR-007 §5, DL-088).</strong> Heimdal
+ * <p><strong>Why the payload is not validated.</strong> Heimdal
  * retries only on a non-2xx. A 400 issued because {@code data} disagreed with a
  * per-type schema is therefore <em>unrecoverable data loss</em>, while the same
  * disagreement caught at the Writer is a dead-letter that can be redriven once the
@@ -43,11 +43,11 @@ import org.springframework.stereotype.Component;
  * {@link StatsSchemaValidator#validate(JsonNode)}.</p>
  *
  * <p>The gate returns a decision; it never throws for a bad record and never logs a
- * payload. Failures are logged with the stat type and the reason only — STA-03A
- * forbids echoing the offending value, and that applies to our own logs as much as
+ * payload. Failures are logged with the stat type and the reason only — an offending
+ * value is never echoed, and that applies to our own logs as much as
  * to the response body.</p>
  *
- * <p><strong>Nothing is answered 200 that PostgreSQL cannot hold (DL-168).</strong> Three
+ * <p><strong>Nothing is answered 200 that PostgreSQL cannot hold.</strong> Three
  * rules sit beside the schema because no schema keyword can express them, and each one
  * closes a path on which a record used to be accepted, published and then dead-lettered
  * forever, since every redrive re-derives the same failure:</p>
@@ -73,10 +73,10 @@ public class EnvelopeGate {
 
     private static final String MALFORMED_JSON_CODE = "malformed_json";
 
-    /** Field-level code for U+0000 or an unpaired surrogate (DL-168). */
+    /** Field-level code for U+0000 or an unpaired surrogate. */
     public static final String UNSTORABLE_CHARACTER_CODE = "unstorable_character";
 
-    /** Field-level code for a {@code ts.server} ahead of real time (DL-168). */
+    /** Field-level code for a {@code ts.server} ahead of real time. */
     public static final String SERVER_CLOCK_AHEAD_CODE = "server_clock_ahead";
 
     /** JSON Pointer of the field {@link #SERVER_CLOCK_AHEAD_CODE} names. */
@@ -114,7 +114,7 @@ public class EnvelopeGate {
     /**
      * @param body the exact bytes received. They are parsed for inspection only; the
      *     bytes themselves are what gets published, so that publication stays
-     *     byte-identical to what arrived (ADR-004, T-016).
+     *     byte-identical to what arrived.
      * @param instance the request path, for the RFC 9457 {@code instance} member.
      */
     public GateResult evaluate(byte[] body, String instance) {
@@ -123,7 +123,7 @@ public class EnvelopeGate {
         JsonNode record;
         try {
             // The bytes, not a String decoded from them: the Writer parses the bytes, so
-            // this gate must refuse exactly what the Writer would (DL-168).
+            // this gate must refuse exactly what the Writer would.
             record = reader.readTree(body);
         } catch (IOException malformed) {
             // The message may quote the offending input, so it is deliberately not
@@ -182,7 +182,7 @@ public class EnvelopeGate {
                     .addKeyValue("validationCode", UNSTORABLE_CHARACTER_CODE)
                     .log(
                             "Rejected a record carrying U+0000 or an unpaired surrogate, which "
-                                    + "PostgreSQL cannot store; nothing published (DL-168)");
+                                    + "PostgreSQL cannot store; nothing published");
             return rejection(
                     ErrorCode.INVALID_PARAMETER,
                     statType,
@@ -208,7 +208,7 @@ public class EnvelopeGate {
                     .addKeyValue("serverClockTolerance", maxServerClockAhead)
                     .log(
                             "Rejected a record whose ts.server is ahead of real time by more "
-                                    + "than the tolerance; fix the sending clock (DL-168)");
+                                    + "than the tolerance; fix the sending clock");
             return rejection(
                     ErrorCode.INVALID_PARAMETER,
                     statType,
@@ -229,7 +229,7 @@ public class EnvelopeGate {
                     .addKeyValue("clockSkewTolerance", clockSkewPolicy.tolerance())
                     .log(
                             "Rejected a record because clock skew exceeds tolerance; fix the "
-                                    + "gateway clock (Q14a, ADR-003 D9)");
+                                    + "gateway clock");
             return rejection(
                     ErrorCode.INVALID_PARAMETER,
                     statType,
@@ -259,7 +259,7 @@ public class EnvelopeGate {
     }
 
     /**
-     * Heimdal's own flag that it rewrote {@code ts.device} (DL-146). Read here to count
+     * Heimdal's own flag that it rewrote {@code ts.device}. Read here to count
      * it and for nothing else: the value is preserved as a passthrough member and never
      * branched on. A missing or non-boolean member is simply "not corrected".
      */

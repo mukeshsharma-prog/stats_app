@@ -91,7 +91,7 @@ public class LtestatsConsumerConfiguration {
         factory.setMaxConcurrentConsumers(properties.concurrency());
         factory.setPrefetchCount(properties.prefetch());
         // Finish only the deliveries already executing; return the prefetched rest to
-        // RabbitMQ instead of extending shutdown by a whole prefetch window (DL-143).
+        // RabbitMQ instead of extending shutdown by a whole prefetch window.
         factory.setForceStop(true);
         factory.setContainerCustomizer(
                 container ->

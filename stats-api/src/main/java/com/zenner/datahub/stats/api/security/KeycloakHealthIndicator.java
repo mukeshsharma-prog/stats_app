@@ -10,8 +10,7 @@ import org.springframework.boot.actuate.health.Health;
 import org.springframework.boot.actuate.health.HealthIndicator;
 
 /**
- * Readiness for the API's second real dependency — the issuer's signing keys (D13,
- * D-10; the T-006 residual carried on T-038, DL-103).
+ * Readiness for the API's second real dependency — the issuer's signing keys.
  *
  * <p>Boot ships no health indicator for an OAuth2 issuer. Without one, readiness reports
  * UP while every token fails validation because the keys cannot be fetched — the API is

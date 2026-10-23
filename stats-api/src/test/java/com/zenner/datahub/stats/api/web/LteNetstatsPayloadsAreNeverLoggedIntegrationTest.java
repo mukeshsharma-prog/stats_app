@@ -17,7 +17,7 @@ import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.test.context.TestPropertySource;
 
 /**
- * D-12 (DL-167): an {@code ltestats} or {@code netstats} payload reaches no API log line
+ * An {@code ltestats} or {@code netstats} payload reaches no API log line
  * at ANY level — the read half of the rule {@code stats-input} and {@code stats-writer}
  * each test for their own side.
  *

@@ -6,7 +6,7 @@ import java.util.Objects;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.validation.annotation.Validated;
 
-/** Externally tunable controls for the isolated sysstats consumer (STA-11A). */
+/** Externally tunable controls for the isolated sysstats consumer. */
 @Validated
 @ConfigurationProperties(SysstatsConsumerDescriptor.PROPERTY_PREFIX)
 public record SysstatsConsumerProperties(

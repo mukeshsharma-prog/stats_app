@@ -13,11 +13,11 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Guard — no log statement in a module that logs ECS may add a key its MDC scope already
- * owns (DL-150; extended to {@code stats-input} on 22 Sep 2026).
+ * owns (extended to {@code stats-input} on 22 Sep 2026).
  *
  * <p><strong>What went wrong.</strong> {@code WriterLogContext} puts {@code traceId},
  * {@code uid}, {@code statType}, {@code tenant}, {@code clsbox} and {@code errorCode}
- * into the MDC for the whole of a delivery (T-005, DL-134). Seven statements on the
+ * into the MDC for the whole of a delivery. Seven statements on the
  * consume path then added {@code uid} — and some {@code statType} and {@code clsbox} —
  * a second time with {@code addKeyValue}. Spring Boot's ECS formatter writes MDC entries
  * and key-value pairs into the same JSON object and refuses a duplicate member:
@@ -71,7 +71,7 @@ class LogsDoNotShadowMdcKeysTest {
                     "stats-writer/src/main/java/com/zenner/datahub/stats/writer/metrics/OperationalMetrics.java",
                     "broker poll on stats.metrics.poll-interval; no delivery is open",
                     "stats-input/src/main/java/com/zenner/datahub/stats/input/publish/InputAmqpConfiguration.java",
-                    "ReturnsCallback on the broker's connection thread (ADR-002 §9); the HTTP "
+                    "ReturnsCallback on the broker's connection thread; the HTTP "
                             + "request scope that published the message is not on this thread");
 
     private static final Pattern ADD_KEY_VALUE =
@@ -100,7 +100,7 @@ class LogsDoNotShadowMdcKeysTest {
                         "The module's MDC scope already carries this key on every line. Adding "
                                 + "it again with addKeyValue is not redundancy but loss: the ECS "
                                 + "encoder throws on a duplicate member and logback drops the "
-                                + "whole line, silently after the fourth (DL-150). Remove the "
+                                + "whole line, silently after the fourth. Remove the "
                                 + "pair — or, for a file that provably never runs under the "
                                 + "scope, add it to NO_SCOPE_EVER with the reason.")
                 .isEmpty();

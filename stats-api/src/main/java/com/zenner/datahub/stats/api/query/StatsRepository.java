@@ -6,8 +6,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
  * Runs a {@link StatsQueryBuilder} statement as {@code stats_ro} — the only database
- * identity this module has, and one PostgreSQL itself refuses every write to (rule 2,
- * DL-135). This class adds nothing to the SQL it is given.
+ * identity this module has, and one PostgreSQL itself refuses every write to (only the
+ * Writer writes). This class adds nothing to the SQL it is given.
  */
 public final class StatsRepository {
 

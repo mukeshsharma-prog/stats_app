@@ -36,7 +36,7 @@ import org.testcontainers.containers.RabbitMQContainer;
 import org.testcontainers.utility.DockerImageName;
 
 /**
- * D-12 (DL-167): an {@code ltestats} or {@code netstats} payload reaches no log line at
+ * An {@code ltestats} or {@code netstats} payload reaches no log line at
  * ANY level — not ours, and not the frameworks' the Writer runs on.
  *
  * <p>The checklist says it; this is what makes it true. Every Writer outcome is driven

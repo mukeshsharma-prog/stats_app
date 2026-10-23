@@ -8,14 +8,14 @@
 A fixture may additionally declare "$expect" with a "$expectCode":
 
     "input-reject"  schema-valid, but rejected by stats-input on a rule the schema
-                    cannot express (a cross-field comparison). Q14a's clock-skew
-                    fixtures are the case this exists for -- ADR-003 D9 rejects a
+                    cannot express (a cross-field comparison). The clock-skew
+                    fixtures are the case this exists for -- Input rejects a
                     ts.device more than the configured tolerance ahead of ts.server,
                     and JSON Schema 2020-12 cannot compare two instance locations.
 
     "writer-dlq"    ACCEPTED by the envelope (so stats-input returns 200 and
                     publishes) but REJECTED by the per-type payload schema (so
-                    stats-writer dead-letters it). Added 29 Aug 2026 with ADR-007:
+                    stats-writer dead-letters it). Added 29 Aug 2026:
                     the envelope is Input's gate and the payload schema is the
                     Writer's, so "invalid" no longer implies "400". Without this
                     marker the unknown-dialect fixture would sit in invalid/
@@ -24,8 +24,8 @@ A fixture may additionally declare "$expect" with a "$expectCode":
     "writer-range-reject"
                     schema-VALID, but dead-lettered by stats-writer on a rule the
                     schema cannot express -- the signed BIGINT range check applied
-                    before conversion (DL-105 rule 3, STA-04C). Added 8 Sep 2026
-                    with T-063. It is to the Writer what "input-reject" is to
+                    before conversion. Added 8 Sep 2026.
+                    It is to the Writer what "input-reject" is to
                     Input: both mark a record the catalogue admits and the code
                     refuses, and both exist because the rule is arithmetic or
                     cross-field rather than structural. A string counter is capped
@@ -37,22 +37,22 @@ A fixture may additionally declare "$expect" with a "$expectCode":
 
     "writer-skip"   schema-VALID, accepted by Input, published, consumed -- and then
                     deliberately NOT STORED, with the delivery ACKNOWLEDGED. Added
-                    10 Sep 2026 with T-026, and the only marker whose record never
+                    10 Sep 2026, and the only marker whose record never
                     reaches a queue anyone will look at. ts.device is past the
-                    retention window, so no partition exists to hold it (STA-23B,
-                    ADR-003 option B, signed as D5b -> DL-112): the Writer skips the
+                    retention window, so no partition exists to hold it (the signed
+                    late-arrival policy): the Writer skips the
                     write, increments records_expired_on_arrival{type}, logs at WARN
                     and ACKs.
 
                     It is NOT "writer-dlq", and the distinction is the whole reason
-                    this marker exists. The record is valid, the DLQ carries no TTL
-                    (ADR-002 Section 12), and a redrive re-derives the identical
+                    this marker exists. The record is valid, the DLQ carries no TTL,
+                    and a redrive re-derives the identical
                     verdict forever because the record can only have got OLDER --
                     so a dead-letter here would be a message that is rejected on
                     every attempt until a human deletes it. Before this marker these
                     five fixtures carried no marker at all, which meant they
                     silently asserted "the schema accepts this" and said nothing
-                    about the decided behaviour -- the same gap D9's clock-skew
+                    about the decided behaviour -- the same gap the clock-skew
                     fixtures had before "input-reject" existed.
 
 Without a marker an edge/ fixture silently asserts "accepted", which is how an
@@ -78,8 +78,8 @@ TYPES = ("sysstats", "lorastats", "ltestats", "omsstats", "netstats")
 # Without this, deleting fixtures is invisible: `checked` simply drops and CI stays
 # green, which would have hidden exactly the regression the 29 Aug 2026 production
 # sample caught. Changing this number is a deliberate act that belongs in the same
-# commit as the fixture change, with the reason in claude/DECISIONS.md.
-# 117 -> 124 on 13 Oct 2026 (DL-168): three envelope bounds (uid length, blank tenant,
+# commit as the fixture change, with the reason in the commit message.
+# 117 -> 124 on 13 Oct 2026: three envelope bounds (uid length, blank tenant,
 # version range) in invalid/, and two input-reject edges (unstorable_character,
 # server_clock_ahead), each a marker plus a schema assertion.
 EXPECTED_ASSERTIONS = 124

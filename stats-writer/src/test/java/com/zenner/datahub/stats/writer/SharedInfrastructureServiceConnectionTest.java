@@ -17,7 +17,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.containers.RabbitMQContainer;
 
-/** T-008 proof that the Writer consumes both shared service-connection fixtures. */
+/** Proof that the Writer consumes both shared service-connection fixtures. */
 @SpringBootTest(
         classes = StatsWriterApplication.class,
         webEnvironment = SpringBootTest.WebEnvironment.NONE,

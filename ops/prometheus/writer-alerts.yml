@@ -1,16 +1,16 @@
-# Main-queue, late-arrival and upstream-status alerts — T-050 (DL-147).
+# Main-queue, late-arrival and upstream-status alerts.
 #
-# Evaluated from the Writer's /actuator/prometheus scrape, beside dlq-alerts.yml
-# (T-060). Every rule aggregates replica observations with `max by (type)` — each Writer
-# replica polls the same broker queue and reports the same shared resource (DL-137) —
+# Evaluated from the Writer's /actuator/prometheus scrape, beside dlq-alerts.yml.
+# Every rule aggregates replica observations with `max by (type)` — each Writer
+# replica polls the same broker queue and reports the same shared resource —
 # or sums per-replica COUNTERS, which are genuinely per replica.
 #
-# Never depth. Under jitter (Q13b, DL-104) a cyclic depth spike on a main queue is not
+# Never depth. Under jitter a cyclic depth spike on a main queue is not
 # the buffer working, it is evidence the jitter answer is wrong; the signal that says
 # "the Writer is not keeping up" is how long the oldest message has waited.
 #
 # Three rules read one gauge, and the three are ONE alert:
-#   queue_oldest_message_age_seconds is sampled at delivery (DL-147) and therefore stops
+#   queue_oldest_message_age_seconds is sampled at delivery and therefore stops
 #   moving when deliveries stop. StatsAppMainQueueAging fires when the Writer is running
 #   and behind; StatsAppMainQueueNoConsumer and StatsAppConsumerStalled cover the two
 #   cases in which the gauge cannot move — no consumer, or a consumer that is registered
@@ -34,7 +34,7 @@ groups:
             than five minutes for the Writer, for at least five minutes. The Writer is
             consuming but not keeping up: check records_processing_duration,
             records_postgres_errors and the retry counters before touching capacity.
-            Depth is a diagnostic here, not the alert (Q13b).
+            Depth is a diagnostic here, not the alert.
           runbook: docs/runbooks/queue-troubleshooting.md
 
       # 1,800 s: longer than the longest retry tier. A record this old on a MAIN queue
@@ -94,7 +94,7 @@ groups:
             the deliveries stay unacknowledged.
           runbook: docs/runbooks/queue-troubleshooting.md
 
-      # A failed broker poll writes NaN, not zero (DL-137). NaN compares false to
+      # A failed broker poll writes NaN, not zero. NaN compares false to
       # everything, so the rules above go quiet rather than wrong — this is what says
       # they have gone quiet.
       - alert: StatsAppBrokerObservationStale
@@ -111,7 +111,7 @@ groups:
             AMQP connection; do not read the quiet as healthy.
           runbook: docs/runbooks/queue-troubleshooting.md
 
-      # ---- Late arrival: D5b's signed obligation (DL-112, DL-133) ------------------
+      # ---- Late arrival: a signed obligation ------------------
       # "Alert when non-zero." A counter is non-zero forever once it has moved, so the
       # rule is on its INCREASE: one late record in the last hour is one alert, and a
       # systemic gateway backlog keeps it firing. Summed, not maxed — every replica
@@ -126,13 +126,13 @@ groups:
           description: >-
             A valid {{ $labels.type }} record arrived with ts.device already older than
             the retention window and was skipped, metered and ACKed — deliberate data loss
-            by a signed decision (D5b). A gateway back from a long outage does this once;
+            by a signed decision. A gateway back from a long outage does this once;
             a fleet doing it every cycle is a clock or connectivity problem upstream.
             If a DLQ redrive is in progress, this is the ~90-day trap: the redriven
             records are too old to store and are NOT being recovered.
           runbook: docs/runbooks/dlq-redrive.md
 
-      # ---- The failure arm itself is broken (DL-168) -----------------------------
+      # ---- The failure arm itself is broken -----------------------------
       # A record that failed is handed to a retry tier or the DLQ, and the original is
       # ACKed only once that copy is confirmed. When the copy is NOT confirmed — a retry
       # or DLQ queue missing, a broker refusing publishes under a resource alarm — the
@@ -156,12 +156,12 @@ groups:
             Writer redeclares missing queues.
           runbook: docs/runbooks/queue-troubleshooting.md
 
-      # ---- Upstream conversion status (DL-108, DL-128) ---------------------------
-      # A ratio of not-OK to consumed over an hour. THE THRESHOLD IS PROVISIONAL: DL-139
-      # found that some upstream documents carry ["ok"] where stats records carry
+      # ---- Upstream conversion status ---------------------------
+      # A ratio of not-OK to consumed over an hour. THE THRESHOLD IS PROVISIONAL:
+      # it was found that some upstream documents carry ["ok"] where stats records carry
       # ["conversion ok"], and the counter is value-agnostic by design, so a healthy
       # baseline may be non-zero. Read the first 24 h of ingest, set this to a small
-      # multiple of the observed baseline, and record the number (DL-128 residual).
+      # multiple of the observed baseline, and record the number.
       - alert: StatsAppUpstreamStatusNotOk
         expr: >-
           sum by (type) (increase(records_upstream_status_not_ok_total[1h]))
@@ -174,12 +174,12 @@ groups:
           description: >-
             More than the configured share of consumed {{ $labels.type }} records carried
             a status other than ["conversion ok"] for a sustained hour. The records are
-            stored regardless (DL-108); this is Heimdal's converter reporting trouble, not
+            stored regardless; this is Heimdal's converter reporting trouble, not
             ours. The 1% threshold is PROVISIONAL until the first 24 h of ingest set it —
             see ops/prometheus/README.md.
           runbook: docs/runbooks/queue-troubleshooting.md
 
-      # ---- Retention sweep not running (T-054, DL-156) ---------------------------
+      # ---- Retention sweep not running ---------------------------
       # The sweep runs once a day per type behind a SESSION-level advisory lock. Two
       # things stop it with no other symptom: a lock leaked by a dead replica's pooled
       # connection (which starves EVERY replica of that type until the connection is
@@ -187,7 +187,7 @@ groups:
       # without a pass and every gauge reading healthy). retention_oldest_partition_age_days
       # cannot catch either — a sweep that never ran leaves it where it was — so the sweep
       # stamps retention_last_sweep_timestamp_seconds on completion and this rule reads
-      # it. Only the replica that wins the lock stamps it (D8), hence max by (type); the
+      # it. Only the replica that wins the lock stamps it, hence max by (type); the
       # gauge is NaN until a replica's first sweep, and max ignores NaN unless every
       # replica is NaN — which is the "never ran anywhere" case, caught by the second arm
       # once the process has been up longer than a schedule period plus slack.
@@ -209,6 +209,6 @@ groups:
             more than 26 hours (the schedule is daily). Ingestion is unaffected and every
             other counter reads healthy; the only symptom is storage that stops going
             down. Check pg_locks for an advisory lock held by a session that is not
-            running maintenance (a leaked lock starves every replica — trap 27's sibling),
+            running maintenance (a leaked lock starves every replica),
             pg_inherits.inhdetachpending, and that the scheduler thread is alive.
           runbook: docs/runbooks/retention-policy.md

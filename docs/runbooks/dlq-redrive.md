@@ -21,18 +21,18 @@ operations must act within 14 days. PostgreSQL retention is based on `ts.device`
 cutoff, `RetentionWindow`, to the second — because processing it would only increment
 `records_expired_on_arrival`; it would not recover a database row.
 
-**A record the command will not move is skipped, not fatal (DL-168).** Outside the
+**A record the command will not move is skipped, not fatal.** Outside the
 window, declaring another type, or not JSON: it prints `record_skipped` with a constant
 `reason` (`outside_retention_window`, `type_mismatch`, `no_ts_device`, `not_json`) and the
 body's SHA-256, holds the record for the rest of the run, and returns it to the DLQ at its
 original position when the run ends. The run carries on to the records behind it, and
-`redrive_completed` reports `moved` and `skipped`. Before DL-168 the first such record
+`redrive_completed` reports `moved` and `skipped`. Previously the first such record
 aborted the run and went back to the head of the queue, so every later run aborted on it
 — and since the DLQ is FIFO and never expires anything, its oldest record is exactly the
 one that ages out first. Skipped records stay on the DLQ for approved disposition. A
 failed *publish* (nack, return, timeout) still stops the run: that is the broker, not the
 record.
-Since T-050 (DL-147) that counter is alerted: **if `StatsAppLateArrival` fires while a
+That counter is alerted: **if `StatsAppLateArrival` fires while a
 redrive is running, stop the redrive** — the records being replayed are past the window
 and are being skipped, not recovered. The redriven copies also carry the original
 publish timestamp and `x-stats-manual-redrive`, so they are excluded from
@@ -305,7 +305,7 @@ Exercise the retention-age refusal with another synthetic fixture whose `ts.devi
 91 days old. Publishing is the same as above. Redrive must print `record_skipped` with
 `"reason":"outside_retention_window"` and finish with `"skipped":1`, the database query for
 its UID must return zero, and the record must remain in the DLQ for approved disposition
-(DL-168 — before that the run exited non-zero on it). In local testing
+(it once exited non-zero on it). In local testing
 only, consume that one known synthetic record with:
 
 ```bash

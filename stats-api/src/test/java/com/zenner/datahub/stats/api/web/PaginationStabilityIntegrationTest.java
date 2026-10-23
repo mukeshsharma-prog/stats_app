@@ -22,7 +22,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * T-046, STA-36A: a keyset walk visits every row that existed when it started exactly
+ * A keyset walk visits every row that existed when it started exactly
  * once, skips none, and never repeats one — while the Writer keeps inserting into the
  * same range, including rows that sort above and below the walk's current position.
  *

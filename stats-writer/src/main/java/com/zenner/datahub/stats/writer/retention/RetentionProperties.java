@@ -11,8 +11,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.scheduling.support.CronExpression;
 
 /**
- * Partition maintenance and retention settings — {@code stats.retention}
- * (STA-23A, STA-23C; ADR-003 D1/D3/D4).
+ * Partition maintenance and retention settings — {@code stats.retention}.
  *
  * <h2>Nothing here has a default in code</h2>
  *
@@ -26,9 +25,8 @@ import org.springframework.scheduling.support.CronExpression;
  *
  * <h2>Why per-type overrides are a map</h2>
  *
- * <p>The shape recorded before T-025 was {@code stats.retention.<type>-days}, one flat key
- * per type. It is not used, and the reason is the thread running through DL-100, DL-129
- * and DL-130: a mistyped flat key binds to nothing and reports nothing, and a retention
+ * <p>An earlier shape was {@code stats.retention.<type>-days}, one flat key
+ * per type. It is not used, because a mistyped flat key binds to nothing and reports nothing, and a retention
  * window that silently reverted to the default is exactly the class of failure this
  * project keeps finding. {@code stats.retention.days-by-type.<wire-name>} is validated
  * against {@link StatType#wireName()} here, so a typo fails the context rather than
@@ -55,17 +53,17 @@ public record RetentionProperties(
 
     /**
      * The longest span of daily partitions one maintenance pass may ensure: the whole
-     * retention window behind today plus the pre-creation horizon ahead of it (DL-149).
+     * retention window behind today plus the pre-creation horizon ahead of it.
      * Not a policy limit — the two bounds it is built from already are — it exists so
      * {@link PartitionPrecreator} can refuse an absurd range before issuing any DDL.
      */
     public static final int MAX_ENSURED_DAYS = MAX_RETENTION_DAYS + MAX_PRE_CREATE_DAYS;
 
     /**
-     * The stagger offsets one stat type's maintenance from the next (ADR-003 D3, "stagger
-     * the five types rather than firing them together"). It is capped because the offset
+     * The stagger offsets one stat type's maintenance from the next, so the five types do
+     * not fire together. It is capped because the offset
      * is taken by waiting, and a run that waits an hour before dropping a partition is
-     * no longer the off-peak job D4 describes.
+     * no longer an off-peak job.
      */
     public static final Duration MAX_STAGGER = Duration.ofMinutes(10);
 
@@ -73,7 +71,7 @@ public record RetentionProperties(
         Objects.requireNonNull(partitionGranularity, "stats.retention.partition-granularity");
         if (partitionGranularity != PartitionGranularity.DAILY) {
             throw new IllegalArgumentException(
-                    "Only daily partition granularity is supported by ADR-003");
+                    "Only daily partition granularity is supported");
         }
         if (preCreateDays < 0) {
             throw new IllegalArgumentException("preCreateDays must be zero or greater");
@@ -90,7 +88,7 @@ public record RetentionProperties(
         if (defaultDays == null) {
             throw new IllegalArgumentException(
                     "stats.retention.default-days must be set — retention deletes data and "
-                            + "has no default in code (STA-23A)");
+                            + "has no default in code");
         }
         requireRetentionDays(defaultDays, "stats.retention.default-days");
         daysByType = normaliseOverrides(daysByType);

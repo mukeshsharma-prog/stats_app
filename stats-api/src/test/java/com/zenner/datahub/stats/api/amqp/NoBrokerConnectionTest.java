@@ -9,14 +9,14 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 /**
- * The third part of T-032: {@code stats-api} has no broker connection at all, and the
- * absence is the assertion (Q3a, ADR-002 §11).
+ * The third part of the declaration-conflict check: {@code stats-api} has no broker connection at all, and the
+ * absence is the assertion.
  *
- * <p>ZC's answer to Q3 read <em>"every module have to declare the exchanges, queues and
+ * <p>ZC's answer on topology read <em>"every module have to declare the exchanges, queues and
  * bindings."</em> Taken literally that hands a read-only HTTP module a RabbitMQ
  * dependency it has no use for, and adds a third declaring module to a set where any
  * argument mismatch is a {@code RESOURCE_LOCKED} startup failure rather than a warning.
- * ADR-002 §11 reads it as <em>every broker-connected module</em>.</p>
+ * It is read as <em>every broker-connected module</em>.</p>
  *
  * <p><strong>Why a classpath assertion and not a bean assertion.</strong> "No
  * {@code ConnectionFactory} bean" can only be written by a test that can name the type,

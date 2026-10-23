@@ -13,8 +13,8 @@ import java.util.stream.Stream;
  * Reads the repository's Java main sources for the architecture guards in this package.
  *
  * <p>Two guards scan the same files for different shapes — {@link StatTypeFanOutTest}
- * for a hard-coded stat type (trap 15) and {@link VersionIsNotADiscriminatorTest} for a
- * read of the envelope's {@code version} (trap 20). They share this scanner so a module
+ * for a hard-coded stat type and {@link VersionIsNotADiscriminatorTest} for a
+ * read of the envelope's {@code version}. They share this scanner so a module
  * added to {@link #MODULES} is covered by both at once. A guard that silently stops
  * scanning a module still passes, which is the failure mode both of them exist to
  * prevent.</p>

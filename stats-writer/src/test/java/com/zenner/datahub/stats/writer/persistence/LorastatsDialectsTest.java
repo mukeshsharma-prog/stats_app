@@ -16,7 +16,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 /**
- * T-063 / DL-105 — three dialects in, one shape out, and a closed enumeration.
+ * Three dialects in, one shape out, and a closed enumeration.
  *
  * <p>The three accepted cases are driven from the NORMATIVE fixtures rather than from
  * hand-typed payloads. Two of them are unmodified production records of 29 August 2026,
@@ -69,7 +69,7 @@ class LorastatsDialectsTest {
     }
 
     /**
-     * DL-105 rule 2, and the assertion the API depends on without knowing it. Three
+     * One canonical shape, and the assertion the API depends on without knowing it. Three
      * dialects carrying the same counter must produce the same canonical member, or the
      * one stored shape is a claim rather than a property.
      */
@@ -178,7 +178,7 @@ class LorastatsDialectsTest {
     }
 
     /**
-     * D14b. An unrecognised member keeps its spelling and its value, in either dialect,
+     * An unrecognised member keeps its spelling and its value, in either dialect,
      * so the caller can preserve it verbatim in {@code data_extra}. Renaming an unknown
      * field on the way to a column that does not exist would be inventing a mapping.
      */

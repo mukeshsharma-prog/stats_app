@@ -54,7 +54,7 @@ public final class LtestatsMessageProcessor implements StatsMessageProcessor {
         log.atDebug().addKeyValue("event", "consumed").log("Record admitted by the payload gate");
 
         if (!retentionGuard.admit(LtestatsConsumerDescriptor.TYPE, validated)) {
-            // Skipped, metered and logged by the guard; ACKed by returning (D5b, DL-133).
+            // Skipped, metered and logged by the guard; ACKed by returning.
             return;
         }
 

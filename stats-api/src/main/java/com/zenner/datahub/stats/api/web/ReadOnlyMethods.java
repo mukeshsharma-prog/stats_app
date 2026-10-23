@@ -12,7 +12,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
- * Rule 1, STA-32/STA-32A (T-043): every method but GET on {@code /v1/**} is a 405 with
+ * The API is read-only: every method but GET on {@code /v1/**} is a 405 with
  * {@code Allow: GET} and no side effect — on every route, known or not.
  *
  * <p><strong>Why a filter, and why before authentication.</strong> Left to Spring MVC, a

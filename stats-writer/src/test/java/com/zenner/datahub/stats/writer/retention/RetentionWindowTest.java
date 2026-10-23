@@ -12,7 +12,7 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 /**
- * The cutoff arithmetic, at the boundary (T-031's unit half; STA-23A, STA-23B).
+ * The cutoff arithmetic, at the boundary (the unit half of the boundary tests).
  *
  * <p>The assertions that matter are the ones one second either side of the line. The
  * arithmetic is easy to get right by an off-by-one and impossible to notice: a window a

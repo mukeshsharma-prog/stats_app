@@ -9,18 +9,18 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 
 /**
- * The only place the API learns which tenant a caller is (STA-34A, STA-35A, ADR-006).
+ * The only place the API learns which tenant a caller is.
  *
  * <p><strong>The tenant comes from the validated token and from nowhere else.</strong>
  * Not a query parameter, not a header, not the path, not a cursor. A cursor carries no
  * tenant at all: the tenant is part of what its signature covers, so a cursor presented
- * under a different tenant simply fails verification (T-042).</p>
+ * under a different tenant simply fails verification.</p>
  *
  * <p><strong>Usable means one non-blank String.</strong> An absent claim, an empty or
  * blank one, and a multi-valued one are all unusable, and an unusable claim is a 403 —
  * never "all tenants". The multi-valued case is refused rather than read as
  * {@code tenant IN (...)}: that shape lets one misconfigured user read several tenants
- * with every test still green (Q8b).</p>
+ * with every test still green.</p>
  */
 public final class CallerTenant {
 

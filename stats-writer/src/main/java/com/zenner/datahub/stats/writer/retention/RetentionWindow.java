@@ -9,8 +9,8 @@ import java.util.Objects;
 import org.springframework.stereotype.Component;
 
 /**
- * The retention cutoff — one definition, used by both halves of retention
- * (STA-23A, STA-23B; ADR-003 D1 and its late-arrival consequence).
+ * The retention cutoff — one definition, used by both halves of retention:
+ * the partition sweep and the late-arrival guard.
  *
  * <h2>Why this is one class and not two calculations</h2>
  *
@@ -21,16 +21,16 @@ import org.springframework.stereotype.Component;
  *   <li>{@link PartitionRetention} drops a partition once it is <em>wholly</em> older than
  *       the cutoff.</li>
  *   <li>{@link RetentionGuard} skips a record whose {@code ts.device} is older than the
- *       cutoff, because no partition can hold it (T-026, DL-112).</li>
+ *       cutoff, because no partition can hold it.</li>
  *   <li>{@link PartitionMaintenance} ensures a partition for every day from the cutoff
- *       through the pre-creation horizon (DL-149), so the converse holds too: a record the
+ *       through the pre-creation horizon, so the converse holds too: a record the
  *       guard admits always has somewhere to go.</li>
  * </ul>
  *
  * <p>If the guard were more permissive by even a day, it would admit a record into a
  * partition the sweep had just dropped: the insert fails, the record dead-letters, and a
- * redrive re-derives the identical verdict forever in a queue ADR-002 §12 forbids ever
- * expiring. If the sweep were more permissive, partitions past the window would survive
+ * redrive re-derives the identical verdict forever in a queue that never
+ * expires. If the sweep were more permissive, partitions past the window would survive
  * with nothing to say so. Deriving both from this class makes the disagreement
  * unrepresentable rather than merely unlikely.</p>
  *
@@ -50,7 +50,7 @@ import org.springframework.stereotype.Component;
  * <h2>The clock is UTC and the basis is {@code ts.device}</h2>
  *
  * <p>{@code ts.device} is when the <em>gateway measured</em> the record, not when we
- * received it (STA-23B), and Q15b confirmed it is genuinely device-assigned (DL-106). A
+ * received it, and ZC confirmed it is genuinely device-assigned. A
  * gateway back from a three-week outage therefore delivers records already 21 days into
  * their window. That is the answered business rule, not a defect — do not "fix" it to
  * {@code ts.server}.</p>
@@ -84,7 +84,7 @@ public class RetentionWindow {
     /**
      * The cutoff for a window of {@code retentionDays} on {@code clock}'s UTC day — the
      * arithmetic above, for a caller with no Spring context. The DLQ redrive command reads
-     * it (DL-168): before that it computed {@code now − days}, a second definition that
+     * it: before that it computed {@code now − days}, a second definition that
      * disagreed with the guard by up to a day.
      */
     public static Instant cutoffFor(Clock clock, int retentionDays) {

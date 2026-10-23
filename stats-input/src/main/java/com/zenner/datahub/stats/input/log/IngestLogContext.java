@@ -8,7 +8,7 @@ import java.util.Map;
 import java.util.UUID;
 import org.slf4j.MDC;
 
-/** Scoped structured-log context for one ingest request (T-005, ADR-001). */
+/** Scoped structured-log context for one ingest request. */
 public final class IngestLogContext {
 
     public static final String TRACE_ID = "traceId";
@@ -17,7 +17,7 @@ public final class IngestLogContext {
     public static final String TENANT = "tenant";
     public static final String CLSBOX = "clsbox";
     public static final String ERROR_CODE = "errorCode";
-    /** DL-151: which ingest door the request came through — {@code internal} or {@code external}. */
+    /** Which ingest door the request came through — {@code internal} or {@code external}. */
     public static final String INGEST_SOURCE = "ingestSource";
 
     public static final String UNKNOWN = "unknown";
@@ -65,7 +65,7 @@ public final class IngestLogContext {
         }
     }
 
-    /** Binds the ingest door once the logging filter has matched the path (DL-151). */
+    /** Binds the ingest door once the logging filter has matched the path. */
     public static void source(IngestSource source) {
         if (active() && source != null) {
             MDC.put(INGEST_SOURCE, source.label());

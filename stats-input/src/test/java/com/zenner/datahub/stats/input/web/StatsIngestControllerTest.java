@@ -38,7 +38,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 /**
  * The HTTP contract of the ingest endpoint (heimdal-input-contract-v1.md §2).
  *
- * <p>The publisher is stubbed because publisher-confirm semantics are T-014. What is
+ * <p>The publisher is stubbed because publisher-confirm semantics are tested elsewhere. What is
  * asserted here is the boundary this task owns: which conditions produce a 400, that
  * a rejected record is never handed to the publisher, and that a record that is not
  * confirmed produces a 503 rather than a success.</p>
@@ -47,7 +47,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 @AutoConfigureMockMvc
 @TestPropertySource(
         properties = {
-            // T-017 deliberately gives these no default in code, so a deployment that
+            // These deliberately have no default in code, so a deployment that
             // forgets them fails to start. Tests must supply them like any deployment.
             "STATS_INPUT_AUTH_MODE=none",
             "STATS_INGEST_ROLE=stats.ingest"
@@ -70,12 +70,12 @@ class StatsIngestControllerTest {
                 .andExpect(acceptedAcknowledgement());
 
         assertThat(counter(IngestMetrics.ACCEPTED) - acceptedBefore).isEqualTo(1.0d);
-        // ADR-007 §2 — accepted, never read, metered (T-059).
+        // Accepted, never read, metered.
         assertThat(counter(IngestMetrics.CONVERTER_TS_PRESENT) - converterBefore).isEqualTo(1.0d);
     }
 
     @Test
-    @DisplayName("an unconfirmed publish is 503, never a success — rule 8")
+    @DisplayName("an unconfirmed publish is 503, never a success")
     void unconfirmedPublishIsUnavailable() throws Exception {
         when(publisher.publish(eq(StatType.LORASTATS), any()))
                 .thenReturn(PublishOutcome.NOT_CONFIRMED);
@@ -88,15 +88,15 @@ class StatsIngestControllerTest {
                 .andExpect(jsonPath("$.status").value(503));
 
         assertThat(counter(IngestMetrics.PUBLISH_FAILED) - before).isEqualTo(1.0d);
-        // T-050: the cycle histogram counts ACCEPTED records only. Heimdal resends after a
+        // The cycle histogram counts ACCEPTED records only. Heimdal resends after a
         // 503, and counting the attempt here would count that record twice.
         assertThat(cycleOffsetSamples(StatType.LORASTATS)).isEqualTo(cycleSamplesBefore);
     }
 
     /**
-     * T-050 / DL-147: the two envelope observations metered on acceptance — where in the
+     * The two envelope observations metered on acceptance — where in the
      * ten-minute cycle {@code ts.server} fell, and whether Heimdal corrected
-     * {@code ts.device} (DL-146). Both are read to be counted and for nothing else.
+     * {@code ts.device}. Both are read to be counted and for nothing else.
      */
     @Test
     @DisplayName("an accepted record is placed in the reporting-cycle histogram, and a corrected one is counted")
@@ -133,7 +133,7 @@ class StatsIngestControllerTest {
     }
 
     @Test
-    @DisplayName("an unknown-dialect record is ACCEPTED and published — ADR-007 §5")
+    @DisplayName("an unknown-dialect record is ACCEPTED and published")
     void publishesAPayloadDialectMismatch() throws Exception {
         when(publisher.publish(eq(StatType.LORASTATS), any())).thenReturn(PublishOutcome.CONFIRMED);
 
@@ -144,7 +144,7 @@ class StatsIngestControllerTest {
     }
 
     @Test
-    @DisplayName("an envelope failure is 400 and NOTHING is published — rule 7")
+    @DisplayName("an envelope failure is 400 and NOTHING is published")
     void envelopeFailurePublishesNothing() throws Exception {
         mockMvc.perform(
                         post("/internal/stats")
@@ -192,7 +192,7 @@ class StatsIngestControllerTest {
     }
 
     /**
-     * DL-151: two doors, one behaviour. The external path accepts exactly what the
+     * Two doors, one behaviour. The external path accepts exactly what the
      * internal one accepts, rejects exactly what it rejects, and the only observable
      * difference is the {@code source} label on the counters.
      */
@@ -272,7 +272,7 @@ class StatsIngestControllerTest {
      * later for being flaky rather than fixed.
      */
     private double counter(String name) {
-        // Summed across every type and source label: since T-050 this class posts sysstats
+        // Summed across every type and source label: this class posts sysstats
         // records too, so a name can match several counters and "the first one" depends
         // on which test ran first. A delta over the sum does not.
         try {
@@ -284,7 +284,7 @@ class StatsIngestControllerTest {
         }
     }
 
-    /** The same delta, restricted to one ingest door (DL-151). */
+    /** The same delta, restricted to one ingest door. */
     private double counter(String name, String source) {
         try {
             return meterRegistry.get(name).tag("source", source).counters().stream()

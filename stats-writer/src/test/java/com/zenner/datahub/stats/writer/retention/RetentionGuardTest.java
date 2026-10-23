@@ -17,8 +17,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
- * T-026 — late arrival is skipped, metered and acknowledged, never dead-lettered
- * (STA-23B; ADR-003 option B; D5b → DL-112).
+ * Late arrival is skipped, metered and acknowledged, never dead-lettered.
  */
 class RetentionGuardTest {
 
@@ -102,7 +101,7 @@ class RetentionGuardTest {
     }
 
     /**
-     * The gateway-back-from-an-outage case that STA-23B describes and DL-106 confirmed is
+     * The gateway-back-from-an-outage case that retention on {@code ts.device} allows, and ZC confirmed is
      * real: {@code ts.device} 95 days old while {@code ts.server} is current. The fixture
      * {@code edge/lorastats-late-arrival.json} is this record.
      */
@@ -130,7 +129,7 @@ class RetentionGuardTest {
 
     /**
      * The counter is per type, and it is the only machine-readable trace of a deliberate
-     * data-loss path. Alerting on it is T-050; exporting it is this.
+     * data-loss path. Alerting on it is Prometheus's job; exporting it is this.
      */
     @Test
     void countsPerStatTypeSoOneTypesBacklogIsAttributable() throws Exception {

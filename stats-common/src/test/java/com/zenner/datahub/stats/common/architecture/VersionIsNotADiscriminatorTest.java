@@ -14,11 +14,10 @@ import org.junit.jupiter.api.Test;
  *
  * <p>Three consecutive production {@code lorastats} records used three mutually
  * incompatible payload shapes, and <strong>all three carried {@code version: 1}</strong>.
- * Nothing on the record says which dialect it is. Since DL-105 all three are accepted and
+ * Nothing on the record says which dialect it is. All three are accepted and
  * normalised to one typed row, and the dialect is selected <em>structurally</em> — so
- * T-063 introduces real dialect-selection code with {@code version} sitting immediately
- * beside it, looking exactly like the discriminator it is not. (ADR-007 §4 as amended,
- * DL-105 rule 1.)</p>
+ * the Writer has real dialect-selection code with {@code version} sitting immediately
+ * beside it, looking exactly like the discriminator it is not.</p>
  *
  * <p>This guard exists <em>before</em> that code rather than after it, deliberately. A
  * guard written once the parser exists gets written to match whatever was built; written
@@ -55,19 +54,19 @@ class VersionIsNotADiscriminatorTest {
             Map.entry("stats-writer/src/main/java/com/zenner/datahub/stats/writer/persistence/"
                     + "LorastatsBatchWriter.java",
             "Stores it verbatim as the record_version column — the passthrough mapping "
-                    + "required by ADR-007. Its only conditional is a SMALLINT range check "
+                    + "of the wire field. Its only conditional is a SMALLINT range check "
                     + "before conversion, which is a width guard, not a dialect branch."),
             Map.entry("stats-writer/src/main/java/com/zenner/datahub/stats/writer/persistence/"
                     + "SysstatsBatchWriter.java",
-            "The sysstats sibling (T-035, DL-148): the same record_version passthrough "
+            "The sysstats sibling: the same record_version passthrough "
                     + "and the same SMALLINT width guard. sysstats has one dialect, so "
                     + "there is nothing here a version could even select between."),
             Map.entry("stats-writer/src/main/java/com/zenner/datahub/stats/writer/persistence/"
                     + "OmsstatsBatchWriter.java",
-            "The omsstats sibling (T-036, DL-153): the same record_version passthrough "
+            "The omsstats sibling: the same record_version passthrough "
                     + "and the same SMALLINT width guard, and again one dialect."),
             Map.entry("stats-api/src/main/java/com/zenner/datahub/stats/api/query/RecordAssembler.java",
-            "The read side of the same passthrough (T-041, DL-162): record_version goes "
+            "The read side of the same passthrough: record_version goes "
                     + "back out verbatim as the envelope's version member. Its only "
                     + "conditional is SQL NULL — whether there is a value to return — and "
                     + "the dialect was normalised away before the row was ever stored."),
@@ -91,7 +90,7 @@ class VersionIsNotADiscriminatorTest {
         assertThat(offences)
                 .as(
                         "`version` is not a dialect discriminator — all three production "
-                                + "lorastats dialects carry version:1 (DL-105 rule 1, trap 20). "
+                                + "lorastats dialects carry version:1. "
                                 + "Dialect selection is STRUCTURAL. If a read is genuinely "
                                 + "required, add it to JUSTIFIED_READS with the reason and say "
                                 + "in review why it is not a branch.")

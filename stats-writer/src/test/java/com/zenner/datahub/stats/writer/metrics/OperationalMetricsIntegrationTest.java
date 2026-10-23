@@ -31,7 +31,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.containers.RabbitMQContainer;
 
 /**
- * T-027 against a real broker and a real Prometheus scrape.
+ * Operational metrics against a real broker and a real Prometheus scrape.
  *
  * <p>Dedicated containers rather than the shared {@code RabbitSupport} ones, on purpose:
  * this test stops the lorastats listener to build a visible backlog, and on the shared

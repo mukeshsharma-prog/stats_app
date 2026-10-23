@@ -9,8 +9,8 @@ import java.util.Objects;
 /**
  * Shared RFC 9457 response shape used by the Input and Stats API modules.
  *
- * <p>STA-03A and STA-35B require safe errors that do not echo payload values or
- * disclose another tenant's data. Validation failures should be created through
+ * <p>Errors must be safe: they never echo payload values or disclose another
+ * tenant's data. Validation failures should be created through
  * {@link #validationFailure(ErrorCode, StatType, List, String, String)}, which
  * supplies the catalogue-owned URI, title, and HTTP status.</p>
  */

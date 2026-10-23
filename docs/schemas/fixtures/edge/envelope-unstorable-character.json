@@ -20,5 +20,5 @@
   },
   "$expect": "input-reject",
   "$expectCode": "unstorable_character",
-  "$comment": "Schema-VALID - JSON allows \\u0000 and the member is an unknown data member, which D14 accepts - and REJECTED by stats-input with 400 unstorable_character (DL-168). PostgreSQL cannot store U+0000 in text (SQLSTATE 22021) or jsonb (22P05), and cannot store an unpaired surrogate either, so the Writer would dead-letter the record and every redrive would fail the same way. The check walks every member name and string value, so it holds for envelope, passthrough and payload alike; no JSON Schema keyword can express it for arbitrary member names."
+  "$comment": "Schema-VALID - JSON allows \\u0000 and the member is an unknown data member, which the unknown-field policy accepts - and REJECTED by stats-input with 400 unstorable_character. PostgreSQL cannot store U+0000 in text (SQLSTATE 22021) or jsonb (22P05), and cannot store an unpaired surrogate either, so the Writer would dead-letter the record and every redrive would fail the same way. The check walks every member name and string value, so it holds for envelope, passthrough and payload alike; no JSON Schema keyword can express it for arbitrary member names."
 }

@@ -18,7 +18,7 @@ import java.util.List;
  * earlier accepted records can have it, so it is returned only when stored.
  *
  * <p>{@code imsi} is the one member that does not go back out as stored: it is masked by
- * {@link ImsiMask} on every route (D-12 P3, DL-167). {@code lac}/{@code cid} are returned
+ * {@link ImsiMask} on every route. {@code lac}/{@code cid} are returned
  * as reported, by the same decision.</p>
  */
 public final class LtestatsReader implements StatReader {

@@ -33,8 +33,8 @@ import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
- * Real PostgreSQL proof of the sysstats writer (T-035): the per-type parse ADR-003
- * calls for, the {@code timespan} string-to-{@code BIGINT} range check, the D14b residue,
+ * Real PostgreSQL proof of the sysstats writer: the per-type parse, the
+ * {@code timespan} string-to-{@code BIGINT} range check, the {@code data_extra} residue,
  * the passthrough projection, canonical {@code clsbox} and idempotency.
  */
 @SpringBootTest(
@@ -137,7 +137,7 @@ class SysstatsBatchWriterIntegrationTest {
     }
 
     /**
-     * STA-04C, the trap the brief names for this type. The schema caps {@code timespan}
+     * The range check, the trap for this type. The schema caps {@code timespan}
      * at nineteen digits and so admits {@code 9223372036854775808}; the column cannot
      * hold it. The record is refused before any conversion and nothing is written — the
      * alternative, a wrapped or truncated value, is a row that is wrong rather than
@@ -162,7 +162,7 @@ class SysstatsBatchWriterIntegrationTest {
             assertThat(classifier.isPermanent(failure)).isTrue();
         });
         assertThat(storedCount("timespan-overflow")).isZero();
-        // Counted as a payload nobody can map, NOT as a database write failure (DL-126).
+        // Counted as a payload nobody can map, NOT as a database write failure.
         assertThat(payloadRejected(WriterGateMetrics.REASON_UNMAPPABLE)).isEqualTo(unmappableBefore + 1.0d);
         assertThat(counter(LorastatsBatchWriter.WRITE_FAILED_METRIC)).isEqualTo(writeFailedBefore);
     }
@@ -206,7 +206,7 @@ class SysstatsBatchWriterIntegrationTest {
         double duplicatesBefore = counter(LorastatsBatchWriter.DUPLICATE_METRIC);
         StatsEnvelope first = envelope("duplicate-proof", "tenant-a", completeData());
         // Same (ts_device, uid), a different tenant: tenant is deliberately NOT in the
-        // key (ADR-003), and this counter is what would reveal a cross-tenant collision.
+        // key, and this counter is what would reveal a cross-tenant collision.
         StatsEnvelope second = envelope("duplicate-proof", "tenant-b", completeData());
 
         assertThat(writer.write(List.of(admitted(first), admitted(second))))
@@ -241,7 +241,7 @@ class SysstatsBatchWriterIntegrationTest {
         assertThat(counter(LorastatsBatchWriter.UNMAPPED_DATA_METRIC)).isEqualTo(unmappedBefore + 1.0d);
     }
 
-    /** DL-146's live shape: meta and ts.deviceOrig survive the round trip losslessly. */
+    /** The live shape: meta and ts.deviceOrig survive the round trip losslessly. */
     @Test
     void preservesThePassthroughMembersHeimdalActuallySends() throws Exception {
         StatsEnvelope record =
@@ -261,7 +261,7 @@ class SysstatsBatchWriterIntegrationTest {
 
         assertThat(((Number) stored.get("record_version")).intValue()).isEqualTo(1);
         // The minol pattern, stored exactly as stamped: tenant is the isolation field and
-        // maintenant differs from it on this tenant (DL-146).
+        // maintenant differs from it on this tenant.
         assertThat(stored).containsEntry("tenant", "minol-gateway").containsEntry("maintenant", "minol");
         assertThat(passthrough.path("meta").path("tsDeviceCorrected").asBoolean()).isTrue();
         assertThat(passthrough.path("ts").path("deviceOrig").asLong()).isEqualTo(1_786_616_989L);
@@ -288,7 +288,7 @@ class SysstatsBatchWriterIntegrationTest {
 
     /**
      * A stored record rebuilds into the record that was received, member for member and
-     * value for value — the promise the API will make (ADR-003 D2, ADR-007 §2).
+     * value for value — the promise the API will make.
      */
     @Test
     void aStoredRecordRebuildsIntoTheRecordThatWasReceived() throws Exception {

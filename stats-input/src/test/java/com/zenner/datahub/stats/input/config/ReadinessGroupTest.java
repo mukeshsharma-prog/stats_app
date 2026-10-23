@@ -11,9 +11,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * D13, D-10: readiness probes <em>only this module's real dependencies</em>.
+ * Readiness probes <em>only this module's real dependencies</em>.
  *
- * <p>For Input that is the <strong>broker and nothing else</strong>. Rule 2 (STA-32)
+ * <p>For Input that is the <strong>broker and nothing else</strong>. The rule that only the Writer writes
  * says Modules 1 and 3 never hold a write-capable database dependency, and Input holds
  * no database dependency at all — so a {@code db} indicator appearing in this group
  * would mean the rule had been broken somewhere upstream, not that the probe had got

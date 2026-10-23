@@ -12,8 +12,8 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  * Module 2 — Stats Writer (Statsstore).
  *
  * <p>Consumes from the per-type RabbitMQ queues and writes to PostgreSQL, one
- * table per stat type (STA-21). The only component with database write access
- * (STA-32), and the owner of retention (STA-23A).
+ * table per stat type. The only component with database write access,
+ * and the owner of retention.
  */
 @SpringBootApplication
 @EnableScheduling

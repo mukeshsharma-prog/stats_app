@@ -21,7 +21,7 @@ public final class PostgresSupport {
     private static final class JvmPostgresContainer extends PostgreSQLContainer<JvmPostgresContainer> {
         private JvmPostgresContainer() {
             super(DockerImageName.parse(PostgresSupport.IMAGE));
-            // Sized for Spring's test context cache, not for production (DL-167): up to
+            // Sized for Spring's test context cache, not for production: up to
             // 32 cached contexts share this one database, each with Hikari's default
             // pool of 10, plus the drills' own connections and pg_dump. PostgreSQL's
             // default of 100 is exhausted at the eleventh context. Sizing the shared

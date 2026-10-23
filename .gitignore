@@ -3,8 +3,9 @@
 build/
 !gradle/wrapper/gradle-wrapper.jar
 
-# IDE
+# IDE — editor settings stay on each developer's machine
 .idea/
+.vscode/
 *.iml
 *.ipr
 *.iws
@@ -20,7 +21,7 @@ __pycache__/
 *.py[cod]
 
 # Secrets never belong in the repository — they come from the environment.
-# See docs/development/DEVELOPMENT.md §4.
+# See CONTRIBUTING.md.
 *.env
 .env
 .env.bak*
@@ -30,7 +31,7 @@ postman/*.private.postman_environment.json
 Stats_App_Tracker.xlsx
 ~$Stats_App_Tracker.xlsx
 
-# Generated OpenAPI documentation bundle — BOTH contracts on one page since DL-145.
+# Generated OpenAPI documentation bundle — BOTH contracts on one page.
 # Regenerate from the YAML, never edit or commit it — a checked-in bundle is stale the
 # moment docs/contracts/openapi*.yaml changes, and it is 350 KB of noise in every
 # diff. CI uploads it as the `stats-api-v1-draft` workflow artifact:

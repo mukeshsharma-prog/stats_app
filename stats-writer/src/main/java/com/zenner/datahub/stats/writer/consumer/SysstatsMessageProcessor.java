@@ -18,10 +18,10 @@ import org.springframework.context.annotation.Conditional;
 import org.springframework.stereotype.Component;
 
 /**
- * Validates and persists one sysstats delivery through the batch-shaped API (T-035).
+ * Validates and persists one sysstats delivery through the batch-shaped API.
  *
  * <p>Gate, then guard, then write — the order the lorastats sibling settled and the
- * reasons it gives (T-057, T-026): a payload failure must never open a transaction and
+ * reasons it gives: a payload failure must never open a transaction and
  * goes straight to the DLQ; a late record is validated first so that one which is
  * <em>also</em> malformed dead-letters where it can be diagnosed rather than being
  * discarded as merely late. {@link PayloadGate} and {@link RetentionGuard} are shared and
@@ -64,7 +64,7 @@ public final class SysstatsMessageProcessor implements StatsMessageProcessor {
         log.atDebug().addKeyValue("event", "consumed").log("Record admitted by the payload gate");
 
         if (!retentionGuard.admit(SysstatsConsumerDescriptor.TYPE, validated)) {
-            // Skipped, metered and logged by the guard; ACKed by returning (D5b, DL-133).
+            // Skipped, metered and logged by the guard; ACKed by returning.
             return;
         }
 

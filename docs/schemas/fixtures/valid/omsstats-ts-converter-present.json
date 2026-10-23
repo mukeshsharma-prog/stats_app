@@ -18,7 +18,7 @@
     "device_count": 3,
     "timespan": 300
   },
-  "$comment": "REVERSED 29 Aug 2026 (ADR-007 §2). This fixture previously lived in invalid/ and asserted that ts.converter makes a record INVALID, per ADR-004. Production sends ts.converter on 100% of records, so that rule rejected every record Heimdal sends. The field is now accepted, preserved and never read; ADR-004's actual decision - the Stats App performs NO timestamp normalisation - is unchanged. This fixture also carries the full production ts block (server/device/datastore/converter/expiresOn) plus version and status, so it is the regression guard for the whole envelope shape.",
+  "$comment": "REVERSED 29 Aug 2026. This fixture previously lived in invalid/ and asserted that ts.converter makes a record INVALID. Production sends ts.converter on 100% of records, so that rule rejected every record Heimdal sends. The field is now accepted, preserved and never read; the actual decision - the Stats App performs NO timestamp normalisation - is unchanged. This fixture also carries the full production ts block (server/device/datastore/converter/expiresOn) plus version and status, so it is the regression guard for the whole envelope shape.",
   "version": 1,
   "status": [
     "conversion ok"

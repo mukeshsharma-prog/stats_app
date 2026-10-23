@@ -21,15 +21,15 @@ import org.springframework.stereotype.Component;
 
 /**
  * Retention: {@code DETACH PARTITION … CONCURRENTLY} then {@code DROP TABLE}, never row
- * deletion (T-025; STA-23A, STA-23C; ADR-003 D1, D3, D4).
+ * deletion.
  *
  * <h2>Why dropping a partition and not deleting rows</h2>
  *
  * <p>Dropping a partition is a catalogue operation — milliseconds, no dead tuples, no
  * vacuum debt, no index bloat. At up to 115.2m records a day an unbounded {@code DELETE}
  * produces long transactions, lock contention and table bloat, which is why
- * {@code claude/CLAUDE.md} §6 lists row-by-row deletion at this volume as a trap and why
- * ADR-003 D1 chose {@code RANGE (ts_device)} partitioning in the first place. The
+ * row-by-row deletion at this volume is ruled out and why
+ * {@code RANGE (ts_device)} partitioning was chosen in the first place. The
  * retention basis and the dominant query pattern are the same column, so one partition key
  * serves both.</p>
  *
@@ -59,7 +59,7 @@ import org.springframework.stereotype.Component;
  *
  * <h2>What this class refuses to drop</h2>
  *
- * <p>Dropping is irreversible short of a per-partition restore (ADR-003 D5), so eligibility
+ * <p>Dropping is irreversible short of a per-partition restore, so eligibility
  * is proved rather than assumed. A child qualifies only if its name is one
  * {@link PartitionNaming} produced, <em>and</em> its catalogue bound is exactly the bound
  * that name implies, <em>and</em> that day is wholly outside the window
@@ -108,9 +108,9 @@ public class PartitionRetention {
     /**
      * Runs one retention pass for {@code type} under its advisory lock.
      *
-     * <p>The lock is required even though ADR-003 D8 deploys one instance per stat type,
-     * because D8 also runs <em>N replicas</em> of that instance, and N replicas racing to
-     * detach the same partition is precisely what D3 exists to prevent. A replica that does
+     * <p>The lock is required even though production deploys one instance per stat type,
+     * because it also runs <em>N replicas</em> of that instance, and N replicas racing to
+     * detach the same partition is precisely what the lock exists to prevent. A replica that does
      * not get the lock has not missed anything — another one is doing the work.</p>
      */
     public RetentionResult sweep(StatType type) {
@@ -138,7 +138,7 @@ public class PartitionRetention {
 
         int orphansDropped = sweepOrphans(type, connection);
         publishOldestPartitionAge(type, connection);
-        // The one series that can say "the sweep has stopped" (DL-156). Set last, so a
+        // The one series that can say "the sweep has stopped". Set last, so a
         // run that died before this line reports nothing rather than a false completion.
         metrics.sweepCompleted(type, window.now().getEpochSecond());
 
@@ -242,7 +242,7 @@ public class PartitionRetention {
      * <p>{@code DROP TABLE} runs only after the detach has succeeded. Dropping a still
      * attached partition would work, and would take an {@code ACCESS EXCLUSIVE} lock on
      * the parent — blocking every writer for the duration, which is the exact cost
-     * {@code CONCURRENTLY} is here to avoid (T-055).</p>
+     * {@code CONCURRENTLY} is here to avoid.</p>
      */
     private boolean detachAndDrop(StatType type, Connection connection, LivePartition partition) {
         String parent = PartitionNaming.quotedIdentifier(type.wireName());
@@ -358,7 +358,7 @@ public class PartitionRetention {
         }
         if (oldest == null) {
             // No partitions at all. Reporting a stale age would be worse than reporting
-            // nothing: pre-creation failing is its own alert (ADR-003 D1).
+            // nothing: pre-creation failing is its own alert.
             return;
         }
         metrics.oldestPartitionAgeDays(
@@ -416,7 +416,7 @@ public class PartitionRetention {
 
     /**
      * What one sweep did. {@code lockAcquired == false} means another replica owns this
-     * run — the expected outcome on all but one replica (ADR-003 D3), not a failure.
+     * run — the expected outcome on all but one replica, not a failure.
      */
     public record RetentionResult(
             boolean lockAcquired,

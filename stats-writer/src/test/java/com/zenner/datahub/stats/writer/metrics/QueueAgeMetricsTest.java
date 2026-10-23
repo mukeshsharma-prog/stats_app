@@ -14,7 +14,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.core.MessageProperties;
 
-/** T-050 / DL-147: the oldest-message-age gauge, sampled at delivery. */
+/** The oldest-message-age gauge, sampled at delivery. */
 class QueueAgeMetricsTest {
 
     private static final Instant NOW = Instant.parse("2026-09-19T10:00:00Z");
@@ -25,7 +25,7 @@ class QueueAgeMetricsTest {
 
     @Test
     void isNaNUntilSomethingHasBeenObserved() {
-        // "Not observed yet" and "empty" must not read the same (DL-137).
+        // "Not observed yet" and "empty" must not read the same.
         metrics.register(StatType.LORASTATS);
 
         assertThat(gauge(StatType.LORASTATS).value()).isNaN();

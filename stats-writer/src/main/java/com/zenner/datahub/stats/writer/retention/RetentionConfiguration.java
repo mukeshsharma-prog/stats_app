@@ -11,7 +11,7 @@ import org.springframework.context.annotation.Configuration;
  * <p>Retention and the late-arrival guard both answer "what is today, in UTC" and both
  * must answer it identically — the boundary between a record that is stored and one that
  * is deliberately discarded is a single day. A bean makes that boundary assertable at an
- * exact instant instead of only near one, which is what T-031 asks for: a test just inside
+ * exact instant instead of only near one, which is what the boundary tests need: a test just inside
  * and just outside the window, not a test that is approximately either.</p>
  *
  * <p>{@link ConditionalOnMissingBean} so a test can supply a fixed clock without

@@ -58,7 +58,7 @@ tests:
               description: >-
                 archive_command has failed repeatedly for five minutes. Every WAL segment since
                 the last success is still on the primary's disk and nowhere else: the recovery
-                point is stuck and RPO <= 5 min (DL-111) is not being met. Check
+                point is stuck and RPO <= 5 min is not being met. Check
                 pg_stat_archiver.last_failed_wal and the server log for the command's stderr;
                 a fresh volume owned by root and a full archive disk are the two known causes.
               runbook: docs/runbooks/partition-restore.md
@@ -126,8 +126,8 @@ tests:
             exp_annotations:
               summary: "PostgreSQL archive_mode is off on pg"
               description: >-
-                Continuous WAL archiving is the mechanism behind RPO <= 5 min (ADR-003 D5,
-                DL-111). With it off, the only backup is whatever base backup or per-partition
+                Continuous WAL archiving is the mechanism behind the agreed RPO <= 5 min.
+                With it off, the only backup is whatever base backup or per-partition
                 dump last ran, and docs/runbooks/partition-restore.md cannot deliver a
                 point-in-time day. Expected on a throwaway local database; never in a shared
                 deployment.

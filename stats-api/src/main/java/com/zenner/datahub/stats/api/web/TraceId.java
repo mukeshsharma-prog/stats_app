@@ -11,12 +11,12 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
  * Mints a {@code traceId} per request, returns it as {@code X-Trace-Id}, and keeps it in
- * the MDC for every log line of the request (T-005, applied to the API).
+ * the MDC for every log line of the request.
  *
  * <p>The same key, header and format as Input ({@code IngestLoggingFilter}), so a support
  * request quoting a {@code traceId} from a problem body is looked up the same way in both
  * modules. The key is the MDC scope's alone: a log statement must never repeat it as a
- * key-value pair, or the ECS encoder drops the line (DL-150).</p>
+ * key-value pair, or the ECS encoder drops the line.</p>
  */
 public final class TraceId extends OncePerRequestFilter {
 

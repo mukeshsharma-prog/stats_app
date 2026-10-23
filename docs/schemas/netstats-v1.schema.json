@@ -33,7 +33,7 @@
             }
           },
           "additionalProperties": true,
-          "$comment": "Q4a answered 18 Aug 2026 and confirmed by production: eth0 and wwan are MANDATORY. Additional interfaces are allowed and are validated against the same interface shape via patternProperties, so a new interface name never requires a schema change (STA-14A)."
+          "$comment": "Decided 18 Aug 2026 and confirmed by production: eth0 and wwan are MANDATORY. Additional interfaces are allowed and are validated against the same interface shape via patternProperties, so a new interface name never requires a schema change."
         }
       }
     }
@@ -70,12 +70,12 @@
         "last_powercycle": { "$ref": "#/$defs/counter" }
       },
       "additionalProperties": true,
-      "$comment": "ONLY tx and rx are required. gw, ip, mask and dns were required before 29 Aug 2026, which dead-lettered every record from an interface that had not come up - production record CLSCON-ba223c05 is a wwan with need_init:'qmi', fail_count and last_forced_reset and NO address at all. A modem that is down is a legitimate device state, and it is precisely the record ops most needs to see, so requiring an address is corrected here rather than dead-lettered (ADR-007 §5). Strictness is kept where it earns its place: every address that IS present must still be a well-formed IPv4, and every counter must still be digits. apipa stays optional - in ZC's own sample eth0 carries it and wwan does not. additionalProperties stays true per D14."
+      "$comment": "ONLY tx and rx are required. gw, ip, mask and dns were required before 29 Aug 2026, which dead-lettered every record from an interface that had not come up - production record CLSCON-ba223c05 is a wwan with need_init:'qmi', fail_count and last_forced_reset and NO address at all. A modem that is down is a legitimate device state, and it is precisely the record ops most needs to see, so requiring an address is corrected here rather than dead-lettered. Strictness is kept where it earns its place: every address that IS present must still be a well-formed IPv4, and every counter must still be digits. apipa stays optional - in ZC's own sample eth0 carries it and wwan does not. additionalProperties stays true per the unknown-field policy."
     },
     "ipv4": {
       "type": "string",
       "pattern": "^((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\\.){3}(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])$",
-      "$comment": "IPv4 only in v1. IPv6 is not in the sample and is not accepted; see Q4b."
+      "$comment": "IPv4 only in v1. IPv6 is not in the sample and is not accepted until ZC says gateways send it."
     },
     "counter": {
       "type": "string",
@@ -83,5 +83,5 @@
       "$comment": "Counters stay STRINGS on the wire because that is what Heimdal sends, but they are constrained to digits only so a non-numeric value dead-letters at the Writer rather than failing a cast at query time. Capped at 19 digits, which rejects anything above 9999999999999999999. The remaining gap between the signed BIGINT maximum 9223372036854775807 and that ceiling cannot be expressed as a regex, so the Writer MUST range-check before conversion - an unchecked overflow corrupts the value with no error."
     }
   },
-  "$comment": "Re-derived from the 29 Aug 2026 production sample (ADR-007). Q4a's answer holds - eth0/wwan mandatory, other interfaces allowed, apipa optional, counters strings stored as BIGINT - but its strictness was derived from ONE healthy sample and required four address fields per interface. Production shows a down modem, so the interface required-set is now tx/rx. driver, mtu, fail_count, plmn, plmn_list, need_init, last_forced_reset and last_powercycle are real production fields, now typed instead of passing unvalidated through additionalProperties."
+  "$comment": "Re-derived from the 29 Aug 2026 production sample. The 18 Aug 2026 answer holds - eth0/wwan mandatory, other interfaces allowed, apipa optional, counters strings stored as BIGINT - but its strictness was derived from ONE healthy sample and required four address fields per interface. Production shows a down modem, so the interface required-set is now tx/rx. driver, mtu, fail_count, plmn, plmn_list, need_init, last_forced_reset and last_powercycle are real production fields, now typed instead of passing unvalidated through additionalProperties."
 }

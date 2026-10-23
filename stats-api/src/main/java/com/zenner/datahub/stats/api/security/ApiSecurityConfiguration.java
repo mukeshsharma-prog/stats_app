@@ -24,19 +24,18 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.AccessDeniedHandler;
 
 /**
- * The Keycloak resource server (T-038) and who may read (T-039) — ADR-006, STA-31A,
- * STA-34A.
+ * The Keycloak resource server and who may read.
  *
  * <p><strong>What validates what.</strong> Boot's resource server validates the token's
  * signature, expiry, {@code iss} ({@code issuer-uri}) and {@code aud} ({@code audiences})
  * — any failure is a 401. {@link ReadAccess} then requires the {@code stats.readOnly}
  * realm role and a usable {@code tenant} claim on every {@code GET /v1/**} — either
  * missing is a 403. Every value is a property with no default in code; an unset one
- * stops the context rather than starting with a guessed posture (Q8b-2) — and so does a
- * blank issuer or audience ({@link ResourceServerSettings}, DL-172), because an empty
+ * stops the context rather than starting with a guessed posture — and so does a
+ * blank issuer or audience ({@link ResourceServerSettings}), because an empty
  * audience list would otherwise switch the {@code aud} check off.</p>
  *
- * <p>Health probes disclose only UP/DOWN without authentication (D13, D-10).
+ * <p>Health probes disclose only UP/DOWN without authentication.
  * Prometheus also requires a token by default. The local Compose stack explicitly
  * enables {@code stats.security.prometheus-public-access} for its scraper; this
  * permits only the Prometheus endpoint, leaving stats reads and other actuator
@@ -44,7 +43,7 @@ import org.springframework.security.web.access.AccessDeniedHandler;
  *
  * <p><strong>Filter order.</strong> {@link TraceId} runs first so every response —
  * a 401 included — carries {@code X-Trace-Id}; {@link ReadOnlyMethods} runs next, before
- * the security chain, so a non-GET is a 405 for every caller (T-043). CSRF is disabled:
+ * the security chain, so a non-GET is a 405 for every caller. CSRF is disabled:
  * this is a stateless bearer-token API with no cookie to forge, and with CSRF on an
  * authenticated POST would be a 403 instead of the contract's 405.</p>
  */

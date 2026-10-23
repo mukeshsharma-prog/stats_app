@@ -33,5 +33,5 @@
     },
     "timespan": 300
   },
-  "$comment": "Counter is a string, as the wire format requires, but is not numeric. The digits-only pattern catches it at the WRITER's payload gate -- dead-letter, ADR-007 \u00a75 -- instead of failing a cast at query time months later."
+  "$comment": "Counter is a string, as the wire format requires, but is not numeric. The digits-only pattern catches it at the WRITER's payload gate -- dead-letter -- instead of failing a cast at query time months later."
 }

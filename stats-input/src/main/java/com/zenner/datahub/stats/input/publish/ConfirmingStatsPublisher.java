@@ -25,7 +25,7 @@ import org.springframework.amqp.rabbit.core.RabbitTemplate;
 
 /**
  * Publishes to {@code app_stats_input} and returns only what the broker has actually
- * told us (T-014, T-015, T-016 — STA-04A, STA-06A, ADR-002 §9, ADR-004).
+ * told us.
  *
  * <p>Three properties of this class are load-bearing, and each one closes a way the
  * system can lose a record without anybody noticing.</p>
@@ -35,7 +35,7 @@ import org.springframework.amqp.rabbit.core.RabbitTemplate;
  * <p>{@link RabbitTemplate#send} with a hand-built {@link Message}, never
  * {@code convertAndSend}. A converter would re-encode the record — key order,
  * number formatting and escaping are all fair game to Jackson — and publication has
- * to be byte-identical to what was received (ADR-004). That is not tidiness: the
+ * to be byte-identical to what was received. That is not tidiness: the
  * Writer suppresses duplicates with {@code ON CONFLICT (ts_device, uid) DO NOTHING},
  * which is only correct if a redelivered record really is the same record.
  * {@code BytePreservingPublishIntegrationTest} is the proof.</p>
@@ -60,8 +60,8 @@ import org.springframework.amqp.rabbit.core.RabbitTemplate;
  * Publishing mandatory makes the broker return it, and Spring attaches the returned
  * message to the same {@link CorrelationData} before completing its future, so an
  * ack carrying a non-null {@link CorrelationData#getReturned()} is a
- * <strong>failed</strong> acceptance: 503 plus {@code records_unroutable{type}}
- * (ADR-002 §9). {@code UnroutablePublishIntegrationTest} pins that ordering against
+ * <strong>failed</strong> acceptance: 503 plus {@code records_unroutable{type}}.
+ * {@code UnroutablePublishIntegrationTest} pins that ordering against
  * this Spring AMQP version rather than trusting the reference documentation.</p>
  */
 public final class ConfirmingStatsPublisher implements StatsPublisher {
@@ -83,7 +83,7 @@ public final class ConfirmingStatsPublisher implements StatsPublisher {
         this.properties = Objects.requireNonNull(properties, "properties");
         this.metrics = Objects.requireNonNull(metrics, "metrics");
         for (StatType type : StatType.values()) {
-            // The p99 a dashboard reads must exist before the first record (DL-158).
+            // The p99 a dashboard reads must exist before the first record.
             metrics.registerPublishConfirm(type);
         }
     }
@@ -114,7 +114,7 @@ public final class ConfirmingStatsPublisher implements StatsPublisher {
                         .addKeyValue(
                                 "confirmReason",
                                 confirm == null ? "no_confirm" : "broker_nack")
-                        .log("Broker NACKed the publish; answering 503 so Heimdal resends (STA-04A)");
+                        .log("Broker NACKed the publish; answering 503 so Heimdal resends");
                 return PublishOutcome.NOT_CONFIRMED;
             }
 
@@ -134,8 +134,8 @@ public final class ConfirmingStatsPublisher implements StatsPublisher {
         } catch (TimeoutException e) {
             metrics.publishConfirm(statType, IngestMetrics.OUTCOME_TIMEOUT, Duration.ofNanos(System.nanoTime() - started));
             // We do not know whether it was published. 503 is the honest answer:
-            // a duplicate on Heimdal's resend is absorbed by ON CONFLICT DO NOTHING
-            // (ADR-005), whereas a 200 here would be a record nobody holds.
+            // a duplicate on Heimdal's resend is absorbed by ON CONFLICT DO NOTHING,
+            // whereas a 200 here would be a record nobody holds.
             IngestLogContext.errorCode(ErrorCode.SERVICE_UNAVAILABLE);
             log.atError()
                     .addKeyValue("event", "publish_failed")
@@ -143,7 +143,7 @@ public final class ConfirmingStatsPublisher implements StatsPublisher {
                     .addKeyValue("confirmTimeout", properties.confirmTimeout())
                     .log(
                             "Publisher confirm did not arrive within the configured timeout; "
-                                    + "outcome unknown, answering 503 (STA-04A, STA-06A)");
+                                    + "outcome unknown, answering 503");
             return PublishOutcome.NOT_CONFIRMED;
         } catch (InterruptedException e) {
             metrics.publishConfirm(statType, IngestMetrics.OUTCOME_ERROR, Duration.ofNanos(System.nanoTime() - started));
@@ -164,7 +164,7 @@ public final class ConfirmingStatsPublisher implements StatsPublisher {
                     .addKeyValue("failureType", e.getClass().getSimpleName())
                     .log(
                             "Publish failed before confirmation; answering 503 so Heimdal resends "
-                                    + "(STA-06A)");
+                                    + "");
             return PublishOutcome.NOT_CONFIRMED;
         }
     }
@@ -172,7 +172,7 @@ public final class ConfirmingStatsPublisher implements StatsPublisher {
     /**
      * Persistent, JSON, and carrying the received bytes verbatim.
      *
-     * <p>{@code PERSISTENT} is rule 10 / STA-13A: durable queues hold transient
+     * <p>{@code PERSISTENT} because durable queues hold transient
      * messages exactly as long as the broker process lives.</p>
      */
     /**
@@ -180,7 +180,7 @@ public final class ConfirmingStatsPublisher implements StatsPublisher {
      *
      * <p>{@code messageId} is an AMQP short string: at most {@value #MAX_SHORT_STRING_BYTES}
      * bytes. A longer value fails the publish on the client, which answered 503 to a record
-     * Heimdal then resent forever (DL-168). The envelope caps {@code uid} at 128
+     * Heimdal then resent forever. The envelope caps {@code uid} at 128
      * characters, but 128 non-ASCII characters are still up to 512 bytes, so the bound is
      * checked in bytes here. Omitting the property is safe: the Writer reads it only to
      * seed its log scope, and binds the {@code uid} from the record itself.</p>
@@ -199,13 +199,13 @@ public final class ConfirmingStatsPublisher implements StatsPublisher {
         messageProperties.setDeliveryMode(MessageDeliveryMode.PERSISTENT);
         // Standard AMQP properties, not custom headers: Writer can restore correlation
         // before it parses the body, and retries can preserve them without changing the
-        // byte-identical record body (T-005, ADR-004).
+        // byte-identical record body.
         messageProperties.setCorrelationId(IngestLogContext.traceId());
         messageProperties.setMessageId(messageId(IngestLogContext.uid()));
         // The publish time, as the standard AMQP `timestamp` property (whole seconds).
-        // The Writer reads it at delivery to compute queue_oldest_message_age_seconds
-        // (T-050, DL-147); a property, not a header, so it rides with the retry and
-        // DLQ copies the same way correlationId does. The body is untouched (ADR-004).
+        // The Writer reads it at delivery to compute queue_oldest_message_age_seconds;
+        // a property, not a header, so it rides with the retry and
+        // DLQ copies the same way correlationId does. The body is untouched.
         messageProperties.setTimestamp(new Date());
         return new Message(body, messageProperties);
     }

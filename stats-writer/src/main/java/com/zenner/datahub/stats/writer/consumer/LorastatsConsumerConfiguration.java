@@ -22,7 +22,7 @@ import org.springframework.context.annotation.Conditional;
  * RabbitMQ declaration and listener configuration for the lorastats reference slice.
  *
  * <p><strong>Every declaration is built from an {@link AmqpTopology} definition</strong>
- * rather than from remembered flags (T-032). {@code stats-input} declares the same
+ * rather than from remembered flags. {@code stats-input} declares the same
  * ingress exchange, and RabbitMQ does not merge two declarations of one resource — it
  * rejects the second with {@code RESOURCE_LOCKED} and that module fails to start.
  * Durability and auto-delete are as fatal as the arguments; they used to live only in
@@ -30,14 +30,14 @@ import org.springframework.context.annotation.Conditional;
  * its counterpart in {@code stats-input} both check theirs with the same
  * {@code AmqpDeclarationAssert}.</p>
  *
- * <p><strong>The full failure arm is here (T-024).</strong> Three retry tiers, a DLQ,
+ * <p><strong>The full failure arm is here.</strong> Three retry tiers, a DLQ,
  * and the dead-letter exchange that carries both — separated by routing key, because
  * one key returns a record for another attempt and the other retires it. Sharing a key
  * would turn every dead-letter into an infinite loop.</p>
  *
  * <p><strong>Only this type's resources are declared here.</strong> The two exchanges and
  * the processor selector moved to {@link WriterAmqpConfiguration} when the second type
- * arrived (T-035, DL-148): they are shared, and a sibling configuration must neither
+ * arrived: they are shared, and a sibling configuration must neither
  * redeclare them nor depend on this file for them.</p>
  */
 @Configuration(proxyBeanMethods = false)
@@ -90,7 +90,7 @@ public class LorastatsConsumerConfiguration {
     }
 
     /**
-     * No expiry and no onward route, by construction (ADR-002 §12). A TTL here is
+     * No expiry and no onward route, by construction. A TTL here is
      * silent data loss: a record that reached this queue has survived three tiers and
      * is the only remaining copy of something Heimdal believes it delivered.
      */
@@ -136,9 +136,9 @@ public class LorastatsConsumerConfiguration {
     }
 
     /**
-     * The listener starts only when the T-021/T-022 processing pipeline is present.
+     * The listener starts only when the processing pipeline is present.
      * Starting a no-op consumer would ACK and discard records before persistence,
-     * the exact silent-loss window T-020 is intended to close.
+     * the exact silent-loss window manual ACK exists to close.
      */
     @Bean
     @Conditional(LorastatsDeploymentCondition.class)

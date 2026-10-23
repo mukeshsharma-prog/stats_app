@@ -12,7 +12,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.mock.env.MockEnvironment;
 
 /**
- * D-10's unenforced half: ADR-003 D8 says one stat type per deployment in production,
+ * Production runs one stat type per deployment,
  * and until 4 September 2026 nothing said so at runtime.
  */
 class StatTypeDeploymentGuardTest {

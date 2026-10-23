@@ -22,13 +22,13 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.utility.MountableFile;
 
 /**
- * The database the API tests read from, built from production artifacts only (DL-162).
+ * The database the API tests read from, built from production artifacts only.
  *
  * <ul>
  *   <li>PostgreSQL 17 — the image {@code stats-testsupport}'s {@code PostgresSupport}
  *       uses, which this module cannot depend on (NoBrokerConnectionTest).</li>
  *   <li>{@code docker/postgres-init/10-read-only-user.sql} — the shipped role bootstrap,
- *       so {@code stats_ro} has exactly its production grants (DL-135).</li>
+ *       so {@code stats_ro} has exactly its production grants.</li>
  *   <li>The Writer's Flyway migrations, applied as the owner — so every column the API
  *       selects is one the Writer creates, and a migration that renames one breaks these
  *       tests rather than production.</li>
@@ -83,7 +83,7 @@ public final class ApiDatabase {
         return DriverManager.getConnection(POSTGRES.getJdbcUrl(), OWNER, OWNER_PASSWORD);
     }
 
-    /** The daily partition the Writer's precreator would have made (DL-149). */
+    /** The daily partition the Writer's precreator would have made. */
     public static void ensurePartition(String table, LocalDate day) {
         String name = table + "_" + day.format(PARTITION_DAY);
         execute(

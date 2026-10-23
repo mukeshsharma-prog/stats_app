@@ -29,7 +29,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 
-/** End-to-end proof that Rabbit ACK follows the committed T-022 outcome. */
+/** End-to-end proof that Rabbit ACK follows the committed outcome. */
 @SpringBootTest(
         classes = StatsWriterApplication.class,
         webEnvironment = SpringBootTest.WebEnvironment.NONE,
@@ -53,7 +53,7 @@ class LorastatsPersistenceConsumerIntegrationTest {
     private static final Instant DEVICE_TIME = Instant.parse("2096-11-05T12:00:00Z");
 
     /**
-     * T-026. A gateway back from a very long outage: ts.device is years old, ts.server is
+     * A gateway back from a very long outage: ts.device is years old, ts.server is
      * current. No partition can hold it, and none ever will — the record only gets older.
      */
     private static final byte[] LATE_RECORD =
@@ -148,10 +148,10 @@ class LorastatsPersistenceConsumerIntegrationTest {
     }
 
     /**
-     * T-026 / D5b, end to end. A record past its retention window is SKIPPED, metered and
+     * End to end: a record past its retention window is SKIPPED, metered and
      * ACKED — and specifically NOT dead-lettered, which is the assertion that matters. The
-     * record is valid; a dead-letter would sit in a queue that never expires (ADR-002 §12)
-     * and every redrive would reach this same verdict, older each time. That is trap 18
+     * record is valid; a dead-letter would sit in a queue that never expires
+     * and every redrive would reach this same verdict, older each time. That is the redrive-age trap
      * read from the other end: a redrive after ~90 days increments this counter and stores
      * nothing, which looks like a recovery and is not.
      */

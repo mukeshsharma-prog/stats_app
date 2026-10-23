@@ -20,11 +20,11 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.amqp.core.Message;
 
 /**
- * T-057 — the Writer's payload gate, against the real validator and the normative
+ * The Writer's payload gate, against the real validator and the normative
  * fixtures.
  *
  * <p>The gate is exercised with the shared {@link StatsSchemaValidator} rather than a
- * mock on purpose: ADR-007 §5's split is only real if both gates are the same oracle, and
+ * mock on purpose: the two-gate split is only real if both gates are the same oracle, and
  * a mocked validator here would let this class pass while the two contracts drifted.</p>
  */
 class PayloadGateTest {
@@ -35,7 +35,7 @@ class PayloadGateTest {
     private final PayloadGate gate =
             new PayloadGate(MAPPER, new StatsSchemaValidator(), new WriterGateMetrics(registry));
 
-    /** DL-105: all three production dialects are ACCEPTED, and normalisation is later. */
+    /** All three production dialects are ACCEPTED, and normalisation is later. */
     @ParameterizedTest(name = "{0} is admitted")
     @ValueSource(
             strings = {
@@ -48,7 +48,7 @@ class PayloadGateTest {
 
         assertThat(admitted.envelope().type()).isEqualTo(StatType.LORASTATS);
         assertThat(admitted.schemaVersion())
-                .as("the schema label that ADMITTED the record, not a constant (ADR-003 D7)")
+                .as("the schema label that ADMITTED the record, not a constant")
                 .isEqualTo((short) 1);
         assertThat(totalRejections()).isZero();
     }
@@ -86,7 +86,7 @@ class PayloadGateTest {
     }
 
     /**
-     * DL-124, and the exact temptation {@code SafeFailure}'s javadoc names in advance:
+     * The exact temptation {@code SafeFailure}'s javadoc names in advance:
      * {@code new PermanentFailureException("uid=… failed the schema")}. The message is a
      * constant. Nothing from the record is in it, so no future caller can leak a payload
      * value by printing it — a guard the scanner cannot express, because it cannot prove
@@ -135,10 +135,10 @@ class PayloadGateTest {
                 .isZero();
     }
 
-    // ---- T-064 / DL-108 -----------------------------------------------------
+    // ---- Upstream status -----------------------------------------------------
 
     /**
-     * Q15d: {@code status} can report a FAILED conversion. The record is STORED — it is
+     * {@code status} can report a FAILED conversion. The record is STORED — it is
      * valid and was correctly delivered, and a redrive would produce the identical
      * verdict forever in a DLQ that never expires — and the counter is the only signal on
      * our side that upstream already knew.
@@ -165,7 +165,7 @@ class PayloadGateTest {
 
     /**
      * "Upstream did not say" and "upstream said it failed" are different facts, and only
-     * the second is what DL-108 asked for. {@code status} is optional and every fixture
+     * the second is what is counted. {@code status} is optional and every fixture
      * written before 29 Aug 2026 omits it, so counting absence would light the counter on
      * ordinary traffic and drown the signal it exists to carry.
      */

@@ -29,7 +29,7 @@ import org.springframework.amqp.rabbit.core.RabbitTemplate;
  * <p>These are the endings a real broker will not produce on demand — a nack, a
  * confirm that never arrives, a connection that refuses. Each one must reach
  * {@link PublishOutcome#NOT_CONFIRMED}, because each one becomes a 503 and Heimdal's
- * resend is the only thing that saves the record (STA-04A, STA-06A). The happy path
+ * resend is the only thing that saves the record. The happy path
  * and the unroutable path are proved against a real broker instead, in
  * {@code IngestPublishIntegrationTest} — a mock asserting our own assumptions back to
  * us is worth nothing there.</p>
@@ -57,16 +57,16 @@ class ConfirmingStatsPublisherTest {
     }
 
     /**
-     * T-050 / DL-147. The Writer computes {@code queue_oldest_message_age_seconds} from
+     * The Writer computes {@code queue_oldest_message_age_seconds} from
      * the standard AMQP {@code timestamp} property, so every message Input publishes has
      * to carry one. A property rather than a header: it rides with the retry and DLQ
      * copies the way {@code correlationId} does, and the body stays byte-identical.
      */
     @Test
-    @DisplayName("a uid that cannot be an AMQP short string is not sent as messageId — DL-168")
+    @DisplayName("a uid that cannot be an AMQP short string is not sent as messageId")
     void omitsAMessageIdTheBrokerCannotCarry() {
-        // 255 ASCII bytes fit; 256 do not; 128 two-byte characters are 256 bytes. Before
-        // DL-168 the oversize value failed the publish and Input answered 503 on every
+        // 255 ASCII bytes fit; 256 do not; 128 two-byte characters are 256 bytes. Once,
+        // the oversize value failed the publish and Input answered 503 on every
         // resend of a record that could never succeed.
         String fits = "a".repeat(ConfirmingStatsPublisher.MAX_SHORT_STRING_BYTES);
         assertThat(ConfirmingStatsPublisher.messageId(fits)).isEqualTo(fits);
@@ -96,7 +96,7 @@ class ConfirmingStatsPublisherTest {
         assertThat(sent.get().getMessageProperties().getTimestamp()).isNotNull();
         assertThat(sent.get().getMessageProperties().getTimestamp().toInstant())
                 .isBetween(before, after);
-        // The stamp is a property, never a change to the bytes (ADR-004).
+        // The stamp is a property, never a change to the bytes.
         assertThat(sent.get().getBody()).isEqualTo(BODY);
     }
 
@@ -145,7 +145,7 @@ class ConfirmingStatsPublisherTest {
     @Test
     @DisplayName("an ACK carrying a returned message is a FAILED acceptance, not a success")
     void ackedButReturnedIsNotConfirmed() {
-        // ADR-002 §9: the broker accepted it and no queue was bound to take it. This is
+        // The broker accepted it and no queue was bound to take it. This is
         // the case a publisher confirm alone cannot see.
         ReturnedMessage returned =
                 new ReturnedMessage(
@@ -178,7 +178,7 @@ class ConfirmingStatsPublisherTest {
     }
 
     /**
-     * T-048 (DL-159): confirm latency, not throughput, is what turns a burst into 503s,
+     * Confirm latency, not throughput, is what turns a burst into 503s,
      * so every outcome is timed and the histogram for the happy path exists from
      * construction — a p99 panel over a series that appears on the first record is empty
      * for exactly the period it is wanted.

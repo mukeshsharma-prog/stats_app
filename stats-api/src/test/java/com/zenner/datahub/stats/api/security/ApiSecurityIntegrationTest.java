@@ -20,9 +20,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.web.servlet.MvcResult;
 
 /**
- * T-045 with T-038 and T-039 under it: every way into the API that must fail, failing
+ * Every way into the API that must fail, failing
  * with the contract's status and problem — against real signed tokens and the real
- * resource server (ADR-006; STA-31A, STA-34A).
+ * resource server.
  *
  * <p><strong>401 is "who are you?"; 403 is "you may not".</strong> A token that does not
  * authenticate — absent, malformed, expired, wrong issuer, wrong audience, wrong key — is

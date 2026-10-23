@@ -9,7 +9,7 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtAut
 import org.springframework.security.web.access.intercept.RequestAuthorizationContext;
 
 /**
- * Who may read (T-039, ADR-006): an authenticated token that holds the read role
+ * Who may read: an authenticated token that holds the read role
  * <em>and</em> carries a usable tenant claim. Either missing is a 403.
  *
  * <p>Both halves are decided here, before any controller runs, so no handler can be

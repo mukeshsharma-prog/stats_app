@@ -7,10 +7,10 @@ import java.util.Objects;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
- * The Writer's broker settings — {@code stats.amqp} (T-024, G1/G4, ADR-005).
+ * The Writer's broker settings — {@code stats.amqp}.
  *
- * <p><strong>Three explicit tiers, not a backoff curve.</strong> G4 fixed this on
- * 18 Aug 2026: there is no {@code retry-multiplier} and no {@code retry-max-delay}.
+ * <p><strong>Three explicit tiers, not a backoff curve</strong> (decided
+ * 18 Aug 2026): there is no {@code retry-multiplier} and no {@code retry-max-delay}.
  * A multiplier has to be read together with a base, a cap and a jitter setting before
  * anyone can say what the third attempt waits; three durations can be read off the
  * properties file during an incident.</p>
@@ -22,7 +22,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * this is the first of two gates rather than the only one.</p>
  *
  * <p>{@code confirmTimeout} bounds the wait for the confirm on a <em>retry or
- * dead-letter</em> publish. That publish is the hand-off ADR-005 requires to be
+ * dead-letter</em> publish. That publish is the hand-off that must be
  * confirmed <strong>before</strong> the original is ACKed, so an unbounded wait here
  * would hold a consumer thread and its prefetch slot indefinitely while the record is
  * safe but stuck.</p>
@@ -42,18 +42,18 @@ public record WriterAmqpProperties(
                             + AmqpTopology.RETRY_TIERS
                             + " — there is one attempt per tier and there are exactly "
                             + AmqpTopology.RETRY_TIERS
-                            + " tiers (G4)");
+                            + " tiers");
         }
         if (confirmTimeout.isZero() || confirmTimeout.isNegative()) {
             throw new IllegalArgumentException(
                     "stats.amqp.confirm-timeout must be positive — the retry/DLQ hand-off is "
-                            + "ACKed only after it is confirmed (ADR-005)");
+                            + "ACKed only after it is confirmed");
         }
         if (unconfirmedHandoffRequeueDelay.isZero() || unconfirmedHandoffRequeueDelay.isNegative()) {
             throw new IllegalArgumentException(
                     "stats.amqp.unconfirmed-handoff-requeue-delay must be positive — an "
                             + "unconfirmed hand-off is requeued, and an immediate requeue of a "
-                            + "failure that persists is a hot loop (G4, DL-168)");
+                            + "failure that persists is a hot loop");
         }
     }
 
@@ -85,7 +85,7 @@ public record WriterAmqpProperties(
                 throw new IllegalArgumentException(
                         property
                                 + " must be positive — immediate requeue is never used for a "
-                                + "persistent failure (G4, ADR-002)");
+                                + "persistent failure");
             }
         }
     }

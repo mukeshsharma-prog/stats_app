@@ -31,7 +31,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 
-/** Real PostgreSQL proof of T-021 per-record precision and T-022 idempotency. */
+/** Real PostgreSQL proof of per-record precision and idempotency. */
 @SpringBootTest(
         classes = StatsWriterApplication.class,
         webEnvironment = SpringBootTest.WebEnvironment.NONE,
@@ -83,10 +83,10 @@ class LorastatsBatchWriterIntegrationTest {
     }
 
     /**
-     * D11's per-record precision: one poison record inside a list is attributed to its
+     * Per-record precision: one poison record inside a list is attributed to its
      * own index and the other ninety-nine still commit.
      *
-     * <p>Since T-063 a payload missing a required counter is refused by the dialect
+     * <p>A payload missing a required counter is refused by the dialect
      * detector rather than by the column binding, because "which dialect is this" is
      * answered by which required key-set is present and an incomplete one answers
      * nothing. The field-level diagnosis is not lost, it has MOVED: in production the
@@ -188,7 +188,7 @@ class LorastatsBatchWriterIntegrationTest {
     }
 
     /**
-     * T-058. ADR-004 and ADR-007 §2: the envelope members production sends on every
+     * The envelope members production sends on every
      * record are preserved and never read. Dropping them at the INSERT would make the
      * round trip lossy while every schema test still passed, because none of these
      * members is required.
@@ -197,7 +197,7 @@ class LorastatsBatchWriterIntegrationTest {
     void preservesRecordVersionAndTheFivePassthroughEnvelopeMembers() {
         Instant datastore = DEVICE_TIME.plusSeconds(1);
         Instant converter = DEVICE_TIME.plusSeconds(2);
-        // Heimdal rewrote ts.device and kept the gateway's own clock here (DL-146).
+        // Heimdal rewrote ts.device and kept the gateway's own clock here.
         Instant deviceOrig = DEVICE_TIME.minusSeconds(12);
         StatsEnvelope record =
                 new StatsEnvelope(
@@ -250,11 +250,11 @@ class LorastatsBatchWriterIntegrationTest {
     }
 
     /**
-     * DL-146. The live datastore returns {@code expiresOn} as Mongo Extended JSON,
-     * {@code {"$date": "..."}}, and which form the HTTP forward emits is open (Q15e).
+     * The live datastore returns {@code expiresOn} as Mongo Extended JSON,
+     * {@code {"$date": "..."}}, and which form the HTTP forward emits is open.
      * Whichever arrives is what is stored: a String column would have thrown on the
      * object form, and normalising to one spelling would be the timestamp rewrite
-     * ADR-004 forbids.
+     * the Stats App never performs.
      */
     @Test
     void storesExpiresOnInTheExtendedJsonFormWhenThatIsWhatArrived() {
@@ -288,7 +288,7 @@ class LorastatsBatchWriterIntegrationTest {
 
     /**
      * Every fixture written before 29 Aug 2026 omits the passthrough members, and
-     * ADR-003 makes both columns nullable for exactly that reason. A record that
+     * both columns are nullable for exactly that reason. A record that
      * carries none of them must leave NULL rather than an empty object.
      */
     @Test
@@ -324,9 +324,9 @@ class LorastatsBatchWriterIntegrationTest {
     }
 
     /**
-     * D14b. The lorastats schema is {@code additionalProperties: true}, so a member
+     * The lorastats schema is {@code additionalProperties: true}, so a member
      * Heimdal adds between releases is VALID and must be preserved -- typed columns
-     * have nowhere to put it, and dropping it is what ADR-003 D2 rejected in writing
+     * have nowhere to put it, and dropping it is the silent loss the storage design rejected
      * when it chose a jsonb interface map for netstats. The counter is what makes the
      * drift visible instead of silent.
      */
@@ -407,14 +407,14 @@ class LorastatsBatchWriterIntegrationTest {
                 .as("...and that is not a payload the mapper could not handle")
                 .isEqualTo(unmappableBefore);
         assertThat(counter(LorastatsBatchWriter.POSTGRES_ERROR_METRIC))
-                .as("a missing partition is PostgreSQL's refusal, so it is a database error too (T-027)")
+                .as("a missing partition is PostgreSQL's refusal, so it is a database error too")
                 .isEqualTo(databaseBefore + 1.0d);
         assertThat(counter(LorastatsBatchWriter.PERSISTED_METRIC))
                 .as("nothing was committed")
                 .isEqualTo(persistedBefore);
     }
 
-    /** T-027: a table-invariant rejection counts as a database error and never as persisted. */
+    /** A table-invariant rejection counts as a database error and never as persisted. */
     @Test
     void databaseConstraintFailureIsCountedWithoutClaimingPersistence() {
         double databaseBefore = counter(LorastatsBatchWriter.POSTGRES_ERROR_METRIC);
@@ -426,7 +426,7 @@ class LorastatsBatchWriterIntegrationTest {
                         "metrics-check-failure",
                         "tenant-a",
                         "management-parent",
-                        // Not 12 hex characters: refused by the table's own CHECK (DL-115).
+                        // Not 12 hex characters: refused by the table's own CHECK.
                         "INVALID",
                         StatType.LORASTATS,
                         1,
@@ -450,9 +450,9 @@ class LorastatsBatchWriterIntegrationTest {
     }
 
     /**
-     * T-058's actual acceptance criterion: read the record back and prove nothing was
+     * The actual acceptance criterion: read the record back and prove nothing was
      * lost. Byte-for-byte string equality is not reconstructible from typed columns by
-     * design (ADR-003 D2 stores values, not the original encoding), so the equivalent
+     * design (typed columns store values, not the original encoding), so the equivalent
      * assertion is structural equality of the rebuilt JSON against what was received —
      * exact on every value and type, and blind only to key order.
      *
@@ -541,7 +541,7 @@ class LorastatsBatchWriterIntegrationTest {
     }
 
     /**
-     * T-023 / STA-04C. The schema's digit pattern caps at 19 digits, which is wider
+     * The schema's digit pattern caps at 19 digits, which is wider
      * than a signed BIGINT, and the gap is not expressible as a regex — so the Writer
      * has to range-check before converting. An unchecked conversion wraps and stores a
      * corrupted counter with no error anywhere.
@@ -572,7 +572,7 @@ class LorastatsBatchWriterIntegrationTest {
                 .containsExactly(RecordWriteStatus.FAILED);
         Throwable failure = results.getFirst().failureOptional().orElseThrow();
         assertThat(failure).hasMessageContaining("rx_nr_pkts").hasMessageContaining("BIGINT");
-        // T-062 (DL-154): the same verdict as the other writers' -- an overflow is
+        // The same verdict as the other writers' -- an overflow is
         // PERMANENT and reaches the DLQ on attempt one. Before WireNumbers this path threw
         // an IllegalArgumentException, which the classifier retries through all three
         // tiers before dead-lettering the identical failure 35 minutes later.
@@ -581,12 +581,12 @@ class LorastatsBatchWriterIntegrationTest {
     }
 
     /**
-     * DL-115. Both spellings of one device must land on ONE key in
+     * Both spellings of one device must land on ONE key in
      * {@code idx_lorastats_tenant_clsbox_device_uid}.
      *
      * <p>The failure this guards is not an error. Stored as received, {@code 04b6…}
      * and {@code 04B6…} are two distinct index keys, so the API's case-insensitive
-     * {@code clsbox} filter — half of the dominant query pattern (Q14) — answers 200
+     * {@code clsbox} filter — half of the dominant query pattern — answers 200
      * with a silently partial page, and the missing rows are indistinguishable from a
      * device that reported nothing. Asserting on the equality predicate rather than on
      * the column alone is deliberate: it is the predicate that would have been wrong.
@@ -653,7 +653,7 @@ class LorastatsBatchWriterIntegrationTest {
     }
 
     /**
-     * The writer takes validated input by signature since T-057, so every test record
+     * The writer takes validated input by signature, so every test record
      * carries the schema label its catalogue entry would have supplied. Building it here
      * rather than mocking a gate keeps these tests about persistence: what the gate does
      * with a record it refuses is PayloadGateTest's subject, and what the two do together
@@ -681,7 +681,7 @@ class LorastatsBatchWriterIntegrationTest {
                 null);
     }
 
-    // ---- T-063 / DL-105: three dialects, one stored shape --------------------
+    // ---- Three dialects, one stored shape --------------------
 
     /**
      * Rule 2, proved where it actually has to hold: in the table. Three records carrying
@@ -754,12 +754,12 @@ class LorastatsBatchWriterIntegrationTest {
         assertThat(dialectCount("c_prefixed_integer")).isEqualTo(before + 1.0d);
         assertThat(jdbc.queryForList("SELECT column_name FROM information_schema.columns "
                         + "WHERE table_name = 'lorastats'", String.class))
-                .as("DL-105 rule 2: the dialect is a metric label, never a column")
+                .as("the dialect is a metric label, never a column")
                 .noneMatch(column -> column.contains("dialect"));
     }
 
     /**
-     * DL-105 rule 3, at the boundary the schema cannot express. The record is
+     * Range-checked coercion, at the boundary the schema cannot express. The record is
      * SCHEMA-VALID — nineteen digits, matching the counterString pattern — and the Writer
      * refuses it before conversion. A coercion that caught the overflow and stored 0
      * would produce a row that is wrong rather than missing, with nothing reporting it.
@@ -810,7 +810,7 @@ class LorastatsBatchWriterIntegrationTest {
     }
 
     /**
-     * T-057 / ADR-003 D7. The column names the schema that ADMITTED the row, so it comes
+     * The column names the schema that ADMITTED the row, so it comes
      * from the validator's result and not from a constant compiled into this class. A
      * constant answers a different question — which schema the author had in mind — and
      * the two agree only until a v2 exists, at which point every row already stored

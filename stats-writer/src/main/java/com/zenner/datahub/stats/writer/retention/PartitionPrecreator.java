@@ -75,8 +75,8 @@ public class PartitionPrecreator {
      * eight ensured partitions.
      *
      * <p>{@link PartitionMaintenance} calls this with the retention cutoff day as
-     * {@code firstDay} and the whole window plus the pre-creation horizon as the span
-     * (DL-149). That is what makes the {@link RetentionWindow} contract true: every day a
+     * {@code firstDay} and the whole window plus the pre-creation horizon as the span.
+     * That is what makes the {@link RetentionWindow} contract true: every day a
      * record can be admitted for has a partition, whether the deployment is a day old or
      * a year old, and a day the schedule missed during an outage is filled by the next
      * pass rather than staying a hole that dead-letters valid records.</p>

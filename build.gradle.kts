@@ -5,7 +5,7 @@
 //
 // The Spring Boot plugin is declared here but applied nowhere at the root: only
 // the three application modules apply it, because only they produce an executable
-// image. stats-common is a plain library. (claude/DEVELOPMENT.md §2, Q2)
+// image. stats-common is a plain library.
 
 plugins {
     alias(libs.plugins.spring.boot) apply false
@@ -29,7 +29,7 @@ subprojects {
     }
 
     // Java 21 — CONFIRMED, not 17. Pinned via a toolchain so the build does not
-    // depend on whatever JDK happens to be on the developer's PATH. (ADR-001)
+    // depend on whatever JDK happens to be on the developer's PATH.
     extensions.configure<JavaPluginExtension> {
         toolchain {
             languageVersion.set(JavaLanguageVersion.of(catalog.versions.java.get()))
@@ -39,7 +39,7 @@ subprojects {
     dependencies {
         // Every module imports the Boot BOM, which is what makes the version-less
         // entries in libs.versions.toml resolve. Module build files declare WHAT
-        // they need; this line decides WHICH VERSION. (G6)
+        // they need; this line decides WHICH VERSION.
         "implementation"(platform(catalog.spring.boot.bom))
         "testImplementation"(platform(catalog.spring.boot.bom))
         // annotationProcessor needs the platform too, and it is easy to miss: it is a

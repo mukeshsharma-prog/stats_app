@@ -24,5 +24,5 @@
   "status": [
     "conversion ok"
   ],
-  "$comment": "Production record, 29 Aug 2026, UNMODIFIED. A gateway with no temperature sensor: temp, rtt, wan_if, rebootcause and timespan are all absent. Proves those five fields are optional - a device state, not a dialect disagreement. NOTE: production sends tenant == maintenant == \"mzc\", which is exactly the trap in claude/CLAUDE.md §6. This fixture is kept byte-faithful because its job is to be a production regression guard; it is NOT an isolation test. The *-tenant-isolation-pair.json fixtures, where the two values deliberately differ, remain the only isolation guards."
+  "$comment": "Production record, 29 Aug 2026, UNMODIFIED. A gateway with no temperature sensor: temp, rtt, wan_if, rebootcause and timespan are all absent. Proves those five fields are optional - a device state, not a dialect disagreement. NOTE: production sends tenant == maintenant == \"mzc\", which is exactly the trap: only tenant isolates, and equal values cannot reveal a filter on the wrong field. This fixture is kept byte-faithful because its job is to be a production regression guard; it is NOT an isolation test. The *-tenant-isolation-pair.json fixtures, where the two values deliberately differ, remain the only isolation guards."
 }

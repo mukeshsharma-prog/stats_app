@@ -30,7 +30,7 @@
             "timespan": {
               "type": "string",
               "pattern": "^(0|[1-9][0-9]{0,18})$",
-              "$comment": "A STRING here (\"300\") but an INTEGER in lorastats, omsstats and netstats (1800, 3600). The same concept is encoded differently per type on the wire; do not assume one column type across types (ADR-003)."
+              "$comment": "A STRING here (\"300\") but an INTEGER in lorastats, omsstats and netstats (1800, 3600). The same concept is encoded differently per type on the wire; do not assume one column type across types."
             }
           },
           "additionalProperties": true
@@ -38,5 +38,5 @@
       }
     }
   ],
-  "$comment": "Re-derived from the 29 Aug 2026 production sample (ADR-007). The seven required fields were already correct and all three production records validate against them. The change is the OPTIONAL block: temp, rtt, wan_if, rebootcause and timespan are real production fields that were previously unmodelled, and they are optional because a gateway legitimately omits them - that is a device state, not a dialect disagreement, so it is corrected here rather than dead-lettered."
+  "$comment": "Re-derived from the 29 Aug 2026 production sample. The seven required fields were already correct and all three production records validate against them. The change is the OPTIONAL block: temp, rtt, wan_if, rebootcause and timespan are real production fields that were previously unmodelled, and they are optional because a gateway legitimately omits them - that is a device state, not a dialect disagreement, so it is corrected here rather than dead-lettered."
 }

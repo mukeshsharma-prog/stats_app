@@ -12,8 +12,7 @@ import java.util.Objects;
 import java.util.Set;
 
 /**
- * Normalises the three production payload dialects into one shape (T-063; DL-105,
- * ADR-007 §4 as amended, STA-14A, STA-04C).
+ * Normalises the three production payload dialects into one shape.
  *
  * <h2>The three dialects</h2>
  *
@@ -30,9 +29,9 @@ import java.util.Set;
  * <ol>
  *   <li><strong>Detection is structural.</strong> Which required key-set is present, and
  *       what its values are. Every one of the three carries {@code 1} in the envelope's
- *       record marker, so nothing on the record discriminates them — and since DL-105
+ *       record marker, so nothing on the record discriminates them — and
  *       this class sits immediately beside that field looking exactly like the
- *       discriminator it is not (trap 20). The failure that would cause is silent: a
+ *       discriminator it is not. The failure that would cause is silent: a
  *       parser selected by that field works perfectly on whichever dialect its author
  *       tested and mis-parses the other two into the same typed columns, so the rows are
  *       <em>wrong</em> rather than absent and no test fails.</li>
@@ -43,12 +42,12 @@ import java.util.Set;
  *   <li><strong>Coercion is explicit and range-checked before conversion.</strong> A
  *       dialect-B string that does not parse, or that will not fit the signed
  *       {@code BIGINT} column, dead-letters. It is never zeroed, truncated or defaulted —
- *       that is the {@code int4}-wrapping shape of trap 11, and it produces a row that is
+ *       that is the {@code int4}-wrapping shape of silent overflow, and it produces a row that is
  *       wrong rather than missing.</li>
  *   <li><strong>The enumeration is closed at three.</strong> "All the known dialects" is
  *       exactly three. A fourth spelling matches nothing here and dead-letters, so it
  *       surfaces in a queue a human reads instead of being absorbed into a union that
- *       only ever grows — the half of DL-089 that survives Q15a.</li>
+ *       only ever grows.</li>
  * </ol>
  *
  * <h2>Its relationship to the schema</h2>
@@ -117,8 +116,8 @@ public final class LorastatsDialects {
         }
 
         /**
-         * The metric tag value. Lettered so the three sort into the order DL-105
-         * documents them in, which is the order an operator reading that decision will
+         * The metric tag value. Lettered so the three sort into the order the dialects
+         * were documented in, which is the order an operator reading that documentation will
          * look for them in.
          */
         public String label() {
@@ -129,7 +128,7 @@ public final class LorastatsDialects {
     /**
      * One payload in canonical form: bare names, integral values, and every member the
      * record carried — including the ones with no column, which the caller preserves in
-     * {@code data_extra} (D14b, DL-095).
+     * {@code data_extra}.
      */
     public record Normalised(Dialect dialect, ObjectNode data) {
 
@@ -241,7 +240,7 @@ public final class LorastatsDialects {
 
     /**
      * Rule 3, and the order of the two steps is the rule — the rule itself lives in
-     * {@link WireNumbers} since T-062, shared with every writer, so that the range check
+     * {@link WireNumbers}, shared with every writer, so that the range check
      * cannot be present here and missing there. A dialect-B counter is an
      * <em>unsigned</em> digit string (the schema's pattern admits no minus), and the
      * check is made against {@code BigInteger} before the narrowing conversion.

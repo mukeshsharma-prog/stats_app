@@ -7,14 +7,14 @@ import java.util.Objects;
 import org.springframework.stereotype.Component;
 
 /**
- * Per-type counters for the retry and dead-letter arm (STA-27A, T-024).
+ * Per-type counters for the retry and dead-letter arm.
  *
  * <p>{@code records_dead_lettered} is tagged with the reason as well as the type,
  * because "the DLQ is filling" and "the DLQ is filling <em>with one kind of
- * failure</em>" call for different actions, and ADR-002 §12 makes disposition manual
+ * failure</em>" call for different actions, and DLQ disposition is manual
  * within 14 days — an operator triaging by hand needs the breakdown before they open
- * a single message. The reason is a class name, never an exception message
- * (STA-03A).</p>
+ * a single message. The reason is a class name, never an exception message.
+ * </p>
  */
 @Component
 public class WriterFailureMetrics {
@@ -42,7 +42,7 @@ public class WriterFailureMetrics {
     /** A delivery retired to the type's DLQ — retries exhausted, or permanent. */
     /**
      * Registers {@link #HANDOFF_UNCONFIRMED} for {@code statType} at zero, so the alert
-     * that reads it has a series from the first scrape (DL-158).
+     * that reads it has a series from the first scrape.
      */
     public void registerFor(StatType statType) {
         handoffUnconfirmedCounter(statType);
@@ -50,7 +50,7 @@ public class WriterFailureMetrics {
 
     /**
      * A failed delivery whose retry or DLQ copy the broker did not confirm, so the
-     * original was returned to its main queue (DL-168). Non-zero means the failure arm
+     * original was returned to its main queue. Non-zero means the failure arm
      * itself is broken — a missing queue, a broker refusing publishes — and every record
      * that needs it is cycling instead of progressing.
      */

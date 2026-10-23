@@ -34,7 +34,7 @@ class ValidatedRecordTest {
 
     /**
      * A silently defaulted schema label is a row that claims to have been admitted by a
-     * contract nobody checked — invisible in the data and wrong forever. ADR-003 D7 wants
+     * contract nobody checked — invisible in the data and wrong forever. The design wants
      * the column to name the schema that actually admitted the record, so an unparseable
      * label has to stop the write rather than pick a number.
      */

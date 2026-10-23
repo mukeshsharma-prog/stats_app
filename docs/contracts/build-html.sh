@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Render BOTH OpenAPI contracts into ONE reviewable HTML page (DL-145).
+# Render BOTH OpenAPI contracts into ONE reviewable HTML page.
 #
 #   docs/contracts/openapi-input.yaml   Heimdal inbound  — POST /stats
 #   docs/contracts/openapi.yaml         read API         — GET /v1/stats/{type}…
@@ -13,14 +13,14 @@
 #                                   itself loads from cdn.redocly.com — the text is
 #                                   readable without it, the sidebar is not)
 #           │
-#   stats-api-v1-draft.html   (repository root — where DL-117 always put it)
+#   stats-api-v1-draft.html   (repository root)
 #
 # Why one HTML and two YAMLs: ZC is the audience for both confirmations ("create an
 # OpenAPI definition and we will confirm/decline it"), so they get one document —
 # but the two contracts stay separate sources because they have different callers,
 # different authentication and no shared version segment (the SCOPE notes in each).
 #
-# The rendered HTML is NOT committed — DL-117 decided that: a checked-in bundle is
+# The rendered HTML is NOT committed: a checked-in bundle is
 # stale the moment its YAML changes and is 350 KB of noise in every diff, so
 # .gitignore lists it. CI runs this script on every push and uploads the result as
 # the `stats-api-v1-draft` workflow artifact, which is where a reviewer without Node

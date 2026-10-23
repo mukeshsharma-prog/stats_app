@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 # Open a shell in the bundled tools container with the MANUAL.md helpers loaded
 # (env_get, tok, claims, pg, $INPUT, $API, ...). Needs nothing on this machine but
-# Docker: curl, jq and the Docker CLI are inside the container (DL-171).
+# Docker: curl, jq and the Docker CLI are inside the container.
 #
 #   ./docker/shell.sh                       interactive
 #   ./docker/shell.sh bash -c '. /tools/docker/stats-helpers.sh && tok alpha-reader'

@@ -33,8 +33,8 @@ import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
- * T-055 — {@code DETACH PARTITION … CONCURRENTLY} does not block the writer: MEASURED, not
- * assumed (ADR-003 D1, STA-23C, DL-132).
+ * {@code DETACH PARTITION … CONCURRENTLY} does not block the writer: MEASURED, not
+ * assumed.
  *
  * <p>A plain {@code DETACH PARTITION} takes {@code ACCESS EXCLUSIVE} on the <em>parent</em>,
  * which is why the built sweep uses {@code CONCURRENTLY}. This test runs a writer inserting
@@ -102,7 +102,7 @@ class DetachConcurrentlyLatencyIntegrationTest {
     @AfterEach
     void leaveNothingBehind() {
         dropDays();
-        assertThat(pendingDetaches()).as("trap 27: nothing left pending detach").isZero();
+        assertThat(pendingDetaches()).as("nothing left pending detach").isZero();
     }
 
     @Test
@@ -135,8 +135,8 @@ class DetachConcurrentlyLatencyIntegrationTest {
                 }));
         assertThat(exists(oldDay)).isFalse();
 
-        System.out.println("\n[T-055] DETACH CONCURRENTLY against a live writer — PostgreSQL 17 (Testcontainers)");
-        report.forEach(line -> System.out.println("[T-055]   " + line));
+        System.out.println("\n[detach-latency] DETACH CONCURRENTLY against a live writer — PostgreSQL 17 (Testcontainers)");
+        report.forEach(line -> System.out.println("[detach-latency]   " + line));
 
         // The sweep — with or without a reader in the way — never made an insert wait
         // more than a short multiple of the baseline's worst case.

@@ -33,12 +33,12 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
- * The request bounds of T-018, at values small enough to hit deliberately.
+ * The request size and rate bounds, at values small enough to hit deliberately.
  *
  * <p>Both limits are set here to numbers no deployment would use, which is the point:
  * a limit tested at its production value is a limit tested only by hoping. The publisher
  * is a mock because neither bound may reach it — a rejected request is rejected before
- * anything is published (rule 7).</p>
+ * anything is published.</p>
  */
 @SpringBootTest(classes = StatsInputApplication.class)
 @AutoConfigureMockMvc
@@ -99,7 +99,7 @@ class RequestLimitTest {
     void limitsDoNotCoverTheHealthEndpoint() throws Exception {
         // A rate limit that covers the health endpoint lets ingest load fail the
         // container health check and take the instance out of rotation — an incident
-        // manufactured by the defence against one (D13, D-10).
+        // manufactured by the defence against one.
         for (int attempt = 0; attempt < 5; attempt++) {
             mockMvc.perform(
                             org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(

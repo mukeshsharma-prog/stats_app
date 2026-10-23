@@ -31,8 +31,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /**
- * {@link FailedDeliveryRouter} against a real broker and the real topology (T-024;
- * ADR-002 §4/§12, ADR-005).
+ * {@link FailedDeliveryRouter} against a real broker and the real topology.
  *
  * <p><strong>The router is driven directly, with no listener.</strong> An earlier
  * version published to the main queue and let the consumer fail — and it was flaky, for
@@ -109,7 +108,7 @@ class RetryAndDeadLetterIntegrationTest {
         assertThat(held.getMessageProperties().getHeaders())
                 .containsEntry(FailedDeliveryRouter.ATTEMPT_HEADER, 1)
                 .containsEntry(FailedDeliveryRouter.FAILURE_HEADER, "IllegalStateException");
-        // ADR-004 has to survive the retry loop: a redriven record must still collide on
+        // Byte-identical publication has to survive the retry loop: a redriven record must still collide on
         // (ts_device, uid) when it finally lands.
         assertThat(held.getBody()).isEqualTo(BODY);
         assertThat(held.getMessageProperties().getReceivedDeliveryMode())
@@ -123,7 +122,7 @@ class RetryAndDeadLetterIntegrationTest {
         // back from tier 3. Waiting out the real delays would take 35½ minutes, and
         // shortening them here would redeclare the tier queues with different arguments
         // than every other context on this shared broker — the RESOURCE_LOCKED trap
-        // T-032 exists for, met by the test proving the arm. It happened once already.
+        // the declaration check exists for, met by the test proving the arm. It happened once already.
         router.route(TYPE, delivery(3), new IllegalStateException("database transaction failed"));
 
         Message dead = awaitMessageOn(DLQ);
@@ -155,7 +154,7 @@ class RetryAndDeadLetterIntegrationTest {
     @Test
     @DisplayName("a payload rejection reaches the DLQ on its first attempt, body intact")
     void aPayloadRejectionIsDeadLetteredImmediately() {
-        // T-057's end state. PermanentFailureException is the channel the payload gate
+        // PermanentFailureException is the channel the payload gate
         // and the dialect range-check throw on, and this asserts what the broker actually
         // does with it: straight to the DLQ, marked permanent, with the record byte-for
         // -byte as Heimdal sent it so a redrive after the schema is fixed still collides

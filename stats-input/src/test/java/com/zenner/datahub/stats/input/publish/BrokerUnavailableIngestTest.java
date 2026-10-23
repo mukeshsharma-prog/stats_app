@@ -25,7 +25,7 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
- * Broker unavailable ⇒ 503, with no local buffering (STA-06A, rule 8).
+ * Broker unavailable ⇒ 503, with no local buffering.
  *
  * <p>Input is stateless by decision. The temptation in this situation is to hold the
  * record and publish it when the broker returns, which trades a retry Heimdal already
@@ -75,7 +75,7 @@ class BrokerUnavailableIngestTest {
         // Nothing was returned, because nothing was ever published. An unroutable
         // counter that moved here would mean we were labelling an outage as a topology
         // fault, and the runbook entries for the two are different.
-        // The series exists from startup (DL-160); what must not have happened is a move.
+        // The series exists from startup; what must not have happened is a move.
         assertThat(meterRegistry.find(IngestMetrics.UNROUTABLE).counters())
                 .allSatisfy(counter -> assertThat(counter.count()).isZero());
     }

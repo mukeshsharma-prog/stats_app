@@ -37,7 +37,7 @@ class AmqpTopologyTest {
     // Two modules declaring the same queue with different arguments is a
     // RESOURCE_LOCKED startup failure, not a warning, and a quorum queue's type is
     // fixed at declaration. These assertions pin the maps so the cross-module test
-    // in T-032 compares one source rather than two hand-built ones. (ADR-002 §8, trap 8)
+    // (AmqpDeclarationAssert) compares one source rather than two hand-built ones.
 
     @Test
     void declaresMainQueuesAsQuorumAndNothingElse() {
@@ -76,7 +76,7 @@ class AmqpTopologyTest {
      * remaining copy of a record Heimdal believes it delivered. A dead-letter exchange
      * on a DLQ is the same failure wearing a different name — the last copy leaves and
      * nothing says so. Asserting the map exactly is what stops either being added
-     * later "to bound broker disk". (ADR-002 §12, rule 9)
+     * later "to bound broker disk".
      */
     @Test
     void declaresDeadLetterQueuesWithNoExpiryAndNoOnwardRoute() {
@@ -203,7 +203,7 @@ class AmqpTopologyTest {
     @Test
     void definesTheInputExchangeAsDurableTopicWithNoAutoDelete() {
         // Durability and auto-delete are as fatal to a second declaring module as the
-        // arguments are (T-032). An auto-delete exchange also disappears with its last
+        // arguments are. An auto-delete exchange also disappears with its last
         // binding, and the next publish is then unroutable rather than queued.
         AmqpTopology.ExchangeDefinition definition = AmqpTopology.inputExchange();
 
@@ -227,7 +227,7 @@ class AmqpTopologyTest {
     @EnumSource(StatType.class)
     void definesEveryQueueAsDurableNonExclusiveAndNotAutoDelete(StatType type) {
         // Exclusive or auto-delete would tie the queue to one consumer's connection, so
-        // a Writer restart would drop every buffered record on the floor (rule 10).
+        // a Writer restart would drop every buffered record on the floor.
         List<AmqpTopology.QueueDefinition> definitions =
                 List.of(
                         AmqpTopology.mainQueueDefinition(type),

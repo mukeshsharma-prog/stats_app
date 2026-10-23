@@ -26,8 +26,8 @@ import org.testcontainers.containers.Container.ExecResult;
 import org.testcontainers.containers.PostgreSQLContainer;
 
 /**
- * T-051 — the per-partition restore drill, TIMED against RTO 1 h per partition (ADR-003
- * D5, DL-111), in the exact shape D5 names: recover ONE daily partition and re-attach it
+ * The per-partition restore drill, TIMED against the agreed RTO of 1 h per partition, in
+ * the exact shape the restore strategy names: recover ONE daily partition and re-attach it
  * WITHOUT taking the parent offline.
  *
  * <p>This is the executable half of {@code docs/runbooks/partition-restore.md}. It runs the
@@ -78,7 +78,7 @@ class PartitionRestoreDrillIntegrationTest {
     /** ~1/200 of a production day for one type (115.2M/day ÷ 5 types ≈ 23M): enough to time. */
     private static final int ROWS = 200_000;
     private static final Duration RTO_PER_PARTITION = Duration.ofHours(1);
-    private static final String DUMP = "/tmp/t051-" + LOST + ".dump";
+    private static final String DUMP = "/tmp/restore-drill-" + LOST + ".dump";
 
     @Autowired private JdbcTemplate jdbc;
 
@@ -130,14 +130,14 @@ class PartitionRestoreDrillIntegrationTest {
         // A writer keeps inserting into the neighbouring day for the whole recovery; its
         // per-statement latency is the evidence that the parent was never offline.
         Inserter inserter = new Inserter();
-        Thread writer = new Thread(inserter, "t051-live-writer");
+        Thread writer = new Thread(inserter, "restore-drill-live-writer");
         writer.start();
         try {
             // --- 3. Restore STANDALONE: the dump minus its attach entries.
             timed("3 pg_restore standalone (TOC without TABLE/INDEX ATTACH)", () -> sh(
-                    ("pg_restore -l %s > /tmp/t051.toc"
-                            + " && grep -vE 'TABLE ATTACH|INDEX ATTACH' /tmp/t051.toc > /tmp/t051.staging.toc"
-                            + " && pg_restore -U %s -d %s --no-owner --exit-on-error -L /tmp/t051.staging.toc %s")
+                    ("pg_restore -l %s > /tmp/restore-drill.toc"
+                            + " && grep -vE 'TABLE ATTACH|INDEX ATTACH' /tmp/restore-drill.toc > /tmp/restore-drill.staging.toc"
+                            + " && pg_restore -U %s -d %s --no-owner --exit-on-error -L /tmp/restore-drill.staging.toc %s")
                             .formatted(DUMP, user(), db(), DUMP)));
             assertThat(jdbc.queryForObject("SELECT count(*) FROM " + LOST, Long.class)).isEqualTo(ROWS);
             assertThat(jdbc.queryForObject(
@@ -159,7 +159,7 @@ class PartitionRestoreDrillIntegrationTest {
 
             // --- 5. A CHECK that matches the bound, so ATTACH skips its validation scan.
             timed("5 ADD CONSTRAINT matching CHECK", () -> jdbc.execute(
-                    "ALTER TABLE " + LOST + " ADD CONSTRAINT t051_restore_bound CHECK ("
+                    "ALTER TABLE " + LOST + " ADD CONSTRAINT restore_drill_bound CHECK ("
                             + "ts_device >= '" + startOf(LOST_DAY) + "'::timestamptz AND "
                             + "ts_device < '" + startOf(LOST_DAY.plusDays(1)) + "'::timestamptz)"));
 
@@ -167,7 +167,7 @@ class PartitionRestoreDrillIntegrationTest {
             timed("6 ATTACH PARTITION", () -> jdbc.execute(
                     "ALTER TABLE lorastats ATTACH PARTITION " + LOST + " " + PartitionNaming.partitionBound(LOST_DAY)));
             timed("7 DROP the scaffolding CHECK", () -> jdbc.execute(
-                    "ALTER TABLE " + LOST + " DROP CONSTRAINT t051_restore_bound"));
+                    "ALTER TABLE " + LOST + " DROP CONSTRAINT restore_drill_bound"));
         } finally {
             inserter.stop.set(true);
             writer.join(Duration.ofSeconds(30).toMillis());
@@ -178,7 +178,7 @@ class PartitionRestoreDrillIntegrationTest {
         assertThat(rowsOnDay(LOST_DAY)).as("the parent sees the whole day again").isEqualTo(ROWS);
         assertThat(jdbc.queryForObject(
                         "SELECT inhdetachpending FROM pg_inherits WHERE inhrelid = ?::regclass", Boolean.class, LOST))
-                .as("not pending detach (trap 27)")
+                .as("not pending detach")
                 .isFalse();
         assertThat(jdbc.queryForList(
                         "SELECT i.indexrelid::regclass::text FROM pg_index i WHERE i.indrelid = ?::regclass AND i.indisvalid",
@@ -195,7 +195,7 @@ class PartitionRestoreDrillIntegrationTest {
                         "SELECT conname FROM pg_constraint WHERE conrelid = ?::regclass AND contype = 'c'",
                         String.class, LOST))
                 .as("no scaffolding left behind")
-                .noneMatch(name -> name.contains("t051"));
+                .noneMatch(name -> name.contains("restore_drill"));
 
         // --- 9. The parent was never offline.
         assertThat(inserter.failures.get()).as("inserts that failed during the recovery").isZero();
@@ -205,9 +205,9 @@ class PartitionRestoreDrillIntegrationTest {
                 .as("worst single INSERT into the neighbouring partition while the day was restored and re-attached")
                 .isLessThan(Duration.ofSeconds(1));
 
-        // --- 10. Timed against the signed RTO (DL-111).
+        // --- 10. Timed against the signed RTO.
         report(total, inserter);
-        assertThat(total).as("RTO 1 h per partition, DL-111").isLessThan(RTO_PER_PARTITION);
+        assertThat(total).as("RTO 1 h per partition").isLessThan(RTO_PER_PARTITION);
     }
 
     // ---- helpers -----------------------------------------------------------
@@ -275,12 +275,12 @@ class PartitionRestoreDrillIntegrationTest {
     private void report(Duration total, Inserter inserter) {
         List<Long> sorted = new ArrayList<>(inserter.samples);
         Collections.sort(sorted);
-        StringBuilder out = new StringBuilder("\n[T-051] Partition restore drill — ")
+        StringBuilder out = new StringBuilder("\n[restore-drill] Partition restore drill — ")
                 .append(LOST).append(", ").append(ROWS).append(" rows, PostgreSQL 17 (Testcontainers)\n");
-        timings.forEach((step, took) -> out.append(String.format("[T-051]   %-58s %8.3f s%n", step, took.toNanos() / 1e9)));
-        out.append(String.format("[T-051]   %-58s %8.3f s   (RTO %s)%n", "TOTAL", total.toNanos() / 1e9, RTO_PER_PARTITION));
+        timings.forEach((step, took) -> out.append(String.format("[restore-drill]   %-58s %8.3f s%n", step, took.toNanos() / 1e9)));
+        out.append(String.format("[restore-drill]   %-58s %8.3f s   (RTO %s)%n", "TOTAL", total.toNanos() / 1e9, RTO_PER_PARTITION));
         out.append(String.format(
-                "[T-051]   concurrent inserts into %s: n=%d  p50=%.1f ms  p99=%.1f ms  max=%.1f ms  failures=0%n",
+                "[restore-drill]   concurrent inserts into %s: n=%d  p50=%.1f ms  p99=%.1f ms  max=%.1f ms  failures=0%n",
                 LIVE, sorted.size(),
                 sorted.get(sorted.size() / 2) / 1e6,
                 sorted.get((int) (sorted.size() * 0.99)) / 1e6,

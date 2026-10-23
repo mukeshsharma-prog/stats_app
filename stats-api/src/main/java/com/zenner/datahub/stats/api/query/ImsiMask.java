@@ -1,12 +1,12 @@
 package com.zenner.datahub.stats.api.query;
 
 /**
- * Masks a subscriber identifier on the way out of the API (D-12 P3, DL-167).
+ * Masks a subscriber identifier on the way out of the API.
  *
  * <p><strong>Masked at read, raw at rest — by decision.</strong> The approver chose the
  * API over the Writer: the table, the dead-letter queue and backups keep the IMSI exactly
  * as Heimdal sent it, so ops can still correlate a SIM with the carrier, and the decision
- * can be tightened later without a migration or a DLQ purge ADR-002 §12 forbids. The
+ * can be tightened later without a migration or a DLQ purge, which is never allowed. The
  * consequence is that this class is the <em>only</em> control between the stored value
  * and a tenant's token: every read path goes through {@link LtestatsReader}, and nothing
  * else in {@code stats-api} may select the column.</p>

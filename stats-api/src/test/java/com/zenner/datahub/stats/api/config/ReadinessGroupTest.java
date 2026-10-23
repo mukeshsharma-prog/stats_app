@@ -11,14 +11,14 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * D13, D-10: readiness probes <em>only this module's real dependencies</em>.
+ * Readiness probes <em>only this module's real dependencies</em>.
  *
  * <p>For the API that is PostgreSQL and Keycloak — and <strong>never the broker</strong>.
- * Q3a and ADR-002 §11 give {@code stats-api} no RabbitMQ connection at all, so
+ * {@code stats-api} has no RabbitMQ connection at all, so
  * {@code rabbit} appearing in this group would be evidence that decision had been
  * reversed by accident. Its absence here is part of the decision, not an omission.</p>
  *
- * <p>Keycloak is covered since T-038 (DL-162): Boot ships no health indicator for an
+ * <p>Keycloak is covered: Boot ships no health indicator for an
  * OAuth2 issuer, so {@code KeycloakHealthIndicator} probes the URL the decoder fetches
  * signing keys from. Without it readiness reported UP while every token failed.</p>
  *

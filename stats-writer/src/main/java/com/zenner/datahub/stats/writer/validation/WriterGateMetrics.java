@@ -8,8 +8,7 @@ import java.util.Objects;
 import org.springframework.stereotype.Component;
 
 /**
- * What the Writer's gate observed about a delivery, per stat type (T-057, T-064;
- * STA-27A, NFR-05).
+ * What the Writer's gate observed about a delivery, per stat type.
  *
  * <p>Both counters are deliberately separate from
  * {@link com.zenner.datahub.stats.writer.retry.WriterFailureMetrics}. That class counts
@@ -50,8 +49,8 @@ public class WriterGateMetrics {
     public static final String REASON_UNMAPPABLE = "unmappable";
 
     /**
-     * Deliveries whose upstream {@code status} was not exactly {@code ["conversion ok"]}
-     * (DL-108). These are <strong>stored</strong>; the counter is the only signal on our
+     * Deliveries whose upstream {@code status} was not exactly {@code ["conversion ok"]}.
+     * These are <strong>stored</strong>; the counter is the only signal on our
      * side that Heimdal already knew the conversion had failed.
      */
     public static final String UPSTREAM_STATUS_NOT_OK = "records_upstream_status_not_ok";
@@ -63,12 +62,12 @@ public class WriterGateMetrics {
     }
 
     /**
-     * Registers this type's gate series up front so each exports at zero from startup
-     * (T-056, DL-158). A counter that first appears on its first event is absent from
+     * Registers this type's gate series up front so each exports at zero from startup.
+     * A counter that first appears on its first event is absent from
      * the scrape until then, and {@code rate()} of an absent series is absent too — a
      * dashboard cannot tell "no rejections" from "this replica exports no such series",
      * and that is the distinction an operator reads it for. The {@code reason} set is
-     * closed (DL-126), so registering every value is three series, not a cardinality risk.
+     * closed, so registering every value is three series, not a cardinality risk.
      */
     public void registerFor(StatType statType) {
         Objects.requireNonNull(statType, "statType");
@@ -105,7 +104,7 @@ public class WriterGateMetrics {
 
     /**
      * No label carries the {@code status} value itself. The vocabulary of failure
-     * strings is upstream's and unknown to us (DL-108 residual), and a label sourced
+     * strings is upstream's and unknown to us, and a label sourced
      * from an unbounded vocabulary we do not control is a Prometheus cardinality bomb.
      */
     public void upstreamStatusNotOk(StatType statType) {

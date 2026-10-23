@@ -12,12 +12,11 @@ import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 
 /**
- * Guard P2 — no {@code stats-writer} log line may be handed a throwable (T-066,
- * DEVELOPMENT.md §7, DL-114).
+ * Guard — no {@code stats-writer} log line may be handed a throwable.
  *
  * <p><strong>Why a scan and not a review note.</strong> The rule was adopted on
  * 4 September, written down before the code it governs, and broken anyway — by four
- * separate call sites, one of which had existed since T-021 and was the exact INSERT
+ * separate call sites, one of which had existed since the first Writer and was the exact INSERT
  * failure path the guard names. A rule that lives only in a document is enforced by
  * whoever remembers it, and the shape here is copy-shaped: the next {@code ERROR} path
  * gets written by looking at the last one.</p>
@@ -42,7 +41,7 @@ import org.junit.jupiter.api.Test;
  * {@link #JUSTIFIED} with its reason — which is the point: it has to be argued in
  * writing.</p>
  *
- * <p><strong>Both logging shapes are covered.</strong> T-005 moved every application log
+ * <p><strong>Both logging shapes are covered.</strong> Structured logging moved every application log
  * statement to the SLF4J fluent API, and a guard that only recognised
  * {@code log.error("…", e)} would have been silently switched off by that change:
  * {@code log.atError().log("…", e)}, {@code .addKeyValue("cause", e)} and
@@ -103,7 +102,7 @@ class WriterLogsCarryNoThrowableTest {
                         "A throwable passed to a logger prints its stack, and a JDBC "
                                 + "exception's message carries PostgreSQL's DETAIL: line — the "
                                 + "offending row values, at ERROR, where DEBUG-gating the "
-                                + "payload never sees them (guard P2, DEVELOPMENT.md §7). Use "
+                                + "payload never sees them. Use "
                                 + "SafeFailure.describe(failure): it keeps the type chain and "
                                 + "the SQLState and drops every message and stack. If a site "
                                 + "genuinely needs the stack, add it to JUSTIFIED with the "

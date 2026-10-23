@@ -5,7 +5,7 @@ import java.time.Instant;
 import java.util.Objects;
 
 /**
- * The Q14a clock-skew rule (ADR-003 D9, closes Q14a), as a pure function.
+ * The clock-skew rule, as a pure function.
  *
  * <p>A record is rejected when {@code ts.device} runs more than the configured
  * tolerance <em>ahead</em> of {@code ts.server}. It is a one-sided check on purpose,
@@ -17,9 +17,9 @@ import java.util.Objects;
  *       the Writer, where the caller can no longer be told anything.</li>
  *   <li><strong>Behind is accepted, however far behind.</strong> A gateway that was
  *       offline for weeks reports a genuinely old {@code ts.device}, and retention
- *       keys on that field (STA-23B). Rejecting the past would discard exactly the
+ *       keys on that field. Rejecting the past would discard exactly the
  *       records operations most needs. Those records are handled by the late-arrival
- *       policy at the Writer (D5b), not here.</li>
+ *       policy at the Writer, not here.</li>
  * </ul>
  *
  * <p>The check compares two instance locations, which JSON Schema 2020-12 cannot

@@ -6,8 +6,7 @@ inside the JSON itself. It cannot: Keycloak's `RealmRepresentation` and
 `--import-realm` fail and puts the container in a restart loop.** Keep commentary
 here; keep the JSON strictly to what Keycloak accepts.
 
-Proposed values pending ZC/security confirmation of Q8b — see
-`docs/decisions/2B-ANSWERS-18AUG2026.md`.
+Proposed values, pending ZC and security confirmation.
 
 > **DEVELOPMENT REALM ONLY. Never reuse any value here in a deployed environment.**
 
@@ -33,9 +32,8 @@ console before trusting any test result.
 ## The six fixture users exist for specific tests
 
 Their usernames, emails and tenant ids are all variables, so every name in this
-realm is ours to change from `.env` — but the SRS,
-`docs/decisions/2B-ANSWERS-18AUG2026.md` and the isolation tests refer to them by
-the default names, so rename in `.env` and in those tests together.
+realm is ours to change from `.env` — but the SRS and the isolation tests refer to
+them by the default names, so rename in `.env` and in those tests together.
 
 | User | Proves |
 |---|---|
@@ -49,9 +47,30 @@ the default names, so rename in `.env` and in those tests together.
 code paths. An absent claim never means "all tenants"; an empty claim passes a
 naive `claim != null` check and then filters on an empty string, which matches
 nothing — or worse, is treated as unset somewhere downstream. One user cannot
-exercise both, and ADR-006 release-gates each of them. `empty-tenant`'s empty
+exercise both, and each of them is a release gate. `empty-tenant`'s empty
 tenant attribute is deliberately **not** a variable — the empty string is the
 thing under test.
+
+## The ingest service account
+
+The `stats-input` client is confidential, with the service account enabled and an
+audience mapper that puts `stats-input` in `aud`. Its service-account user holds the
+realm role `stats.ingest`. That is the identity Input checks in
+`stats.input.auth.mode=oauth2`: a client-credentials token from this client, validated
+for issuer, audience, expiry and the `stats.ingest` role.
+
+The seed import runs only for a missing realm, so a realm created before the service
+account was added does not have the role. Assign it once in the admin console: **Clients →
+stats-input → Service account roles → Assign role**, filter by realm roles, select
+`stats.ingest`.
+
+To fetch an ingest token on the development stack, with `STATS_INPUT_CLIENT_SECRET`
+taken from `.env`:
+
+```sh
+set -a; . ./.env; set +a
+curl -s -X POST http://localhost:8080/realms/statsapp/protocol/openid-connect/token -d grant_type=client_credentials -d client_id=stats-input -d "client_secret=$STATS_INPUT_CLIENT_SECRET" | jq -r .access_token
+```
 
 ## Persistent users and profile configuration
 

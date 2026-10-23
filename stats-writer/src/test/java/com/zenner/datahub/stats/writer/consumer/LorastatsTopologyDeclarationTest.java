@@ -23,11 +23,11 @@ import org.springframework.context.annotation.Import;
 import org.springframework.test.context.TestPropertySource;
 
 /**
- * T-032, the Writer's half — every declaration matches the shared definition.
+ * The declaration-conflict check, Writer's half — every declaration matches the shared definition.
  *
  * <p>{@code stats-input} declares the same ingress exchange and its
  * {@code IngestPublishIntegrationTest} runs the identical assertion from the identical
- * implementation, {@link AmqpDeclarationAssert}. That is what closes T-032 without
+ * implementation, {@link AmqpDeclarationAssert}. That is what closes the check without
  * either application module depending on the other: the <em>values</em> come from
  * {@code AmqpTopology}, and the four lines that turn a value into a Spring AMQP object
  * are checked on both sides.</p>
@@ -36,8 +36,8 @@ import org.springframework.test.context.TestPropertySource;
  * resource. It rejects the mismatched one with {@code RESOURCE_LOCKED} and that module
  * fails to start — in whichever environment happens to boot them in the wrong order,
  * which is not usually the one where the change was made. Quorum sharpens it again,
- * because a queue's type is fixed at declaration and correcting one means deleting it
- * (ADR-002 §8).</p>
+ * because a queue's type is fixed at declaration and correcting one means deleting it.
+ * </p>
  *
  * <p>No broker is started here. These are the declarations as this module would send
  * them, and a context is all that is needed to see them.</p>
@@ -91,7 +91,7 @@ class LorastatsTopologyDeclarationTest {
     @ValueSource(ints = {1, 2, 3})
     @DisplayName("each retry tier carries its configured delay as the queue's TTL")
     void retryTiersMatchTheSharedDefinition(int tier) {
-        // The delay is externalised (G4), so the definition has to be built with the
+        // The delay is externalised, so the definition has to be built with the
         // configured value — asserting against a hard-coded 30 s here would pass while
         // the property was ignored.
         AmqpDeclarationAssert.assertMatches(

@@ -12,7 +12,7 @@ import java.time.Instant;
 import java.util.Arrays;
 import org.junit.jupiter.api.Test;
 
-/** T-050 / DL-147: the reporting-cycle phase histogram, and the DL-146 correction counter. */
+/** The reporting-cycle phase histogram, and the device-clock correction counter. */
 class IngestMetricsTest {
 
     private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
@@ -34,7 +34,7 @@ class IngestMetricsTest {
     /**
      * The buckets are the contract: twenty cumulative thirty-second slots across the
      * cycle, so a synchronised fleet shows as one full slot and a jittering one as
-     * twenty roughly equal ones (DL-104). A percentile histogram would give latency-style
+     * twenty roughly equal ones. A percentile histogram would give latency-style
      * edges nobody can compare between days.
      */
     @Test
@@ -78,7 +78,7 @@ class IngestMetricsTest {
                                 .counter()
                                 .count())
                 .isEqualTo(2.0d);
-        // DL-160: the series for a type that has seen no event exists, at zero -- it is
+        // The series for a type that has seen no event exists, at zero -- it is
         // registered at construction so a dashboard can tell "none" from "not exported".
         assertThat(
                         registry.get(IngestMetrics.TS_DEVICE_CORRECTED)
@@ -90,7 +90,7 @@ class IngestMetricsTest {
     }
 
     /**
-     * DL-151: the two ingest doors run identical rules, so the {@code source} label is the
+     * The two ingest doors run identical rules, so the {@code source} label is the
      * only thing that makes the split observable. Every per-type counter carries it, a
      * request the logging filter never saw is {@code unknown} rather than unlabelled, and
      * the sum over the label is the total the series had before the split.

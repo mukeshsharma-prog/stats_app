@@ -19,12 +19,11 @@ import org.springframework.context.annotation.Conditional;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * RabbitMQ declaration and listener configuration for the sysstats slice (T-035,
- * DL-148; STA-10A, STA-11A, STA-14A).
+ * RabbitMQ declaration and listener configuration for the sysstats slice.
  *
  * <p>A sibling of {@code LorastatsConsumerConfiguration}, declaring exactly this type's
  * resources — main queue, three retry tiers, DLQ, the four bindings and the container
- * factory — from the same {@link AmqpTopology} definitions (T-032). The two exchanges and
+ * factory — from the same {@link AmqpTopology} definitions. The two exchanges and
  * the processor selector are shared and live in {@link WriterAmqpConfiguration}; nothing
  * here is declared twice and nothing here depends on another type's file.</p>
  *
@@ -73,7 +72,7 @@ public class SysstatsConsumerConfiguration {
         return retryQueue(3, properties);
     }
 
-    /** No expiry and no onward route, by construction (ADR-002 §12). */
+    /** No expiry and no onward route, by construction. */
     @Bean
     Queue sysstatsDeadLetterQueue() {
         return WriterAmqpConfiguration.queue(
@@ -107,7 +106,7 @@ public class SysstatsConsumerConfiguration {
         factory.setMaxConcurrentConsumers(properties.concurrency());
         factory.setPrefetchCount(properties.prefetch());
         // Finish only the deliveries already executing; return the prefetched rest to
-        // RabbitMQ instead of extending shutdown by a whole prefetch window (DL-143).
+        // RabbitMQ instead of extending shutdown by a whole prefetch window.
         factory.setForceStop(true);
         factory.setContainerCustomizer(
                 container ->

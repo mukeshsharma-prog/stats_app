@@ -12,7 +12,7 @@ import java.util.Objects;
 import org.springframework.stereotype.Component;
 
 /**
- * Per-type Input counters (STA-27A, T-027).
+ * Per-type Input counters.
  *
  * <p>Every counter is labelled by stat type, including the failures. A total that
  * cannot be broken down by type cannot answer the only question worth asking during
@@ -23,7 +23,7 @@ import org.springframework.stereotype.Component;
  * a dashboard, and a flood of unparseable bodies is precisely the case where the
  * series must exist.</p>
  *
- * <p><strong>Every series here also carries {@code source} (DL-151)</strong> —
+ * <p><strong>Every series here also carries {@code source}</strong> —
  * {@code internal} for the Heimdal door, {@code external} for the other one — because
  * the two ingest paths run identical rules, and the label is the only thing that makes
  * the split observable: "external callers are producing all the 400s" is a different
@@ -56,9 +56,17 @@ public class IngestMetrics {
     public static final String RATE_LIMITED = "requests_rate_limited";
 
     /**
-     * T-050 / DL-147: where in the ten-minute reporting cycle each accepted record's
+     * Requests the ingest authentication filter refused, by {@code reason}:
+     * {@code unauthenticated} (401), {@code forbidden} (403) or {@code keys_unavailable}
+     * (503, the issuer's signing keys could not be fetched). Untyped for the reason
+     * {@link #REQUEST_TOO_LARGE} gives: the body has not been read.
+     */
+    public static final String AUTH_REJECTED = "requests_auth_rejected";
+
+    /**
+     * Where in the ten-minute reporting cycle each accepted record's
      * {@code ts.server} falls — {@code ts.server mod 600}, as a histogram with one
-     * bucket per thirty seconds. This is the measurement DL-104 asked for before any
+     * bucket per thirty seconds. This is the measurement needed before any
      * hardware is sized down: gateways that jitter fill the twenty buckets evenly (about
      * 5% each); gateways that fire on a synchronised boundary pile into one or two, and
      * the 13,333/s design figure stays as the expected case rather than headroom.
@@ -66,20 +74,20 @@ public class IngestMetrics {
      * <p>Recorded on <em>acceptance</em>, after the publisher confirm, so a record
      * Heimdal resends after a 503 is counted once. Input rather than the Writer because
      * Input sees every type from day one, while the Writer is deployed per type
-     * (ADR-003 D8) and would give five partial views to sum.</p>
+     * and would give five partial views to sum.</p>
      */
     public static final String TS_SERVER_CYCLE_OFFSET = "records_ts_server_cycle_offset_seconds";
 
-    /** The reporting cycle whose phase the histogram measures (Q13a: six reports an hour). */
+    /** The reporting cycle whose phase the histogram measures (six reports an hour). */
     public static final long REPORTING_CYCLE_SECONDS = 600L;
 
     /** Bucket width: twenty buckets across the cycle, fine enough to see a boundary. */
     static final long CYCLE_BUCKET_SECONDS = 30L;
 
     /**
-     * DL-146: records on which Heimdal rewrote {@code ts.device} to {@code ts.server}
-     * and flagged it with {@code meta.tsDeviceCorrected}. Counted so Q15f — when Heimdal
-     * corrects — has a number to go with the question; the flag itself is preserved and
+     * Records on which Heimdal rewrote {@code ts.device} to {@code ts.server}
+     * and flagged it with {@code meta.tsDeviceCorrected}. Counted so the open question of
+     * when Heimdal corrects has a number to go with it; the flag itself is preserved and
      * never branched on.
      */
     public static final String TS_DEVICE_CORRECTED = "records_ts_device_corrected";
@@ -89,10 +97,10 @@ public class IngestMetrics {
 
     /**
      * Time from handing the record to the broker to the outcome that decides the HTTP
-     * status: the confirm, a nack, a return, the timeout, or an error (T-048, DL-159).
+     * status: the confirm, a nack, a return, the timeout, or an error.
      * Exported as a histogram (Micrometer suffixes {@code _seconds_bucket/_count/_sum/_max})
      * so p99 is readable in Prometheus — confirm latency, not throughput, is what turns a
-     * burst into 503s (Q13a). No {@code source} label: the publisher does not know the
+     * burst into 503s. No {@code source} label: the publisher does not know the
      * door, and a slow confirm is the same incident whichever door the record used.
      */
     public static final String PUBLISH_CONFIRM = "records_publish_confirm";
@@ -123,15 +131,14 @@ public class IngestMetrics {
 
     /**
      * Registers every per-record counter for every type and both doors so each exports
-     * at zero from the first scrape (DL-158's rule, applied to Input on the first live
-     * render, DL-160). A counter that first appears on its first event is absent until
+     * at zero from the first scrape. A counter that first appears on its first event is absent until
      * then, and {@code rate()} of an absent series is absent too: the Input dashboard's
      * "rejected / s" and "not accepted (503) / s" panels read empty on a healthy instance,
      * which is the same picture as "this instance exports no such series". Both label
      * sets are closed — five types, two doors — so this is sixty-five series, not a
      * cardinality risk. The {@code unknown} type and source stay first-event: they mean
      * "could not tell", and there is no pair to enumerate. The confirm histogram is
-     * registered by the publisher (DL-159), which owns its outcomes.
+     * registered by the publisher, which owns its outcomes.
      */
     private void registerAtStartup() {
         for (StatType type : StatType.values()) {
@@ -158,15 +165,15 @@ public class IngestMetrics {
                 .increment();
     }
 
-    /** Q14a: {@code ts.device} beyond the configured tolerance (ADR-003 D9). */
+    /** {@code ts.device} beyond the configured skew tolerance. */
     public void clockSkewRejected(StatType statType, IngestSource source) {
         counter(CLOCK_SKEW_REJECTED, "Records rejected because ts.device leads ts.server", statType, source)
                 .increment();
     }
 
     /**
-     * T-059. Expected to read ~100% today; its value is showing us the day Heimdal
-     * stops sending {@code ts.converter} (ADR-007 §2, "accept, ignore, and meter").
+     * Expected to read ~100% today; its value is showing us the day Heimdal
+     * stops sending {@code ts.converter} ("accept, ignore, and meter").
      */
     public void converterTimestampPresent(StatType statType, IngestSource source) {
         counter(CONVERTER_TS_PRESENT, "Records carrying ts.converter, which is never read", statType, source)
@@ -180,7 +187,7 @@ public class IngestMetrics {
     }
 
     /**
-     * ADR-002 §9: the broker acked the publish and no queue was bound to receive it.
+     * The broker acked the publish and no queue was bound to receive it.
      *
      * <p>{@link #publishFailed(StatType)} increments as well, and that is intended —
      * this counter is the <em>cause</em>, that one is the <em>outcome</em>. Their ratio
@@ -210,7 +217,6 @@ public class IngestMetrics {
         cycleOffset(statType, source).record(offset);
     }
 
-    /** DL-146: Heimdal flagged this record's {@code ts.device} as corrected. */
     /** One publish attempt took {@code elapsed} to reach {@code outcome}. */
     public void publishConfirm(StatType statType, String outcome, Duration elapsed) {
         publishConfirmTimer(statType, outcome).record(Objects.requireNonNull(elapsed, "elapsed"));
@@ -223,7 +229,7 @@ public class IngestMetrics {
 
     private Timer publishConfirmTimer(StatType statType, String outcome) {
         return Timer.builder(PUBLISH_CONFIRM)
-                .description("Time from publish to the broker's answer, by outcome (T-048)")
+                .description("Time from publish to the broker's answer, by outcome")
                 .serviceLevelObjectives(CONFIRM_BUCKETS)
                 .tag("type", statType == null ? UNKNOWN_TYPE : statType.wireName())
                 .tag("outcome", Objects.requireNonNull(outcome, "outcome"))
@@ -241,7 +247,7 @@ public class IngestMetrics {
             buckets[index] = CYCLE_BUCKET_SECONDS * (index + 1);
         }
         return DistributionSummary.builder(TS_SERVER_CYCLE_OFFSET)
-                .description("ts.server modulo the 600 s reporting cycle, per accepted record (DL-104, T-050)")
+                .description("ts.server modulo the 600 s reporting cycle, per accepted record")
                 .baseUnit("seconds")
                 // Explicit, cumulative 30 s buckets rather than Micrometer's percentile
                 // histogram: the question is "what fraction lands in each slot", which
@@ -252,15 +258,25 @@ public class IngestMetrics {
                 .register(meterRegistry);
     }
 
-    /** T-018: the body exceeded {@code stats.input.limits.max-request-bytes}; 413. */
+    /** The body exceeded {@code stats.input.limits.max-request-bytes}; 413. */
     public void requestTooLarge(IngestSource source) {
         untypedCounter(REQUEST_TOO_LARGE, "Requests rejected with 413 before the body was read", source)
                 .increment();
     }
 
-    /** T-018: the per-instance ingest rate limit rejected the request; 429. */
+    /** The per-instance ingest rate limit rejected the request; 429. */
     public void rateLimited(IngestSource source) {
         untypedCounter(RATE_LIMITED, "Requests rejected with 429 by the ingest rate limit", source)
+                .increment();
+    }
+
+    /** The ingest authentication filter refused the request before the body was read. */
+    public void authRejected(IngestSource source, String reason) {
+        Counter.builder(AUTH_REJECTED)
+                .description("Requests refused by ingest authentication before the body was read")
+                .tag("source", IngestSource.labelOf(source))
+                .tag("reason", reason)
+                .register(meterRegistry)
                 .increment();
     }
 

@@ -4,8 +4,7 @@ import java.sql.SQLException;
 import java.util.regex.Pattern;
 
 /**
- * Renders a failure for a log line without any value the record carried (guard P2,
- * DEVELOPMENT.md §7; T-066).
+ * Renders a failure for a log line without any value the record carried.
  *
  * <h2>What it is protecting against</h2>
  *
@@ -24,8 +23,8 @@ import java.util.regex.Pattern;
  * driver's detail line". It is not implementable: for a {@code PSQLException} the
  * detail <em>is</em> part of the message, and there is no substring of it that is
  * reliably value-free. And our own exceptions are no safer — a processor is free to
- * throw {@code new PermanentFailureException("uid=… failed the schema")}, and T-057
- * is about to add exactly that kind of throw. So no message and no stack trace ever
+ * throw {@code new PermanentFailureException("uid=… failed the schema")}, and the payload
+ * gate throws exactly that kind of exception. So no message and no stack trace ever
  * reaches a log line from this module.</p>
  *
  * <h2>What survives, and why it is enough</h2>
@@ -38,7 +37,7 @@ import java.util.regex.Pattern;
  * sqlState=23505} says more about what to do next than a stack trace does, and says
  * nothing about the record. The stack is not lost so much as relocated: the record
  * itself is on the dead-letter queue, with its own headers, for a person to inspect
- * under whatever access control the DLQ has (ADR-002 §12) rather than under the log
+ * under whatever access control the DLQ has rather than under the log
  * retention policy that does not exist yet.</p>
  */
 public final class SafeFailure {

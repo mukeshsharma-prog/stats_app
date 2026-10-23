@@ -89,7 +89,7 @@ public final class LtestatsBatchWriter implements StatsBatchWriter {
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
         this.gateMetrics = Objects.requireNonNull(gateMetrics, "gateMetrics");
         // The gate's and retention's series for this type export at zero from startup
-        // too (DL-158): a deployed type is exactly one with a writer, and a series that
+        // too: a deployed type is exactly one with a writer, and a series that
         // waits for its first event or its first maintenance pass is absent until then.
         gateMetrics.registerFor(TYPE);
         Objects.requireNonNull(retentionMetrics, "retentionMetrics").registerFor(TYPE);
@@ -105,7 +105,7 @@ public final class LtestatsBatchWriter implements StatsBatchWriter {
                 Counter.builder(LorastatsBatchWriter.UNMAPPED_DATA_METRIC)
                         .description(
                                 "Records carrying a data member the schema does not name, "
-                                        + "preserved in data_extra (D14b)")
+                                        + "preserved in data_extra")
                         .tag("type", TYPE.wireName())
                         .register(meterRegistry);
         this.writeFailures =
@@ -139,7 +139,7 @@ public final class LtestatsBatchWriter implements StatsBatchWriter {
 
         List<RecordWriteResult> results = new ArrayList<>(records.size());
         for (int index = 0; index < records.size(); index++) {
-            // Two stages, two failure meanings (DL-126): binding is payload work and
+            // Two stages, two failure meanings: binding is payload work and
             // opens no transaction; the INSERT is the database's turn. A record nobody
             // can map is `unmappable`, never `write_failed`.
             final MapSqlParameterSource parameters;
@@ -174,7 +174,7 @@ public final class LtestatsBatchWriter implements StatsBatchWriter {
                 }
             } catch (RuntimeException failure) {
                 // Never silent, never dropped: the consumer hands the delivery to the
-                // failure arm. The failure is DESCRIBED, never passed (guard P2).
+                // failure arm. The failure is DESCRIBED, never passed.
                 writeFailures.increment();
                 if (isDatabaseFailure(failure)) {
                     postgresErrors.increment();
@@ -239,14 +239,14 @@ public final class LtestatsBatchWriter implements StatsBatchWriter {
                 .addValue("uid", requiredText(record.uid(), "uid"))
                 .addValue("tenant", requiredText(record.tenant(), "tenant"))
                 .addValue("maintenant", requiredText(record.maintenant(), "maintenant"))
-                // One canonical case before the index sees it (DL-115); Locale.ROOT so a
+                // One canonical case before the index sees it; Locale.ROOT so a
                 // Turkish-locale host cannot map 'i' outside A-F and fail the CHECK.
                 .addValue(
                         "clsbox",
                         requiredText(record.clsbox(), "clsbox").toUpperCase(Locale.ROOT))
                 .addValue("ts_server", timestamp(ts.server(), "ts.server"))
                 .addValue("ts_device", timestamp(ts.device(), "ts.device"))
-                // Stored as received, never a discriminator (ADR-007 §4).
+                // Stored as received, never a discriminator.
                 .addValue("record_version", shortOrNull(record.version()), Types.SMALLINT)
                 // Which of OUR schemas admitted the row, from the validator's result.
                 .addValue("schema_version", validated.schemaVersion())
@@ -331,7 +331,7 @@ public final class LtestatsBatchWriter implements StatsBatchWriter {
             return null;
         }
         if (version < Short.MIN_VALUE || version > Short.MAX_VALUE) {
-            // Permanent: no redelivery changes the value (DL-168). The envelope refuses it at
+            // Permanent: no redelivery changes the value. The envelope refuses it at
             // Input now; this is the backstop for anything already queued.
             throw new PermanentFailureException("version does not fit the record_version column");
         }
@@ -340,7 +340,7 @@ public final class LtestatsBatchWriter implements StatsBatchWriter {
 
     private static String requiredText(String value, String field) {
         if (value == null || value.isBlank()) {
-            // Permanent, as above (DL-168): the envelope requires a non-blank value now.
+            // Permanent, as above: the envelope requires a non-blank value now.
             throw new PermanentFailureException(field + " must be present");
         }
         return value;

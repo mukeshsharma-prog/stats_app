@@ -8,10 +8,9 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * A request the API answers with a catalogued problem (T-044). Built only from an
+ * A request the API answers with a catalogued problem. Built only from an
  * {@link ErrorCode} and {@link FieldError}s, whose messages are reviewed constants — so
- * nothing the caller sent, and nothing the database said, can reach a response body
- * (STA-03A, STA-35B).
+ * nothing the caller sent, and nothing the database said, can reach a response body.
  */
 public final class ApiProblemException extends RuntimeException {
 

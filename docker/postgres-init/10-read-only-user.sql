@@ -1,6 +1,6 @@
 -- Stats App — the read-only database role.
 --
--- Rule 2 / STA-32: only Module 2 (stats-writer) writes to the database. That is
+-- Only Module 2 (stats-writer) writes to the database. That is
 -- enforced by GRANT, not by convention — so a mistake in stats-api fails loudly
 -- at the database instead of silently writing a row.
 --
@@ -48,7 +48,7 @@ ALTER DEFAULT PRIVILEGES FOR ROLE :"owner" IN SCHEMA public
     GRANT SELECT ON TABLES TO :"ro_user";
 
 -- Sequences are deliberately NOT granted. `uid` is its own column with a unique
--- constraint, never a database-generated identifier (rule 13, STA-21B), so a
+-- constraint, never a database-generated identifier, so a
 -- read-only caller has no reason to touch a sequence.
 
 -- Belt and braces: revoke the public schema's default CREATE from everyone, so a

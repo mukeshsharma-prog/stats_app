@@ -24,7 +24,7 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * A real key server for the API tests (T-038, T-045): RS256 tokens signed with a key the
+ * A real key server for the API tests: RS256 tokens signed with a key the
  * API fetches from a JWK set over HTTP, exactly as it fetches Keycloak's.
  *
  * <p>Nothing here mocks the decoder. Signature, expiry, issuer and audience are checked by

@@ -8,7 +8,7 @@
 #
 # BUILDX_FLAGS exists for build-network workarounds: the Gradle wrapper (Java) tries
 # only the FIRST address DNS returns for its download host, so one unreachable CDN
-# edge fails every build that curl would have survived (13 Oct 2026, DL-170).
+# edge fails every build that curl would have survived (13 Oct 2026).
 #
 # Each platform gets its own single-platform image archive,
 # stats-app-images-<arch>.tar, and start-stats-app.sh loads the one matching the
@@ -60,7 +60,7 @@ for module in $APP_MODULES; do
     --build-arg MODULE="$module" -t "stats-app/$module:dev" --load "$ROOT"
 done
 # The hand-run tools image: bash, curl, jq, a Docker CLI, demo.sh and its fixtures, so
-# MANUAL.md and the demo need nothing on the receiving machine but Docker (DL-171).
+# MANUAL.md and the demo need nothing on the receiving machine but Docker.
 # shellcheck disable=SC2086
 docker buildx build ${BUILDX_FLAGS:-} --platform "$PLATFORMS" -f "$ROOT/docker/Dockerfile.tools" \
   -t stats-app/stats-tools:dev --load "$ROOT"

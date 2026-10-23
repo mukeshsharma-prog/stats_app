@@ -18,7 +18,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.amqp.core.AmqpAdmin;
 import org.springframework.amqp.core.QueueInformation;
 
-/** T-027: the broker gauges distinguish unknown, empty and unavailable, and never do I/O on scrape. */
+/** The broker gauges distinguish unknown, empty and unavailable, and never do I/O on scrape. */
 class OperationalMetricsTest {
 
     private final AmqpAdmin admin = mock(AmqpAdmin.class);
@@ -87,7 +87,7 @@ class OperationalMetricsTest {
     }
 
     /**
-     * T-050 / DL-147. The age gauge is sampled at delivery, so on its own it would hold
+     * The age gauge is sampled at delivery, so on its own it would hold
      * the last backlog value through a quiet hour. The poll knows when the queue is
      * empty and says so; when messages are waiting it leaves the sampled value alone.
      */
@@ -136,7 +136,7 @@ class OperationalMetricsTest {
 
     @Test
     void retentionPeriodIsTheWindowTheSweepAndGuardUse() {
-        // DL-133: one cutoff. This gauge reads RetentionWindow, so it cannot advertise a
+        // One cutoff. This gauge reads RetentionWindow, so it cannot advertise a
         // different number of days than the one deleting data.
         assertThat(value(OperationalMetrics.RETENTION_PERIOD_DAYS)).isEqualTo(90);
 

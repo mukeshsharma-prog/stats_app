@@ -16,7 +16,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.utility.MountableFile;
 
-/** Proves the production T-009 role bootstrap against PostgreSQL 17. */
+/** Proves the production database-role bootstrap against PostgreSQL 17. */
 class DatabaseRolesIntegrationTest {
 
     private static final String DATABASE = "statsdb";
@@ -24,8 +24,8 @@ class DatabaseRolesIntegrationTest {
     private static final String OWNER_PASSWORD = "writer-test-password";
     private static final String READ_ONLY = "stats_ro";
     private static final String READ_ONLY_PASSWORD = "reader-test-password";
-    private static final String TABLE = "t009_role_probe";
-    private static final String SEQUENCE = "t009_sequence_probe";
+    private static final String TABLE = "roles_role_probe";
+    private static final String SEQUENCE = "roles_sequence_probe";
 
     private static final PostgreSQLContainer<?> POSTGRES =
             new PostgreSQLContainer<>(PostgresSupport.IMAGE)
@@ -79,8 +79,8 @@ class DatabaseRolesIntegrationTest {
                 assertThat(rows.getInt(1)).isEqualTo(2);
             }
 
-            statement.execute("CREATE TABLE t009_drop_probe (id bigint)");
-            statement.execute("DROP TABLE t009_drop_probe");
+            statement.execute("CREATE TABLE roles_drop_probe (id bigint)");
+            statement.execute("DROP TABLE roles_drop_probe");
         }
     }
 
@@ -98,13 +98,13 @@ class DatabaseRolesIntegrationTest {
     @ParameterizedTest
     @ValueSource(
             strings = {
-                "INSERT INTO t009_role_probe VALUES (99, 'forbidden')",
-                "UPDATE t009_role_probe SET value = 'forbidden' WHERE id = 1",
-                "DELETE FROM t009_role_probe WHERE id = 1",
-                "TRUNCATE TABLE t009_role_probe",
-                "CREATE TABLE t009_reader_must_not_create (id bigint)",
-                "CREATE TEMP TABLE t009_reader_temp (id bigint)",
-                "SELECT nextval('t009_sequence_probe')"
+                "INSERT INTO roles_role_probe VALUES (99, 'forbidden')",
+                "UPDATE roles_role_probe SET value = 'forbidden' WHERE id = 1",
+                "DELETE FROM roles_role_probe WHERE id = 1",
+                "TRUNCATE TABLE roles_role_probe",
+                "CREATE TABLE roles_reader_must_not_create (id bigint)",
+                "CREATE TEMP TABLE roles_reader_temp (id bigint)",
+                "SELECT nextval('roles_sequence_probe')"
             })
     void everyWriteAttemptAsStatsRoIsADatabasePermissionError(String sql) {
         assertThatExceptionOfType(SQLException.class)

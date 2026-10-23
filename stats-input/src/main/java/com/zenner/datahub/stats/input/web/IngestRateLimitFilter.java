@@ -19,21 +19,21 @@ import org.slf4j.LoggerFactory;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
- * The per-instance ingest rate limit (STA-06B, T-018; DL-109).
+ * The per-instance ingest rate limit.
  *
  * <p>A token bucket refilled at {@code stats.input.limits.max-requests-per-second} and
  * holding one second of burst. Excess requests are answered 429 with {@code Retry-After}
  * and counted as {@code requests_rate_limited}.</p>
  *
  * <p><strong>What this does and does not control.</strong> Heimdal agreed the 2× replay
- * cap on 4 Sep 2026 (Q13c, DL-109) and we cannot enforce it — an agreement is a
- * commitment, not a control. This filter and the 503 backpressure of rule 8 are the two
+ * cap on 4 Sep 2026 and we cannot enforce it — an agreement is a
+ * commitment, not a control. This filter and the 503 backpressure of an unconfirmed publish are the two
  * we own. It is deliberately <em>per instance</em>: the cluster ceiling is this value
  * times the replica count, and a shared limiter would put a network round trip and a
  * new dependency in front of every ingest. A 429 to Heimdal is a non-2xx, so the record
  * is resent — the limit sheds load, it does not drop records.</p>
  *
- * <p>It runs after authentication so that, once Q8a-2 lands, an unauthenticated caller
+ * <p>It runs after authentication so that, once ingest is authenticated, an unauthenticated caller
  * cannot spend a legitimate sender's budget.</p>
  */
 public class IngestRateLimitFilter extends OncePerRequestFilter {
@@ -90,7 +90,7 @@ public class IngestRateLimitFilter extends OncePerRequestFilter {
      * A token bucket, refilled continuously rather than on a schedule.
      *
      * <p>Boring on purpose: no scheduler, no dependency, no per-caller state. Per-caller
-     * buckets would need a caller identity, and Q8a-2 has not yet given us one.</p>
+     * buckets would need a caller identity, which unauthenticated ingest does not have.</p>
      */
     private static final class TokenBucket {
 

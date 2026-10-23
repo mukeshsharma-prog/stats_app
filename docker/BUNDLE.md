@@ -516,7 +516,7 @@ PostgreSQL values that initialised the volume into `.env` and start again.
 ## Monitoring
 
 Prometheus starts automatically and does **not** wait for the applications to be
-healthy (DL-167): if one of them fails, Prometheus is already running and
+healthy: if one of them fails, Prometheus is already running and
 http://localhost:9090/targets shows that target as **DOWN**. Normally Input, Writer,
 API and PostgreSQL should all be **UP**.
 
@@ -678,7 +678,10 @@ Data is retained in Docker volumes. To deliberately delete all local data, run
 
 The bundle uses `STATS_INPUT_AUTH_MODE=none` for isolated local evaluation. Anyone
 who can reach port 8081 can submit records. Do not expose this configuration on a
-shared or production network.
+shared or production network. Setting `STATS_INPUT_AUTH_MODE=oauth2` in `.env` and
+restarting `stats-input` requires a client-credentials token from the `stats-input`
+Keycloak client with the `stats.ingest` role instead; the demo and the Postman
+collection send no token and expect `none`.
 
 The runtime intentionally consists of separate containers. `stats-common` is a
 library embedded in the three application images; it is not a fourth application.
@@ -688,9 +691,9 @@ unknown-technology records. Primary LTE/netstats examples match the 9 October
 live-export shapes using synthetic identifiers and addresses. Optional degraded
 states, extra interfaces and numeric boundaries remain covered by source regression
 tests. **`imsi` is stored as received and masked on every read API response** (carrier
-prefix and last four digits visible, the rest `*`, length kept — DL-167); `lac`/`cid`
+prefix and last four digits visible, the rest `*`, length kept); `lac`/`cid`
 are returned as reported. No LTE/netstats payload is written to any log at any level.
 
 Input refuses, with a 400, a record PostgreSQL could not store — an over-long `uid`,
 a blank `tenant`, an out-of-range `version`, a NUL character — instead of accepting it
-and dead-lettering it later (DL-168).
+and dead-lettering it later.

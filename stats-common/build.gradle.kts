@@ -1,9 +1,9 @@
 // stats-common — shared library. NOT a deployable; no Spring Boot plugin, no image.
 //
-// Holds exactly five things (Senior task SA):
+// Holds exactly five things:
 //   1. the envelope model — uid, tenant, maintenant, clsbox, type, ts, data, status
 //      (clsbox, NOT gateway: `gateway` is the SRS name no production record has ever
-//      used, and ADR-007 §1 makes the wire name the name everywhere — wire, schema,
+//      used, and the wire name is the name everywhere — wire, schema,
 //      Java, column, API. `gateway` stays a word for the physical device, in prose.)
 //   2. the AMQP topology constants — exchange, per-type queue, retry tiers, DLQ
 //   3. the stat-type enum — lorastats, ltestats, sysstats, netstats, omsstats
@@ -13,10 +13,10 @@
 // The topology constants are not tidiness. Two modules declaring the same
 // RabbitMQ resource with different arguments makes the broker reject the
 // mismatched declaration with RESOURCE_LOCKED and the module fails to start.
-// Declaring them once here is the fix. (claude/CLAUDE.md §6)
+// Declaring them once here is the fix.
 //
 // Do NOT let this become a dumping ground: only what is genuinely common to all
-// three application modules. No module-specific logic, ever. (claude/DEVELOPMENT.md §2)
+// three application modules. No module-specific logic, ever.
 
 plugins {
     `java-library`
@@ -61,9 +61,10 @@ sourceSets {
 }
 
 // The architecture guards in src/test/.../architecture read the OTHER modules' main
-// sources: StatTypeFanOutTest (no code special-cases one stat type, STA-22/trap 15),
-// VersionIsNotADiscriminatorTest (trap 20, DL-105), WriterLogsCarryNoThrowableTest
-// (guard P2, T-066), and StructuredLoggingContractTest (T-005). Gradle supplies the
+// sources: StatTypeFanOutTest (no code special-cases one stat type),
+// VersionIsNotADiscriminatorTest (no code selects a lorastats dialect by `version`),
+// WriterLogsCarryNoThrowableTest,
+// and StructuredLoggingContractTest. Gradle supplies the
 // repository root rather than the tests guessing it from a working directory.
 tasks.test {
     systemProperty("stats.repositoryRoot", rootProject.projectDir.absolutePath)
@@ -72,7 +73,8 @@ tasks.test {
     // Gradle has no other way to know this task reads them, so without this block an
     // edit to stats-writer leaves :stats-common:test UP-TO-DATE and every guard above
     // silently does not run — a gate that passes because it never executed. Verified by
-    // reintroducing the T-066 defect: UP-TO-DATE and green before this, red after.
+    // reintroducing a Writer log call that carried a throwable: UP-TO-DATE and green
+    // before this, red after.
     inputs.files(
         listOf("stats-common", "stats-testsupport", "stats-input", "stats-writer", "stats-api")
             .map { rootProject.file("$it/src/main/java") }

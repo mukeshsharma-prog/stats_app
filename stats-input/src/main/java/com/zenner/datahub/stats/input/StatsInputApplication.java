@@ -11,8 +11,8 @@ import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
  * against the schema for their stat type, and publishes them to the
  * {@code app_stats_input} topic exchange using the stat type as routing key.
  *
- * <p>This module never touches PostgreSQL (STA-32) and returns 2xx only after a
- * RabbitMQ publisher confirm (STA-04A).
+ * <p>This module never touches PostgreSQL and returns 2xx only after a
+ * RabbitMQ publisher confirm.
  */
 @SpringBootApplication
 @ConfigurationPropertiesScan

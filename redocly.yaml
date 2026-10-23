@@ -1,12 +1,11 @@
 # Redocly CLI configuration — OpenAPI contract linting.
 #
-# Governs: docs/contracts/openapi.yaml (the Stats API contract, DL-070…DL-073,
-# ADR-006, STA-30A…STA-38A) and, since DL-145, docs/contracts/openapi-input.yaml
-# (the Heimdal inbound contract, STA-01…STA-06, ADR-007 §5). Introduced by DL-117.
+# Governs: docs/contracts/openapi.yaml (the Stats API contract) and
+# docs/contracts/openapi-input.yaml (the Heimdal inbound contract).
 #
 # Why this file exists: `redocly lint` is a CI gate, so it must be able to exit
 # ZERO on a correct contract. A gate that always warns is a gate nobody reads —
-# the same failure DL-100 was written about. Both suppressions below are
+# the same failure as a configuration key nothing reads. Both suppressions below are
 # deliberate contract decisions, recorded here rather than tolerated as noise.
 #
 # Run locally, from the repository root, before circulating the contract:
@@ -22,9 +21,9 @@ apis:
     rules:
       # The inbound contract declares three CANDIDATE security schemes — OAuth2,
       # mTLS and basic — with `security: []`, because Heimdal authentication is
-      # deferred by decision (Q8a) and no scheme is active. They exist so that ZC
+      # deferred by decision and no scheme is active. They exist so that ZC
       # sees the choice in the document they review. An unused scheme is therefore
-      # the contract being accurate, not a leftover; the day Q8a-2 selects one, the
+      # the contract being accurate, not a leftover; the day ZC selects one, the
       # operation references it and this suppression is removed in the same change.
       no-unused-components: off
 
@@ -43,5 +42,5 @@ rules:
   no-server-example.com: off
 
   # Everything else stays at `recommended`. In particular struct/spec compliance
-  # is an ERROR: the 7 unquoted-description defects DL-117 fixed were invisible
+  # is an ERROR: the unquoted-description defects it once caught were invisible
   # to a plain YAML parse and only this rule caught them.

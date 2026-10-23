@@ -29,14 +29,13 @@ import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
- * T-025 and T-031, against the real PostgreSQL 17 the mechanism depends on
- * (STA-23A, STA-23B, STA-23C; ADR-003 D1, D3, D4).
+ * Partition retention and its boundary, against the real PostgreSQL 17 the mechanism depends on.
  *
  * <p><strong>Every drop here happens through {@code DETACH PARTITION … CONCURRENTLY}
  * followed by {@code DROP TABLE}, and that is itself an assertion.</strong>
  * {@code DETACH CONCURRENTLY} is refused outright inside a transaction block, so a sweep
  * that ran under a transaction would fail every one of these tests rather than quietly
- * degrade. Equally, T-031 asks that the boundary be proved "via the ACTUAL mechanism — a
+ * degrade. Equally, the boundary must be proved "via the ACTUAL mechanism — a
  * dropped partition, not a simulated delete": the rows below disappear because their
  * partition ceased to exist, and the assertions read the parent table to say so.</p>
  *
@@ -119,7 +118,7 @@ class PartitionRetentionIntegrationTest {
     // === The mechanism =====================================================
 
     /**
-     * T-031's core assertion, at the boundary: the partition one day outside the window is
+     * The core assertion, at the boundary: the partition one day outside the window is
      * detached and dropped, the partition <em>on</em> the cutoff day is kept, and the rows
      * follow their partitions.
      */
@@ -288,7 +287,7 @@ class PartitionRetentionIntegrationTest {
     // === Concurrency and metering ==========================================
 
     /**
-     * ADR-003 D3. D8 runs N replicas per stat type, so without the lock N replicas would
+     * Production runs N replicas per stat type, so without the lock N replicas would
      * detach the same partition at once. Losing the race is the normal outcome, not a
      * failure — and a replica that lost it must change nothing.
      */
@@ -306,7 +305,7 @@ class PartitionRetentionIntegrationTest {
             assertThat(result.lockAcquired()).isFalse();
             assertThat(result.changedAnything()).isFalse();
             assertThat(partitionExists(droppableDay)).isTrue();
-            // The loser did not sweep, so it must not say it did (DL-156).
+            // The loser did not sweep, so it must not say it did.
             assertThat(gauge(RetentionMetrics.LAST_SWEEP_TIMESTAMP)).isNaN();
         }
     }
@@ -319,7 +318,7 @@ class PartitionRetentionIntegrationTest {
     void publishesTheAgeOfTheOldestSurvivingPartition() {
         createPartition(droppableDay);
         createPartition(boundaryDay);
-        // DL-156: before the first sweep neither gauge claims anything. A zero here read
+        // Before the first sweep neither gauge claims anything. A zero here read
         // as "healthy" on a replica whose daily pass had not run for 29 hours.
         assertThat(gauge(RetentionMetrics.OLDEST_PARTITION_AGE_DAYS)).isNaN();
         assertThat(gauge(RetentionMetrics.LAST_SWEEP_TIMESTAMP)).isNaN();

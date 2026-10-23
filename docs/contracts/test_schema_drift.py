@@ -42,7 +42,7 @@ class SchemaDriftTest(unittest.TestCase):
         self.assertTrue(any("SysstatsData.properties.runable.pattern" in error for error in errors))
 
     def test_ltestats_shape_change_is_guarded(self):
-        # Since DL-146 ltestats data is a closed oneOf of two shapes held in $defs, so
+        # ltestats data is a closed oneOf of two shapes held in $defs, so
         # a validation change lands inside a branch, and the gate reports it at the
         # oneOf rather than at a property path. The point is that it is reported.
         changed = copy.deepcopy(self.schemas)
@@ -60,7 +60,7 @@ class SchemaDriftTest(unittest.TestCase):
         self.assertTrue(any("LtestatsData.oneOf" in error for error in errors))
 
     def test_ltestats_imsi_ingest_change_forces_the_masked_projection_to_be_revisited(self):
-        # D-12 P3 (DL-167): the read schema returns imsi masked. A change to what
+        # The read schema returns imsi masked. A change to what
         # ingest accepts must stop CI, not be carried silently into the projection.
         changed = copy.deepcopy(self.schemas)
         changed["ltestats"]["$defs"]["shapeMeasured"]["properties"]["imsi"]["pattern"] = "^[0-9]{15}$"

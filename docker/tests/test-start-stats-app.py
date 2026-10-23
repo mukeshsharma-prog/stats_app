@@ -121,7 +121,7 @@ class StartupCredentialsTest(unittest.TestCase):
         self.assertFalse(any(c[0] == 'compose' for c in calls))
 
     def test_degraded_monitoring_reports_ready_and_exits_three(self):
-        # DL-167: every application is healthy, so the stack is usable and says so;
+        # Every application is healthy, so the stack is usable and says so;
         # the monitoring problem is printed, not hidden, and gets its own exit status.
         _, result, _ = self.exercise(monitoring_down=True)
         self.assertEqual(result.returncode, 3, result.stderr)
@@ -129,7 +129,7 @@ class StartupCredentialsTest(unittest.TestCase):
         self.assertIn('monitoring is DEGRADED', result.stderr)
 
     def test_monitoring_is_up_before_the_applications_are_waited_for(self):
-        # DL-167: an app that fails must find Prometheus already running to show it.
+        # An app that fails must find Prometheus already running to show it.
         _, result, calls = self.exercise(unhealthy='stats-api')
         self.assertEqual(result.returncode, 1)
         self.assertIn('9090/targets shows stats-api as down', result.stderr)
@@ -157,7 +157,7 @@ class StartupCredentialsTest(unittest.TestCase):
 
 
 class MonitoringIsIndependentTest(unittest.TestCase):
-    """Prometheus must never wait for the health of what it monitors (DL-167)."""
+    """Prometheus must never wait for the health of what it monitors."""
 
     def test_prometheus_depends_on_targets_being_started_never_healthy(self):
         import yaml

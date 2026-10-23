@@ -1,8 +1,7 @@
 package com.zenner.datahub.stats.writer.retry;
 
 /**
- * The retry or dead-letter copy was not confirmed, so the original must not be ACKed
- * (ADR-005, T-024).
+ * The retry or dead-letter copy was not confirmed, so the original must not be ACKed.
  *
  * <p>It exists to make the ordering hazard impossible to get wrong by accident. The
  * tempting sequence — ACK the failed delivery, then publish it onward — opens a window

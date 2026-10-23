@@ -4,7 +4,7 @@
       "name": "stats.writer.stat-type",
       "type": "java.lang.String",
       "defaultValue": "all",
-      "description": "Which stat type THIS instance consumes (ADR-003 D8). One image, but one deployment per type, because per-type concurrency, prefetch and replica count are a MUST (STA-11A/20A/26A) and are only independently tunable if the instances are separate. 'all' is a development convenience; StatTypeDeploymentGuard refuses it under the prod profile. Declared here because it is read by name through @Value and Environment rather than bound to a @ConfigurationProperties class, so the annotation processor cannot see it."
+      "description": "Which stat type THIS instance consumes. One image, but one deployment per type, because per-type concurrency, prefetch and replica count must be tunable per type, and they are only independently tunable if the instances are separate. 'all' is a development convenience; StatTypeDeploymentGuard refuses it under the prod profile. Declared here because it is read by name through @Value and Environment rather than bound to a @ConfigurationProperties class, so the annotation processor cannot see it."
     },
     {
       "name": "stats.retention.pre-create-on-startup",

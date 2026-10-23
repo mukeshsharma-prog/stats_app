@@ -22,5 +22,5 @@
   "status": [
     "conversion ok"
   ],
-  "$comment": "Production record, 29 Aug 2026, UNMODIFIED. omsstats was the one type the pre-ADR-007 payload schema already got right; this pins that. NOTE: production sends tenant == maintenant == \"mzc\", which is exactly the trap in claude/CLAUDE.md §6. This fixture is kept byte-faithful because its job is to be a production regression guard; it is NOT an isolation test. The *-tenant-isolation-pair.json fixtures, where the two values deliberately differ, remain the only isolation guards."
+  "$comment": "Production record, 29 Aug 2026, UNMODIFIED. omsstats was the one type pre-29-August payload schema already got right; this pins that. NOTE: production sends tenant == maintenant == \"mzc\", which is exactly the trap: only tenant isolates, and equal values cannot reveal a filter on the wrong field. This fixture is kept byte-faithful because its job is to be a production regression guard; it is NOT an isolation test. The *-tenant-isolation-pair.json fixtures, where the two values deliberately differ, remain the only isolation guards."
 }

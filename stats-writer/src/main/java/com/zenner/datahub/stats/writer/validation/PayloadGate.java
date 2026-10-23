@@ -18,16 +18,15 @@ import org.springframework.amqp.core.Message;
 import org.springframework.stereotype.Component;
 
 /**
- * The Writer's half of the two-gate split: the per-type payload schema (T-057;
- * STA-03A, STA-12A, ADR-007 §5).
+ * The Writer's half of the two-gate split: the per-type payload schema.
  *
  * <h2>Why a failure here is a dead-letter and not a 400</h2>
  *
  * <p>By the time a record reaches this class it has been accepted, publisher-confirmed
  * and published, and Heimdal retries only on a non-2xx — so the caller is long gone and
  * a rejection cannot reach it. Moving this check to Input would convert a redrivable
- * mismatch into unrecoverable data loss, which is window 12 of the eleven in
- * {@code claude/FLOW.md} §8. Input validates the <em>envelope</em>
+ * mismatch into unrecoverable data loss, because Heimdal only retries on a non-2xx.
+ * Input validates the <em>envelope</em>
  * ({@link StatsSchemaValidator#validateEnvelope}); this validates the envelope
  * <em>and</em> the payload ({@link StatsSchemaValidator#validate}). Two gates, two
  * consequences.</p>
@@ -49,7 +48,7 @@ import org.springframework.stereotype.Component;
  * <h2>What the failure carries</h2>
  *
  * <p>{@link PermanentFailureException} is thrown with a <strong>constant</strong>
- * message. DL-124 makes it impossible for a throwable to reach a {@code stats-writer}
+ * message. {@code WriterLogsCarryNoThrowableTest} makes it impossible for a throwable to reach a {@code stats-writer}
  * log line, and {@code SafeFailure}'s own javadoc names
  * {@code new PermanentFailureException("uid=… failed the schema")} as the temptation
  * this class was expected to fall into. The diagnosis is published instead: a
@@ -64,7 +63,7 @@ public class PayloadGate {
     private static final Logger LOGGER = LoggerFactory.getLogger(PayloadGate.class);
 
     /**
-     * The one value that means the upstream conversion succeeded (DL-108). The check is
+     * The one value that means the upstream conversion succeeded. The check is
      * against this rather than against a list of known failure strings, deliberately: we
      * do not have the vocabulary of failures, and a check that recognises only the values
      * we happen to know about goes <em>quiet</em> on the ones we do not.
@@ -99,11 +98,11 @@ public class PayloadGate {
         ValidationResult result = validator.validate(record);
         if (!result.valid()) {
             metrics.payloadRejected(expectedType, WriterGateMetrics.REASON_PAYLOAD_SCHEMA);
-            // Not silent, and not a stack trace either (guard P2). The field errors are
+            // Not silent, and not a stack trace either. The field errors are
             // safe to print by construction: pointers, codes and reviewed constants.
             // uid, statType, tenant and clsbox are on the line already: the delivery's
-            // MDC scope owns them (T-005), and adding one here again is not redundancy
-            // but loss — the ECS encoder drops the whole line on a duplicate key (DL-150).
+            // MDC scope owns them, and adding one here again is not redundancy
+            // but loss — the ECS encoder drops the whole line on a duplicate key.
             WriterLogContext.errorCode(WriterGateMetrics.REASON_PAYLOAD_SCHEMA);
             LOGGER.atWarn()
                     .addKeyValue("event", "payload_rejected")
@@ -118,7 +117,7 @@ public class PayloadGate {
         StatsEnvelope envelope = bind(record);
         // The earliest point an envelope exists is the point the scope should know it:
         // the two lines below name a tenant and a gateway through the MDC, not through
-        // pairs of their own (DL-150). The processor's own bindRecord is then a no-op.
+        // pairs of their own. The processor's own bindRecord is then a no-op.
         WriterLogContext.bindRecord(envelope);
         if (envelope.type() != expectedType) {
             // A record routed to the wrong queue never becomes right by waiting. It is
@@ -139,17 +138,17 @@ public class PayloadGate {
     }
 
     /**
-     * T-064 / DL-108. Q15d confirmed {@code status} can report a <em>failed</em>
+     * ZC confirmed {@code status} can report a <em>failed</em>
      * conversion. The record is stored regardless — it is valid and was correctly
      * delivered, and a redrive would produce the identical verdict forever, in a DLQ
-     * that ADR-002 §12 forbids ever expiring. {@code status} stays a passthrough member:
+     * that never expires. {@code status} stays a passthrough member:
      * this reads it to count it and nothing branches on it.
      *
      * <p>An <strong>absent</strong> {@code status} is not counted. The member is optional
      * and every fixture written before 29 Aug 2026 omits it, so counting absence would
      * light the counter on ordinary traffic and drown the signal it exists to carry.
      * "Upstream did not say" and "upstream said it failed" are different facts; only the
-     * second one is what DL-108 asked for.</p>
+     * second one is what this counts.</p>
      */
     private void meterUpstreamStatus(StatType statType, StatsEnvelope envelope) {
         List<String> status = envelope.status();
@@ -157,8 +156,8 @@ public class PayloadGate {
             return;
         }
         metrics.upstreamStatusNotOk(statType);
-        // status is an ENVELOPE member, which DL-108 names explicitly; the DL-102 level
-        // gate that keeps payloads at DEBUG does not extend to it.
+        // status is an ENVELOPE member; the level gate that keeps payloads at DEBUG
+        // does not extend to it.
         LOGGER.atWarn()
                 .addKeyValue("event", "upstream_status_not_ok")
                 .addKeyValue("status", status)

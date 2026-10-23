@@ -1,12 +1,12 @@
 // stats-api — Module 3. Read-only REST.
 //
-// STA-32 / rule 1: GET only. No POST, PUT, PATCH or DELETE, ever — they return
+// GET only. No POST, PUT, PATCH or DELETE, ever — they return
 // 405 with no side effect.
 //
-// STA-35 / rule 3: tenant isolation is enforced server-side on `tenant`, derived
+// Tenant isolation is enforced server-side on `tenant`, derived
 // from the validated token claim. Never from anything the caller supplies.
 //
-// Q3a: this module gets NO RabbitMQ dependency. The answer said "every module
+// This module gets NO RabbitMQ dependency. ZC's answer said "every module
 // declares the exchanges, queues and bindings", which read literally would give a
 // read-only HTTP module a broker connection it has no use for. Read as "every
 // broker-connected module" and confirm with platform. Until then, no spring-amqp
@@ -14,7 +14,6 @@
 //
 // The datasource is read-only by GRANT, not by convention: this module connects
 // as stats_ro so a mistake in code fails loudly instead of silently writing.
-// (claude/DEVELOPMENT.md §4)
 
 plugins {
     java
@@ -29,7 +28,7 @@ dependencies {
     // matters beyond tidiness: a properties file where every warning is false is a
     // file where a TRUE warning goes unread. Anything still flagged after this is a
     // key nothing binds — see additional-spring-configuration-metadata.json for the
-    // ones read by name rather than bound (DL-130).
+    // ones read by name rather than bound.
     annotationProcessor(libs.spring.boot.configuration.processor)
 
     implementation(libs.spring.boot.starter.web)
@@ -39,7 +38,7 @@ dependencies {
     implementation(libs.spring.boot.starter.actuator)
     // Actuator registers meters; only a registry implementation exports them.
     // Without this /actuator/prometheus 404s even though application.properties
-    // exposes it, and the failure is silent (DL-100).
+    // exposes it, and the failure is silent.
     runtimeOnly(libs.micrometer.registry.prometheus)
 
     runtimeOnly(libs.postgresql)
@@ -48,8 +47,8 @@ dependencies {
     testImplementation(libs.testcontainers.junit.jupiter)
     testImplementation(libs.testcontainers.postgresql)
     // NOT stats-testsupport: it exports spring-amqp and the RabbitMQ client (`api`), and
-    // NoBrokerConnectionTest asserts neither is on this module's classpath in ANY scope
-    // (Q3a). The API tests start their own PostgreSQL on the same image instead.
+    // NoBrokerConnectionTest asserts neither is on this module's classpath in ANY scope.
+    // The API tests start their own PostgreSQL on the same image instead.
     // The read tests run against the Writer's REAL migrations, applied as the Writer's
     // owner, and read as stats_ro — so the schema the API is tested against cannot drift
     // from the one production has. Flyway is test scope only: this module never migrates
@@ -59,9 +58,9 @@ dependencies {
     testRuntimeOnly(libs.flyway.database.postgresql)
 }
 
-// T-028, T-045, T-046 (DL-162). The API is tested against two production artifacts rather
+// The API is tested against two production artifacts rather
 // than copies of them: the PostgreSQL role bootstrap (so stats_ro has exactly the grants
-// it ships with — DL-135) and the Writer's Flyway migrations (so every column the API
+// it ships with) and the Writer's Flyway migrations (so every column the API
 // reads is one the Writer creates). The migrations are passed as a directory rather than
 // put on the classpath, because stats-writer's resources also hold its
 // application.properties, which must never reach this module's test context.

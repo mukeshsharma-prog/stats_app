@@ -2,7 +2,7 @@
   "annotations": {
     "list": []
   },
-  "description": "stats-input: the two ingest doors, HTTP outcomes, publisher-confirm latency, the Q13b histogram. Owner: Mukesh.",
+  "description": "stats-input: the two ingest doors, HTTP outcomes, publisher-confirm latency, the reporting-cycle histogram. Owner: Mukesh.",
   "editable": false,
   "panels": [
     {
@@ -15,7 +15,7 @@
       },
       "id": 1,
       "panels": [],
-      "title": "Ingest \u2014 two doors, one handler (DL-151); Input series are summed over source",
+      "title": "Ingest \u2014 two doors, one handler; Input series are summed over source",
       "type": "row"
     },
     {
@@ -23,7 +23,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "A 2xx follows the publisher confirm and nothing else (rule 8). Steady state ~1,333/s across types; 13,333/s is configured headroom (DL-104).",
+      "description": "A 2xx follows the publisher confirm and nothing else. Steady state ~1,333/s across types; 13,333/s is configured headroom.",
       "fieldConfig": {
         "defaults": {
           "unit": "reqps"
@@ -65,7 +65,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "internal = Heimdal (/internal/stats); external = everyone else. The external door binds nothing to the record's tenant until T-068 (DL-151 residual).",
+      "description": "internal = Heimdal (/internal/stats); external = everyone else. The external door binds nothing to the record's tenant yet.",
       "fieldConfig": {
         "defaults": {
           "unit": "reqps"
@@ -107,7 +107,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Envelope failures only \u2014 a PAYLOAD failure is the Writer's dead-letter, never a 400 (ADR-007 \u00a75).",
+      "description": "Envelope failures only \u2014 a PAYLOAD failure is the Writer's dead-letter, never a 400.",
       "fieldConfig": {
         "defaults": {
           "unit": "reqps"
@@ -158,7 +158,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "503 is the backpressure channel and is the mechanism working, not an incident (Q13c). unroutable means acked by the broker and wanted by no queue: a binding is missing.",
+      "description": "503 is the backpressure channel and is the mechanism working, not an incident. unroutable means acked by the broker and wanted by no queue: a binding is missing.",
       "fieldConfig": {
         "defaults": {
           "unit": "reqps"
@@ -264,7 +264,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Confirm latency, not throughput, is what turns a burst into 503s (T-048).",
+      "description": "Confirm latency, not throughput, is what turns a burst into 503s.",
       "fieldConfig": {
         "defaults": {
           "unit": "s"
@@ -358,7 +358,7 @@
           "refId": "B"
         }
       ],
-      "title": "Publisher confirm latency (T-048) \u2014 the number that turns a burst into 503s",
+      "title": "Publisher confirm latency \u2014 the number that turns a burst into 503s",
       "type": "timeseries"
     },
     {
@@ -468,7 +468,7 @@
       },
       "id": 12,
       "panels": [],
-      "title": "Q13b \u2014 do gateways jitter across the 10-minute cycle? (DL-104; read for the first 24 h)",
+      "title": "Do gateways jitter across the 10-minute cycle? (read for the first 24 h)",
       "type": "row"
     },
     {
@@ -515,7 +515,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "ts.converter on ~100% is expected (ADR-007 \u00a72). tsDeviceCorrected is Q15f's data point.",
+      "description": "ts.converter on ~100% is expected. tsDeviceCorrected says how often Heimdal rewrites ts.device.",
       "fieldConfig": {
         "defaults": {
           "unit": "reqps"

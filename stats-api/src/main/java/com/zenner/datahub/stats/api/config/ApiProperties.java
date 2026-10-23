@@ -5,18 +5,18 @@ import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
- * The read API's paging, window and cursor settings (T-040, T-042; openapi.yaml).
+ * The read API's paging, window and cursor settings (openapi.yaml).
  *
  * <p><strong>No value has a default in code.</strong> Every one is set in
  * {@code application.properties}, and an unset one stops the context. That is the same
- * rule the security properties follow (ADR-006), applied here because two of these are
+ * rule the security properties follow, applied here because two of these are
  * controls rather than tuning: the cursor signing key is what makes a cursor unforgeable,
  * and the query window is what stops a tenant-wide scan over 115.2M rows a day.</p>
  *
  * @param defaultPageSize the {@code limit} applied when the caller sends none (contract: 100)
  * @param maxPageSize the largest {@code limit} accepted (contract: 1000, and never more)
  * @param maxQueryWindow the widest {@code to - from} on the tenant-wide list only —
- *     {@code PROVISIONAL} in the contract; the device-scoped paths have no window (DL-151)
+ *     {@code PROVISIONAL} in the contract; the device-scoped paths have no window
  * @param cursor how continuation tokens are signed and how long they live
  */
 @ConfigurationProperties(prefix = "stats.api")

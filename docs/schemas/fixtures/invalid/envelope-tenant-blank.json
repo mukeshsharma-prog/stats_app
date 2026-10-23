@@ -17,5 +17,5 @@
     "load15": 0.38,
     "runable": "2/139"
   },
-  "$comment": "tenant is a single space: present, minLength 1, and blank. The envelope requires a non-whitespace character (DL-168). Before that, Input answered 200 and the Writer refused the record as a transient error - 35.5 minutes of retries, then the DLQ - under a tenant no token could ever read."
+  "$comment": "tenant is a single space: present, minLength 1, and blank. The envelope requires a non-whitespace character. Before that, Input answered 200 and the Writer refused the record as a transient error - 35.5 minutes of retries, then the DLQ - under a tenant no token could ever read."
 }

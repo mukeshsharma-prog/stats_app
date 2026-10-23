@@ -12,10 +12,10 @@ import javax.sql.DataSource;
 
 /**
  * One partition-maintenance session: a borrowed connection, an advisory lock, and a
- * session state that is always put back (ADR-003 D3).
+ * session state that is always put back.
  *
  * <p><strong>Why both callers share this rather than each holding their own lock
- * protocol.</strong> D3 names a single lock — {@code hashtext('stats.retention:' ||
+ * protocol.</strong> There is a single lock — {@code hashtext('stats.retention:' ||
  * statType)} — and pre-creation and retention are the two things it serialises. Written
  * twice, a divergence in the key string would leave the two jobs mutually invisible, and
  * the symptom is not an error: two replicas would simply run maintenance at the same time
@@ -65,7 +65,7 @@ final class PartitionSession {
      * Runs {@code work} under the type's advisory lock, or returns empty if another
      * replica holds it.
      *
-     * <p>Empty is not a failure. ADR-003 D3 makes it the expected outcome on every replica
+     * <p>Empty is not a failure. It is the expected outcome on every replica
      * but one, which is why the caller logs it at {@code DEBUG} rather than treating it as
      * a missed run.</p>
      *
@@ -99,7 +99,7 @@ final class PartitionSession {
             } catch (RuntimeException | SQLException failure) {
                 // Cleanup is best-effort ONCE we are already failing. Letting it throw
                 // from a finally block would REPLACE the real failure with a
-                // lock-bookkeeping message, and ADR-003 D1 requires this failure to be
+                // lock-bookkeeping message, and this failure has to be
                 // loud and diagnosable — it stops maintenance for a whole stat type.
                 try {
                     release(connection, type, previousTimeZone, previousAutoCommit);

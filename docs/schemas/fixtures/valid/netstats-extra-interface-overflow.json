@@ -47,7 +47,7 @@
       "rx": "0"
     }
   },
-  "$comment": "A third interface, eth1, beyond the mandatory pair. Q4a: additional interfaces ARE allowed and are validated against the same interface shape, so a new interface name never requires a schema change (STA-14A). Expect this to be accepted.",
+  "$comment": "A third interface, eth1, beyond the mandatory pair. Additional interfaces ARE allowed and are validated against the same interface shape, so a new interface name never requires a schema change. Expect this to be accepted.",
   "$expect": "writer-range-reject",
   "$expectCode": "bigint_overflow"
 }

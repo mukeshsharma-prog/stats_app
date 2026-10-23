@@ -19,7 +19,7 @@ import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.util.unit.DataSize;
 
 /**
- * The half of the size limit that {@code Content-Length} cannot cover (T-018).
+ * The half of the size limit that {@code Content-Length} cannot cover.
  *
  * <p>A chunked request declares no length, so the header check passes it and the bound
  * has to be applied while the body is being read. That path has its own failure mode —

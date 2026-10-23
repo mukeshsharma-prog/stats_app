@@ -45,13 +45,13 @@ public final class LorastatsConsumer {
     }
 
     /**
-     * ACK ordering is intentional, and there are now two orderings to keep (T-024).
+     * ACK ordering is intentional, and there are now two orderings to keep.
      *
      * <p>On success, {@link StatsMessageProcessor#process} has committed, so the ACK
-     * follows the commit (D7, STA-25A). On failure, the delivery is handed to
+     * follows the commit. On failure, the delivery is handed to
      * {@link FailedDeliveryRouter}, which returns only once the retry or dead-letter
-     * copy is <strong>confirmed</strong> — and only then is the original ACKed
-     * (ADR-005). Nothing acknowledges a record that exists in exactly one place.</p>
+     * copy is <strong>confirmed</strong> — and only then is the original ACKed.
+     * Nothing acknowledges a record that exists in exactly one place.</p>
      *
      * <p>If the hand-off itself cannot be confirmed the router throws, this method
      * never ACKs, and the broker keeps the only copy for redelivery. That is the
@@ -73,7 +73,7 @@ public final class LorastatsConsumer {
         consumed.increment();
         // Sampled at entry, before any work: this delivery was the head of a FIFO queue
         // when the broker handed it over, so its age IS the queue's oldest-message age
-        // at that moment (T-050, DL-147).
+        // at that moment.
         queueAge.observe(LorastatsConsumerDescriptor.TYPE, message);
         Timer.Sample sample = Timer.start(registry);
         try (WriterLogContext.Scope ignored =
@@ -94,7 +94,7 @@ public final class LorastatsConsumer {
                     failedDeliveryRouter.route(LorastatsConsumerDescriptor.TYPE, message, failure);
                 } catch (UnconfirmedHandoffException unconfirmed) {
                     // The onward copy may not exist, so the original must not be ACKed —
-                    // and must not be stranded unacknowledged either (DL-168).
+                    // and must not be stranded unacknowledged either.
                     failedDeliveryRouter.requeueUnconfirmed(
                             LorastatsConsumerDescriptor.TYPE, message, channel);
                     return;

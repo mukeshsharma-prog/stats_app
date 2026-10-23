@@ -5,14 +5,13 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
- * The daily partition-maintenance run owned by stats-writer — pre-creation and retention
- * (ADR-003 D1, D3, D4; STA-23A, STA-23C; T-012, T-025).
+ * The daily partition-maintenance run owned by stats-writer — pre-creation and retention.
  *
  * <p>Keeps the daily horizon rolling forward and reclaims partitions past the retention
  * window. {@link PartitionBootstrap} covers the deployment moment, which this cron cannot:
  * a module deployed after the scheduled hour would otherwise wait a full day for its first
  * partition. Bootstrap deliberately does <em>not</em> run retention — a process coming up
- * should start ingesting, not start dropping tables, and D4 puts retention on a once-daily
+ * should start ingesting, not start dropping tables, and retention runs on a once-daily
  * off-peak schedule rather than on every restart of every replica.</p>
  *
  * <p><strong>One cron, one entry point, one order.</strong> Both halves use

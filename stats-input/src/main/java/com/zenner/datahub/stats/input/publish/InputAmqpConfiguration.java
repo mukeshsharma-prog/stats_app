@@ -15,10 +15,10 @@ import org.springframework.context.annotation.Configuration;
 
 /**
  * What Input declares on the broker, and the callback that makes an unroutable
- * message visible (T-014, T-015; ADR-002 §9 and §11).
+ * message visible.
  *
- * <p><strong>Input declares the exchange and nothing else (DL-118).</strong> ADR-002
- * §11 puts topology declaration in the broker-connected modules and requires the
+ * <p><strong>Input declares the exchange and nothing else.</strong> Topology
+ * declaration belongs to the broker-connected modules, and the
  * declarations to come from {@link AmqpTopology} and be identical and idempotent. It
  * does not say every module declares every object, and here that distinction carries
  * weight in two directions:</p>
@@ -26,8 +26,8 @@ import org.springframework.context.annotation.Configuration;
  * <ul>
  *   <li>Queues belong to the module that drains them. If Input declared all five main
  *       queues, a deployment with no Writer for a type would accumulate an undrained
- *       quorum queue that nothing alerts on, because depth alerting is the Writer's
- *       (ADR-002 §12).</li>
+ *       quorum queue that nothing alerts on, because depth alerting is the Writer's.
+ * </li>
  *   <li>It would also make the missing-binding case unreachable — and that case is the
  *       entire reason {@code mandatory} is set. A publisher confirm says the broker
  *       accepted the message, not that a queue wanted it; declaring the queues here
@@ -38,8 +38,8 @@ import org.springframework.context.annotation.Configuration;
  * <p>The exchange definition must stay argument-identical to the Writer's or the
  * second module to start dies with {@code RESOURCE_LOCKED}. {@code AmqpTopology}
  * deliberately holds no Spring AMQP objects — {@code stats-common} has no broker
- * dependency — so the pair is hand-built in two places and T-032 is the cross-module
- * enforcement, and since T-032 it is {@code AmqpDeclarationAssert} — one assertion
+ * dependency — so the pair is hand-built in two places and the cross-module
+ * enforcement is {@code AmqpDeclarationAssert} — one assertion
  * implementation called by both modules' tests.</p>
  */
 @Configuration(proxyBeanMethods = false)
@@ -48,8 +48,8 @@ public class InputAmqpConfiguration {
     private static final Logger log = LoggerFactory.getLogger(InputAmqpConfiguration.class);
 
     /**
-     * Built from {@link AmqpTopology#inputExchange()}, not from remembered flags
-     * (T-032). Durability and auto-delete are as fatal to a second declaring module as
+     * Built from {@link AmqpTopology#inputExchange()}, not from remembered flags.
+     * Durability and auto-delete are as fatal to a second declaring module as
      * the arguments are, and they used to live only in this constructor call and the
      * Writer's.
      */
@@ -61,7 +61,7 @@ public class InputAmqpConfiguration {
     }
 
     /**
-     * ADR-002 §9 requires a {@code ReturnsCallback} alongside {@code mandatory=true},
+     * {@code mandatory=true} needs a {@code ReturnsCallback} alongside it,
      * and this is it. The <em>decision</em> to answer 503 is not taken here: a callback
      * fires on the broker's connection thread and has no way to reach the HTTP request
      * that published the message. {@link ConfirmingStatsPublisher} reads the return off
@@ -88,7 +88,7 @@ public class InputAmqpConfiguration {
                     .log(
                             "Message returned as unroutable. The broker accepted the publish and "
                                     + "no queue was bound to take it; the request is answered 503 "
-                                    + "so Heimdal resends (ADR-002 §9, {} counter)",
+                                    + "so Heimdal resends ({} counter)",
                             IngestMetrics.UNROUTABLE);
         });
     }

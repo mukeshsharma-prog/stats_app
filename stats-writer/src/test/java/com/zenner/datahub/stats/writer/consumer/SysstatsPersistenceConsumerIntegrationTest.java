@@ -29,12 +29,12 @@ import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
- * End to end for the second type (T-035): a sysstats record published to the ingress
+ * End to end for the second type: a sysstats record published to the ingress
  * exchange is consumed by the sysstats listener, committed, and ACKed; a redelivery is a
  * harmless no-op; a payload the schema refuses lands in <em>this type's</em> DLQ; and none
  * of it touches the lorastats path — with both real consumers live in one context, which
  * is the development {@code all} shape and the one that would have failed before the
- * writer beans were resolved by type (DL-148).
+ * writer beans were resolved by type.
  *
  * <p>Assertions are on shared state — rows, queue depths, DLQ depths — because other
  * cached contexts in this JVM may hold live listeners on the same broker; a
@@ -167,7 +167,7 @@ class SysstatsPersistenceConsumerIntegrationTest {
     /**
      * Rule 6 and the head-of-line trap together, with the real consumers: a sysstats
      * payload the schema refuses dead-letters into the sysstats DLQ on its first attempt
-     * (T-057) while a lorastats record published beside it is committed through its own
+     * while a lorastats record published beside it is committed through its own
      * queue, and the lorastats DLQ stays empty.
      */
     @Test

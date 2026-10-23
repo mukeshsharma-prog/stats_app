@@ -69,8 +69,8 @@ class StatsEnvelopeTest {
 
     @Test
     void preservesTheWholeProductionTimestampBlockThroughTheTypedView() throws Exception {
-        // ADR-004 requires publication to be byte-identical to what was received, and
-        // ADR-003's per-partition duplicate suppression depends on that. A typed view
+        // Publication must be byte-identical to what was received, and the
+        // per-partition duplicate suppression depends on that. A typed view
         // that silently dropped ts.datastore, ts.converter or ts.expiresOn would break
         // it without failing anything. Production sends all three on every record.
         JsonNode fixture = readFixture("valid/omsstats-ts-converter-present.json");

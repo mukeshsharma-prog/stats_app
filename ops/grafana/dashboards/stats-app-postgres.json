@@ -15,7 +15,7 @@
       },
       "id": 1,
       "panels": [],
-      "title": "WAL archiver \u2014 the RPO \u2264 5 min half of ADR-003 D5 (T-051, DL-155)",
+      "title": "WAL archiver \u2014 the RPO \u2264 5 min half of the backup strategy",
       "type": "row"
     },
     {

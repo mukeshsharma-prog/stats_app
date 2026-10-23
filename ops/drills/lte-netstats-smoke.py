@@ -88,7 +88,7 @@ def fixture(name):
 
 
 def expected_read(data):
-    """What the API returns for data: imsi masked (D-12 P3, DL-167), all else as sent.
+    """What the API returns for data: imsi masked, all else as sent.
 
     Mirrors stats-api ImsiMask: keep the plmn prefix (or the first five digits), show
     the last four only when at least eight subscriber digits follow, mask the rest."""

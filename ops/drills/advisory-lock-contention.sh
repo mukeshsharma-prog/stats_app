@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# T-054 — advisory-lock contention between two REAL Writer processes (ADR-003 D3, STA-23C).
+# Advisory-lock contention between two REAL Writer processes.
 #
 # Starts two extra Writer containers from the stack's own image, both serving lorastats,
 # both with the maintenance cron firing at the top of every minute, and lets them collide
@@ -9,7 +9,7 @@
 # skipped ("advisory lock is held", DEBUG), retention was either applied / a no-op or
 # skipped -- and NEVER failed. Afterwards no advisory lock is held by anyone and no
 # backend of either replica is idle in transaction. Two replicas sharing the lock key is
-# the production default (D8 runs N replicas per type), so this is the ordinary case.
+# the production default (each type runs N replicas), so this is the ordinary case.
 #
 # The deterministic, in-build half of this drill is
 # stats-writer/src/test/java/.../retention/AdvisoryLockContentionIntegrationTest.java --
@@ -28,7 +28,7 @@ envv() { grep -E "^$1=" "$REPO/.env" | head -1 | cut -d= -f2- | sed -E "s/^'(.*)
 PGU=$(envv POSTGRES_USER); PGD=$(envv POSTGRES_DB)
 psq() { docker exec stats-postgres psql -U "$PGU" -d "$PGD" -tAc "$1"; }
 hr() { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
-cleanup() { docker rm -f t054-writer-a t054-writer-b >/dev/null 2>&1; }
+cleanup() { docker rm -f lock-drill-writer-a lock-drill-writer-b >/dev/null 2>&1; }
 trap cleanup EXIT
 
 hr "0. Preconditions"
@@ -39,18 +39,18 @@ echo "  lorastats partitions before: $(psq "select count(*) from pg_inherits whe
 
 hr "1. Two replicas, one lock key, cron at the top of every minute"
 for r in a b; do
-  docker run -d --name "t054-writer-$r" --network "$NET" --env-file "$REPO/.env" \
+  docker run -d --name "lock-drill-writer-$r" --network "$NET" --env-file "$REPO/.env" \
     -e STAT_TYPE=lorastats \
     -e POSTGRES_RO_USER= -e POSTGRES_RO_PASSWORD= \
     -e STATS_RETENTION_SCHEDULE='0 * * * * *' \
     -e STATS_RETENTION_STAGGER=PT0S \
-    -e SPRING_DATASOURCE_HIKARI_DATA_SOURCE_PROPERTIES_APPLICATIONNAME="t054-writer-$r" \
+    -e SPRING_DATASOURCE_HIKARI_DATA_SOURCE_PROPERTIES_APPLICATIONNAME="lock-drill-writer-$r" \
     -e LOGGING_LEVEL_COM_ZENNER_DATAHUB_STATS_WRITER_RETENTION=DEBUG \
     "$IMAGE" >/dev/null
 done
 for r in a b; do
-  printf '  waiting for t054-writer-%s' "$r"
-  until docker exec "t054-writer-$r" curl -fsS http://localhost:8082/actuator/health/readiness >/dev/null 2>&1; do printf '.'; sleep 2; done; echo " ready"
+  printf '  waiting for lock-drill-writer-%s' "$r"
+  until docker exec "lock-drill-writer-$r" curl -fsS http://localhost:8082/actuator/health/readiness >/dev/null 2>&1; do printf '.'; sleep 2; done; echo " ready"
 done
 
 hr "2. Letting them collide for $TICKS tick(s)"
@@ -63,7 +63,7 @@ done
 
 hr "3. What each replica logged (statType=lorastats, since the drill started)"
 report() { # report <replica>
-  local log; log=$(docker logs "t054-writer-$1" 2>&1 | grep '"statType":"lorastats"' | grep -v '"trigger":"startup"')
+  local log; log=$(docker logs "lock-drill-writer-$1" 2>&1 | grep '"statType":"lorastats"' | grep -v '"trigger":"startup"')
   local ens skp app nop rsk fail
   ens=$(grep -c '"event":"partitions_ensured"'            <<<"$log"); skp=$(grep -c '"event":"partition_precreation_skipped"' <<<"$log")
   app=$(grep -c '"event":"retention_applied"'             <<<"$log"); nop=$(grep -c '"event":"retention_no_op"'               <<<"$log")
@@ -85,9 +85,9 @@ check $(( (aE + aS) < TICKS || (bE + bS) < TICKS )) "each replica made a pre-cre
 check $(( (aA + aN + aR) < TICKS || (bA + bN + bR) < TICKS )) "each replica made a retention decision (applied, no-op or skipped) on every tick"
 check $(( aS + bS + aR + bR == 0 )) "at least one replica actually lost the race and skipped (the collision was real)"
 check "$(psq "select count(*) from pg_locks where locktype='advisory'")" "no advisory lock is held after the drill"
-check "$(psq "select count(*) from pg_stat_activity where application_name like 't054-writer-%' and state like 'idle in transaction%'")" "no drill backend is idle in transaction"
+check "$(psq "select count(*) from pg_stat_activity where application_name like 'lock-drill-writer-%' and state like 'idle in transaction%'")" "no drill backend is idle in transaction"
 for r in a b; do
-  check "$(docker logs "t054-writer-$r" 2>&1 | grep '"statType":"lorastats"' | grep -c '"level":"ERROR"')" "t054-writer-$r logged no ERROR for lorastats maintenance"
+  check "$(docker logs "lock-drill-writer-$r" 2>&1 | grep '"statType":"lorastats"' | grep -c '"level":"ERROR"')" "lock-drill-writer-$r logged no ERROR for lorastats maintenance"
 done
 echo "  lorastats partitions after: $(psq "select count(*) from pg_inherits where inhparent='lorastats'::regclass")  (elapsed $(( $(date +%s) - START )) s)"
 exit $rc

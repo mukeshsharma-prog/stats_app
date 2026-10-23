@@ -1,5 +1,5 @@
 ///usr/bin/env java --source 21 "$0" "$@"; exit $?
-// T-048 — burst load against stats-input (NFR-04; Q13a, DL-104, DL-109; DL-159).
+// Burst load against stats-input.
 //
 // Dependency-free: `java ops/load/BurstLoad.java --rate 13333 --duration 30`. Java 21 only —
 // virtual threads carry the in-flight requests, java.net.http carries the traffic.
@@ -7,7 +7,7 @@
 // OPEN loop, on purpose. A closed loop (N workers, each waiting for its answer) slows down
 // exactly when the server does, so it measures the client's patience; an open loop keeps
 // sending at the target rate whatever comes back, which is what Heimdal does during a
-// replay (DL-109: 2,667/s agreed, unenforceable by us) and what turns a burst into 503s.
+// replay (2,667/s agreed, unenforceable by us) and what turns a burst into 503s.
 // If the server falls behind, in-flight requests pile up until --max-in-flight, after
 // which the generator counts what it could not send instead of silently slowing down.
 //
@@ -15,18 +15,18 @@
 // per-second 503s -- and, from a before/after scrape of Input's /actuator/prometheus,
 // the publisher-confirm histogram's delta as p50/p99/mean, computed the way Prometheus's
 // histogram_quantile does. Confirm latency, not throughput, is the number the task asks
-// for: it is what a 200 waits on (rule 8), and a burst shows up there first.
+// for: it is what a 200 waits on, and a burst shows up there first.
 //
 // Every record gets a unique uid and ts.* re-stamped to now: duplicates would be absorbed
-// by ON CONFLICT (ADR-005) and hide the Writer's real cost, and a fixture dated 27 Aug
-// would trip the clock-skew gate (ADR-003 D9) or the late-arrival guard (D5b).
+// by ON CONFLICT and hide the Writer's real cost, and a fixture dated 27 Aug
+// would trip the clock-skew gate or the late-arrival guard.
 //
-// T-049 (replay drill) adds the opposite mode, on purpose. --save-bodies FILE keeps every
+// The replay drill adds the opposite mode, on purpose. --save-bodies FILE keeps every
 // body this run sent, byte for byte; --replay FILE sends those bodies again, cyclically,
 // at the target rate, with NO re-stamping -- a Heimdal replay is the same record again,
 // same uid and same ts.device, which is exactly what ON CONFLICT (ts_device, uid) keys on.
 // A replayed body that was re-stamped would be a NEW record to the Writer and would
-// measure nothing about duplicate suppression. ops/drills/t049-replay.sh runs the shape.
+// measure nothing about duplicate suppression. ops/drills/replay.sh runs the shape.
 
 import java.io.IOException;
 import java.net.URI;
@@ -58,7 +58,7 @@ import java.util.regex.Pattern;
 public final class BurstLoad {
 
     /** Log prefix: the task whose shape this run has. */
-    static String TAG = "[T-048]";
+    static String TAG = "[burst-load]";
 
     private static final Pattern UID = Pattern.compile("\"uid\"\\s*:\\s*\"[^\"]*\"");
     private static final Pattern TS = Pattern.compile("\"(server|device|datastore|converter)\"\\s*:\\s*\\d+");
@@ -80,7 +80,7 @@ public final class BurstLoad {
         String runId = Long.toHexString(System.currentTimeMillis());
         List<String> corpus = opt.containsKey("replay") ? Corpus.read(Path.of(opt.get("replay"))) : null;
         Corpus save = opt.containsKey("save-bodies") ? Corpus.open(Path.of(opt.get("save-bodies"))) : null;
-        TAG = corpus != null ? "[T-049]" : "[T-048]";
+        TAG = corpus != null ? "[replay]" : "[burst-load]";
 
         HttpClient client = HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_1_1)
@@ -120,7 +120,7 @@ public final class BurstLoad {
         System.out.printf(Locale.ROOT, "%s   per-second 503s: %s%n", TAG, r.perSecond503());
         Histogram h = Histogram.delta(before, after);
         if (h == null) {
-            System.out.println(TAG + "   publisher-confirm histogram: not exported by this Input (needs DL-159) -- client latency is the only number");
+            System.out.println(TAG + "   publisher-confirm histogram: not exported by this Input -- client latency is the only number");
         } else {
             System.out.printf(Locale.ROOT, "%s   publisher-confirm (server-side, outcome=confirmed): n=%,d  mean=%.1f ms  p50=%.1f ms  p99=%.1f ms  outcomes=%s%n",
                     TAG, h.count, h.mean() * 1e3, h.quantile(0.50) * 1e3, h.quantile(0.99) * 1e3, h.outcomes);

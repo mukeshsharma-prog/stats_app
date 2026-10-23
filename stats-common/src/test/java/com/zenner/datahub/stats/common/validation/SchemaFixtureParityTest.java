@@ -60,18 +60,18 @@ class SchemaFixtureParityTest {
      * invalid/ must fail, malformed/ is not schema-testable.
      *
      * <p>The Python gate additionally asserts the twelve {@code $expect} markers —
-     * {@code "input-reject"} on the five clock-skew fixtures (ADR-003 D9),
-     * {@code "writer-dlq"} on the unknown fourth dialect (DL-105 rule 4),
+     * {@code "input-reject"} on the five clock-skew fixtures,
+     * {@code "writer-dlq"} on the unknown fourth dialect,
      * {@code "writer-range-reject"} on the dialect-B counter that overflows a
-     * {@code BIGINT} (DL-105 rule 3), and {@code "writer-skip"} on the five late-arrival
-     * fixtures (D5b → DL-112, T-026), and {@code "writer-dlq"} again on the ltestats
-     * record that is half a measurement (DL-146) — none of which are schema cases. So it
+     * {@code BIGINT}, and {@code "writer-skip"} on the five late-arrival
+     * fixtures, and {@code "writer-dlq"} again on the ltestats
+     * record that is half a measurement — none of which are schema cases. So it
      * reports 107 assertions where this test expands to 92 outcomes. That gap is
      * deliberate — do not "fix" either number to match the other.</p>
      *
      * <p>The marker count stayed at seven on 8 Sep 2026 while its composition changed
      * completely: the two lorastats dialect fixtures lost their {@code writer-dlq}
-     * markers when T-063 made them valid, and two new fixtures took their place at the
+     * markers when they became valid, and two new fixtures took their place at the
      * two boundaries the widened schema created — the dialect nobody has explained, and
      * the value the schema admits and the column cannot hold.</p>
      *
@@ -82,24 +82,24 @@ class SchemaFixtureParityTest {
      * fixtures had before {@code "input-reject"} existed — an undecided question with
      * "accept" quietly baked into a green assertion.</p>
      *
-     * <p>84 → 90 on 18 Sep 2026 (DL-146): six fixtures re-derived from live data — the
+     * <p>84 → 90 on 18 Sep 2026: six fixtures re-derived from live data — the
      * two ltestats shapes the old schema dead-lettered, the mixed shape the new one must
      * still dead-letter, a lorastats dialect-B record with an integer extra member,
      * Heimdal's {@code meta}/{@code ts.deviceOrig}, and {@code expiresOn} as Extended
      * JSON. Thirteen markers now.</p>
      *
-     * <p>90 → 91 on 19 Sep 2026 (DL-148): {@code valid/sysstats-timespan-overflow.json},
+     * <p>90 → 91 on 19 Sep 2026: {@code valid/sysstats-timespan-overflow.json},
      * the second type's {@code writer-range-reject} — schema-valid, refused by the Writer's
      * {@code BIGINT} range check on the one digit-string sysstats sends. Fourteen markers;
      * the Python gate reports 105.</p>
      *
-     * <p>91 → 92 on 21 Sep 2026 (DL-153): {@code valid/omsstats-counter-overflow.json},
+     * <p>91 → 92 on 21 Sep 2026: {@code valid/omsstats-counter-overflow.json},
      * the third type's {@code writer-range-reject} and the first that overflows as a JSON
      * <em>integer</em> rather than a digit string — schema-valid because JSON Schema's
      * {@code integer} has no width, refused by the Writer before the narrowing conversion.
      * Fifteen markers; the Python gate reports 107.</p>
      *
-     * <p>98 → 103 on 13 Oct 2026 (DL-168): three envelope bounds in {@code invalid/} — a
+     * <p>98 → 103 on 13 Oct 2026: three envelope bounds in {@code invalid/} — a
      * 129-character {@code uid}, a blank {@code tenant}, a {@code version} past the
      * {@code smallint} column — and two {@code input-reject} edges, a U+0000 character
      * ({@code unstorable_character}) and a {@code ts.server} decades ahead of Input's clock

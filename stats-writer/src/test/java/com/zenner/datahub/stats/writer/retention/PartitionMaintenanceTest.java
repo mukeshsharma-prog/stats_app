@@ -27,7 +27,7 @@ class PartitionMaintenanceTest {
     private static final RetentionProperties PROPERTIES = properties(Duration.ZERO);
 
     /**
-     * DL-149: every pass ensures the whole retained window behind today AND the horizon
+     * Every pass ensures the whole retained window behind today AND the horizon
      * ahead of it — 90 retention days + 7 pre-create days here — counted from the cutoff.
      */
     private static final int WINDOW_AND_HORIZON = 90 + 7;
@@ -153,7 +153,7 @@ class PartitionMaintenanceTest {
         order.verify(retention).sweep(StatType.LORASTATS);
     }
 
-    /** ADR-003 D3 — the five types are staggered rather than fired together. */
+    /** The five types are staggered rather than fired together. */
     @Test
     void staggersTheTypesRatherThanFiringThemTogether() {
         Duration stagger = Duration.ofMillis(60);
@@ -185,10 +185,10 @@ class PartitionMaintenanceTest {
 
     /**
      * At startup the same failure is fatal, because the alternative is a module that
-     * consumes into a table with no partition: every insert fails, the T-020 contract
+     * consumes into a table with no partition: every insert fails, the manual-ACK contract
      * correctly withholds the ACK, and the consumer wedges once its prefetch window is
      * full. Refusing to start keeps the records in the broker and makes the cause
-     * obvious (ADR-003 D1 — the failure must be loud).
+     * obvious — the failure must be loud.
      */
     @Test
     void startupRefusesToComeUpWhenPartitionsCannotBeCreated() {
@@ -204,7 +204,7 @@ class PartitionMaintenanceTest {
     @Test
     void startupIsSatisfiedWhenAnotherReplicaAlreadyHoldsTheAdvisoryLock() {
         when(precreator.parentTableExists(StatType.LORASTATS)).thenReturn(true);
-        // ADR-003 D3: losing the lock race is the normal multi-replica case, not a
+        // Losing the lock race is the normal multi-replica case, not a
         // failure. The winning replica creates the partitions this one also needs.
         when(precreator.ensurePartitions(eq(StatType.LORASTATS), any(LocalDate.class), eq(WINDOW_AND_HORIZON)))
                 .thenReturn(PartitionPrecreationResult.lockNotAcquired());
@@ -216,7 +216,7 @@ class PartitionMaintenanceTest {
 
     /**
      * Startup never sweeps. A process coming up should start ingesting, not start
-     * dropping tables — D4 puts retention on a once-daily off-peak cron, and a restart
+     * dropping tables — retention runs on a once-daily off-peak cron, and a restart
      * loop would otherwise turn every crash into a retention run.
      */
     @Test
@@ -300,7 +300,7 @@ class PartitionMaintenanceTest {
                 .maintainOnSchedule();
 
         // 10 Sep 2026 UTC minus 90 days is the cutoff; the ensured range starts there and
-        // runs 97 days, to 17 Sep — today plus the seven-day horizon (DL-149).
+        // runs 97 days, to 17 Sep — today plus the seven-day horizon.
         verify(precreator)
                 .ensurePartitions(StatType.LORASTATS, LocalDate.of(2026, 6, 12), WINDOW_AND_HORIZON);
     }

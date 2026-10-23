@@ -1,4 +1,4 @@
-# Prometheus for the Compose application stack (T-051, T-056).
+# Prometheus for the Compose application stack.
 #
 # Scrapes the three modules' /actuator/prometheus and postgres_exporter, and evaluates
 # every rule file in this directory. Targets are the Compose service names; on any other

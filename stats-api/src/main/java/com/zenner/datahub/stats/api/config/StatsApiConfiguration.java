@@ -22,7 +22,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
  * Wires the read path. Each {@link StatReader} is its own bean, so adding a stat type
- * adds a reader and touches no existing one (rule 6, STA-14A).
+ * adds a reader and touches no existing one.
  */
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties(ApiProperties.class)

@@ -90,7 +90,7 @@ class LorastatsConsumerConfigurationTest {
         assertThat(listener.containerFactory())
                 .isEqualTo(LorastatsConsumer.CONTAINER_FACTORY);
         assertThat(listener.ackMode()).isEqualTo("MANUAL");
-        // Selection is by stat type, not by "the only processor bean" -- see DL-097.
+        // Selection is by stat type, not by "the only processor bean".
         assertThat(listener.autoStartup())
                 .isEqualTo("#{@statsMessageProcessorAvailability.available('lorastats') && ${spring.rabbitmq.listener.simple.auto-startup:true}}");
     }

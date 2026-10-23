@@ -16,13 +16,13 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 
 /**
  * {@code stats.security.prometheus-public-access=true} opens {@code /actuator/prometheus}
- * without a token (DL-166), which is safe only while no series carries anything a caller
- * sent or a tenant owns (DL-167, restoring the guard first written for DL-163's scrape).
+ * without a token, which is safe only while no series carries anything a caller
+ * sent or a tenant owns.
  *
  * <p>Every route is exercised with distinctive values — a tenant, a {@code uid}, a
  * {@code clsbox}, a timestamp, a cursor and a hostile query parameter — on every outcome
  * the API has (200, 400, 403, 404, 405), for a type that has always been served and for
- * the two DL-164 added, and then the open scrape is searched for each of them. The
+ * the two added later (ltestats and netstats), and then the open scrape is searched for each of them. The
  * request metrics must name the route <em>template</em>; a raw path, or a tag added later
  * that carries the tenant, fails here before it reaches an open endpoint.</p>
  */

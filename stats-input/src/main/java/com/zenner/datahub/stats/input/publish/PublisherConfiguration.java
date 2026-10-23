@@ -7,7 +7,7 @@ import org.springframework.context.annotation.Configuration;
 /**
  * Registers a {@link StatsPublisher} only when nothing else has supplied one.
  *
- * <p>T-014 adds the confirm-aware RabbitMQ implementation as its own bean; this
+ * <p>The confirm-aware RabbitMQ implementation is its own bean; this
  * fallback then drops out on its own. Keeping the fallback behind
  * {@link ConditionalOnMissingBean} is what makes that an additive change rather than
  * an edit to shared code.</p>

@@ -4,13 +4,13 @@
 #   docker compose --profile apps up -d        infrastructure + all three modules + monitoring
 #
 # The default is infrastructure only, because the documented development loop
-# (claude/DEVELOPMENT.md §3.3) runs the modules with ./gradlew bootRun so you get
+# runs the modules with ./gradlew bootRun so you get
 # a debugger and hot restart. The `apps` profile is for end-to-end checks and for
 # anyone who wants the whole system with one command. Prometheus and the
 # PostgreSQL exporter start with that profile and share its project network.
 #
 # RabbitMQ, PostgreSQL and Keycloak are INFRASTRUCTURE DEPENDENCIES, not Stats App
-# deployables (CLAUDE.md §1). Only the three services under the `apps` profile are
+# deployables. Only the three services under the `apps` profile are
 # ours to ship.
 #
 # Credentials come from the repository-root .env through env_file. The optional
@@ -21,14 +21,14 @@ name: stats-app
 
 services:
 
-  # === PostgreSQL — the only V1 persistence technology (CLAUDE.md §3) =========
+  # === PostgreSQL — the only V1 persistence technology =========
   postgres:
     image: postgres:17-alpine
     container_name: stats-postgres
     restart: unless-stopped
     env_file: ../.env
-    # Continuous WAL archiving — the RPO <= 5 min half of ADR-003 D5 (DL-111, T-051,
-    # DL-155). archive_timeout=300 ships a segment at least every five minutes even when
+    # Continuous WAL archiving — the RPO <= 5 min half of the backup strategy.
+    # archive_timeout=300 ships a segment at least every five minutes even when
     # it is not full, which is what bounds the loss window. The archive lives on its own
     # volume so `docker compose down -v` of the data volume does not take it too.
     #
@@ -148,8 +148,8 @@ services:
     restart: unless-stopped
     env_file: ../.env
     environment:
-      # env_file is shared for local convenience, but Input has no database role
-      # (ADR-006). Empty overrides ensure no PostgreSQL endpoint or credential is
+      # env_file is shared for local convenience, but Input has no database role.
+      # Empty overrides ensure no PostgreSQL endpoint or credential is
       # present in this container even though those keys exist in the source file.
       POSTGRES_URL: ""
       POSTGRES_DB: ""
@@ -157,6 +157,11 @@ services:
       POSTGRES_PASSWORD: ""
       POSTGRES_RO_USER: ""
       POSTGRES_RO_PASSWORD: ""
+      # Used only with STATS_INPUT_AUTH_MODE=oauth2. As for the API, `iss` is compared
+      # as a string and the signing keys come from the compose-network hostname, which
+      # this container can reach and localhost:8080 it cannot. Leave it unset in
+      # production, where discovery from the real HTTPS issuer is correct.
+      STATS_INPUT_OAUTH2_JWK_SET_URI: http://keycloak:8080/realms/statsapp/protocol/openid-connect/certs
     ports:
       - "8081:8081"
     depends_on:
@@ -170,7 +175,7 @@ services:
       start_period: 40s
 
   # === Module 2 — Writer: AMQP -> PostgreSQL =================================
-  # The only component with database write access (rule 2, STA-32).
+  # The only component with database write access.
   stats-writer:
     profiles: ["apps", "observability"]
     build:
@@ -205,8 +210,8 @@ services:
       start_period: 40s
 
   # === Module 3 — API: read-only REST ========================================
-  # No broker connection, deliberately — Q3a. Give this module a RabbitMQ
-  # dependency and you have contradicted the open question, not answered it.
+  # No broker connection, deliberately: only broker-connected modules declare
+  # topology, and a read-only API has no use for a broker.
   stats-api:
     profiles: ["apps", "observability"]
     build:
@@ -293,7 +298,7 @@ services:
       rabbitmq:
         condition: service_healthy
 
-  # === Hand-run tools — ./docker/shell.sh and ./docker/run-demo.sh (DL-171) =====
+  # === Hand-run tools — ./docker/shell.sh and ./docker/run-demo.sh =====
   # bash, curl, jq and a Docker CLI, plus docker/demo.sh and its fixtures, so the
   # walkthrough in MANUAL.md and the demo need nothing on the host but Docker. The
   # Docker socket is mounted because both are real: they read rows with
@@ -355,7 +360,7 @@ services:
       - --
     command:
       # archive_mode is an enum, which the built-in settings collector skips; the custom
-      # query is what exports pg_settings_archive_mode for postgres-alerts.yml (DL-160).
+      # query is what exports pg_settings_archive_mode for postgres-alerts.yml.
       - --extend.query-path=/etc/postgres_exporter/queries.yml
       # The wal collector calls pg_ls_waldir(), which needs pg_monitor: with the read-only
       # role it fails every scrape and logs an ERROR in PostgreSQL. Nothing reads it.
@@ -386,7 +391,7 @@ services:
       - ../ops/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ../ops/prometheus:/etc/prometheus/rules:ro
       - prometheus-data:/prometheus
-    # STARTED, never HEALTHY (DL-167). Monitoring must not depend on the health of what
+    # STARTED, never HEALTHY. Monitoring must not depend on the health of what
     # it monitors: gated on healthy, an Input that fails its readiness probe would keep
     # Prometheus from starting, and the one moment you need `up == 0` on the targets
     # page is the moment there would be no Prometheus to show it. These entries exist

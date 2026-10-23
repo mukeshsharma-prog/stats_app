@@ -10,7 +10,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * The broker declarations every stat type shares, declared once (T-035, DL-148).
+ * The broker declarations every stat type shares, declared once.
  *
  * <p>Until the second type arrived these three beans lived in
  * {@code LorastatsConsumerConfiguration}, which was harmless while it was the only
@@ -22,7 +22,7 @@ import org.springframework.context.annotation.Configuration;
  * {@code <Type>ConsumerConfiguration} declares exactly its own queues, bindings,
  * container factory and consumer.</p>
  *
- * <p>Every declaration is still built from an {@link AmqpTopology} definition (T-032),
+ * <p>Every declaration is still built from an {@link AmqpTopology} definition,
  * through the two helpers at the bottom, so the durability and auto-delete flags cannot
  * drift between modules and RabbitMQ never sees two spellings of one resource.</p>
  */
@@ -37,7 +37,7 @@ public class WriterAmqpConfiguration {
     /**
      * Carries two different journeys, told apart by routing key: an expired retry
      * message bounces back to its main queue under the type's own key, and a retired
-     * record lands in the DLQ under {@code <type>.dlq} (ADR-002 §4).
+     * record lands in the DLQ under {@code <type>.dlq}.
      */
     @Bean
     TopicExchange statsDeadLetterExchange() {
@@ -45,7 +45,7 @@ public class WriterAmqpConfiguration {
     }
 
     /**
-     * Selection is by stat type, never "the only processor bean" (DL-097): with five
+     * Selection is by stat type, never "the only processor bean": with five
      * processors registered, resolving by uniqueness would throw on the second one and
      * adding a type would break the existing ones.
      */

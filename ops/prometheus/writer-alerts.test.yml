@@ -57,7 +57,7 @@ tests:
                 than five minutes for the Writer, for at least five minutes. The Writer is
                 consuming but not keeping up: check records_processing_duration,
                 records_postgres_errors and the retry counters before touching capacity.
-                Depth is a diagnostic here, not the alert (Q13b).
+                Depth is a diagnostic here, not the alert.
               runbook: docs/runbooks/queue-troubleshooting.md
       - eval_time: 10m
         alertname: StatsAppMainQueueAgingCritical
@@ -96,7 +96,7 @@ tests:
                 than five minutes for the Writer, for at least five minutes. The Writer is
                 consuming but not keeping up: check records_processing_duration,
                 records_postgres_errors and the retry counters before touching capacity.
-                Depth is a diagnostic here, not the alert (Q13b).
+                Depth is a diagnostic here, not the alert.
               runbook: docs/runbooks/queue-troubleshooting.md
 
   - name: replicas aggregate with max and types are independent
@@ -122,7 +122,7 @@ tests:
                 than five minutes for the Writer, for at least five minutes. The Writer is
                 consuming but not keeping up: check records_processing_duration,
                 records_postgres_errors and the retry counters before touching capacity.
-                Depth is a diagnostic here, not the alert (Q13b).
+                Depth is a diagnostic here, not the alert.
               runbook: docs/runbooks/queue-troubleshooting.md
 
   - name: a NaN from a failed poll never reads as a healthy zero or as no consumer
@@ -252,7 +252,7 @@ tests:
               description: >-
                 A valid omsstats record arrived with ts.device already older than
                 the retention window and was skipped, metered and ACKed — deliberate data loss
-                by a signed decision (D5b). A gateway back from a long outage does this once;
+                by a signed decision. A gateway back from a long outage does this once;
                 a fleet doing it every cycle is a clock or connectivity problem upstream.
                 If a DLQ redrive is in progress, this is the ~90-day trap: the redriven
                 records are too old to store and are NOT being recovered.
@@ -261,7 +261,7 @@ tests:
         alertname: StatsAppLateArrival
         exp_alerts: []
 
-  # ---- Unconfirmed failure hand-off (DL-168) ------------------------------------
+  # ---- Unconfirmed failure hand-off ------------------------------------
   - name: an unconfirmed hand-off pages within the window and clears after it
     interval: 1m
     input_series:
@@ -317,7 +317,7 @@ tests:
               description: >-
                 More than the configured share of consumed lorastats records carried
                 a status other than ["conversion ok"] for a sustained hour. The records are
-                stored regardless (DL-108); this is Heimdal's converter reporting trouble, not
+                stored regardless; this is Heimdal's converter reporting trouble, not
                 ours. The 1% threshold is PROVISIONAL until the first 24 h of ingest set it —
                 see ops/prometheus/README.md.
               runbook: docs/runbooks/queue-troubleshooting.md
@@ -338,7 +338,7 @@ tests:
         alertname: StatsAppUpstreamStatusNotOk
         exp_alerts: []
 
-  # ---- Retention sweep missing (T-054, DL-156) -----------------------------------
+  # ---- Retention sweep missing -----------------------------------
   # Sample interval 1m throughout: promtool advances an alert's `for` state on the test's
   # own interval, and a coarser one leaves the alert pending for ever.
   - name: a sweep that completed within the day on any replica is quiet, even if the other replica never won the lock
@@ -385,7 +385,7 @@ tests:
                 more than 26 hours (the schedule is daily). Ingestion is unaffected and every
                 other counter reads healthy; the only symptom is storage that stops going
                 down. Check pg_locks for an advisory lock held by a session that is not
-                running maintenance (a leaked lock starves every replica — trap 27's sibling),
+                running maintenance (a leaked lock starves every replica),
                 pg_inherits.inhdetachpending, and that the scheduler thread is alive.
               runbook: docs/runbooks/retention-policy.md
 
@@ -413,6 +413,6 @@ tests:
                 more than 26 hours (the schedule is daily). Ingestion is unaffected and every
                 other counter reads healthy; the only symptom is storage that stops going
                 down. Check pg_locks for an advisory lock held by a session that is not
-                running maintenance (a leaked lock starves every replica — trap 27's sibling),
+                running maintenance (a leaked lock starves every replica),
                 pg_inherits.inhdetachpending, and that the scheduler thread is alive.
               runbook: docs/runbooks/retention-policy.md

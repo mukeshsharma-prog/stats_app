@@ -9,7 +9,7 @@ The V1 stat types are `lorastats`, `ltestats`, `sysstats`, `omsstats`, and `nets
 
 The persistence technology is **PostgreSQL only**. MongoDB is not a V1 alternative and must not appear in the code, Docker Compose stack, migrations, dependencies, or documentation. Each application module produces its own Docker image: `stats-input`, `stats-writer`, and `stats-api`.
 
-The platform baseline is Java 21 with **Spring Boot 3.5.16**, pinned as a single entry in `gradle/libs.versions.toml` (G6, 18 August 2026) because “greater than 3.5.x” is not a reproducible build version. The pin is **final, not provisional**: Q1a was answered on 18 August 2026 and there is no internal reference project, so CI, logging, secrets, and deployment conventions are defined by this project rather than inherited. See `docs/decisions/2B-ANSWERS-18AUG2026.md` §1 and ADR-001.
+The platform baseline is Java 21 with **Spring Boot 3.5.16**, pinned as a single entry in `gradle/libs.versions.toml` (18 August 2026) because “greater than 3.5.x” is not a reproducible build version. The pin is **final, not provisional**: there is no internal reference project, so CI, logging, secrets, and deployment conventions are defined by this project rather than inherited. See `docs/ARCHITECTURE.md` and `CONTRIBUTING.md`.
 
 ## 2. Common record contract
 
@@ -30,17 +30,17 @@ The published RabbitMQ message is byte-identical to the accepted input, subject 
 
 ## 3. `netstats` schema — strict, answered 18 August 2026
 
-Q4a was answered on 18 August 2026 (`docs/decisions/2B-ANSWERS-18AUG2026.md` §2).
+The `netstats` questions were answered on 18 August 2026.
 `docs/schemas/netstats-v1.schema.json` is **no longer a draft**; it is the strict,
 normative contract.
 
 | Rule | Decision |
 |---|---|
 | `eth0` and `wwan` | **Mandatory.** A gateway missing either is a malfunctioning gateway, and finding out at ingest beats finding out from a null column. |
-| Additional interfaces (`eth1`, `ppp0`, …) | **Allowed**, validated against the same interface shape via `patternProperties`, so a new interface name never requires a schema change *(STA-14A)*. |
+| Additional interfaces (`eth1`, `ppp0`, …) | **Allowed**, validated against the same interface shape via `patternProperties`, so a new interface name never requires a schema change **. |
 | `apipa` | **Optional** — forced by the evidence: ZC's own sample carries it on `eth0` and omits it on `wwan`. Requiring it would reject the only real record we have. |
 | `tx` / `rx` counters | **Strings on the wire, `BIGINT` in the column.** The schema constrains them to digits only, so a non-numeric counter fails at ingest with a 400 rather than failing a cast at query time. |
-| `gw`, `ip`, `mask`, `dns[]` | IPv4 dotted-quad. **IPv6 is not accepted** — it does not appear in the sample. Q4b would widen one `$def` and change no code. |
+| `gw`, `ip`, `mask`, `dns[]` | IPv4 dotted-quad. **IPv6 is not accepted** — it does not appear in the sample. Accepting it would widen one `$def` and change no code. |
 | `timespan` | Integer seconds, minimum 0. |
 
 | ID | Priority | Requirement |
@@ -53,9 +53,9 @@ normative contract.
 |---|---|---|
 | STA-01A | MUST | Define the Heimdal HTTP path, content type, size limit, timeout, correlation behavior, and response matrix in the inbound contract. |
 | STA-03A | MUST | Invalid messages return the approved RFC 9457 Problem Details response, with safe field names/reason codes and no token or offending sensitive value. The approved response shape is confirmed. |
-| STA-03B | MUST | The Input Module MUST reject a record whose `ts.device` exceeds `ts.server` by more than the configured tolerance `stats.input.validation.max-clock-skew` (starting value `PT5M`, externalised and never hard-coded), returning **400** with the field-level reason code `clock_skew_exceeded` and incrementing `records_clock_skew_rejected{type}`. A record inside the tolerance MUST be accepted, because a few seconds of NTP drift is normal and must not be an outage. This is a **cross-field** check that JSON Schema 2020-12 cannot express, so it MUST be implemented in Input rather than in `envelope-v1.schema.json`; the `edge/<type>-clock-skew-future.json` fixtures remain schema-valid and carry `$expect: "input-reject"`. *(Q14a answered 29 Aug 2026; ADR-003 D9)* |
+| STA-03B | MUST | The Input Module MUST reject a record whose `ts.device` exceeds `ts.server` by more than the configured tolerance `stats.input.validation.max-clock-skew` (starting value `PT5M`, externalised and never hard-coded), returning **400** with the field-level reason code `clock_skew_exceeded` and incrementing `records_clock_skew_rejected{type}`. A record inside the tolerance MUST be accepted, because a few seconds of NTP drift is normal and must not be an outage. This is a **cross-field** check that JSON Schema 2020-12 cannot express, so it MUST be implemented in Input rather than in `envelope-v1.schema.json`; the `edge/<type>-clock-skew-future.json` fixtures remain schema-valid and carry `$expect: "input-reject"`. *(decided 29 Aug 2026)* |
 | STA-04A | MUST | The Input Module waits for RabbitMQ publisher confirmation before returning 2xx. |
-| STA-05A | MUST | Input authentication is a **configuration-selected filter**: `stats.input.auth.mode=none\|mtls\|oauth2`, with **no default in code** so a deployment that omits it fails to start. `mode=none` MUST log a `WARN` on every startup naming the endpoint as unauthenticated, and the application MUST refuse to start under the `prod` profile with `mode=none`. The mechanism itself (mTLS or OAuth2 client credentials, with issuer/audience/client identity and rotation) is **deferred by decision** pending Q8a-2 and must close before any shared deployment. *(Q8a, 18 Aug 2026; ADR-006)* |
+| STA-05A | MUST | Input authentication is a **configuration-selected filter**: `stats.input.auth.mode=none\|mtls\|oauth2`, with **no default in code** so a deployment that omits it fails to start. `mode=none` MUST log a `WARN` on every startup naming the endpoint as unauthenticated, and the application MUST refuse to start under the `prod` profile with `mode=none`. The mechanism itself (mTLS or OAuth2 client credentials, with issuer/audience/client identity and rotation) is **deferred by decision** pending ZC's answer and must be selected before any shared deployment. *(18 Aug 2026)* |
 | STA-06A | MUST | Input is stateless and has no local durable buffer. If RabbitMQ is unavailable, return a non-2xx response; 503 is the default implementation choice. Heimdal handles dead-letter/retry behavior when it receives non-2xx. |
 | STA-06B | MUST | Request size, timeout, concurrency, and rate-limit settings are externally configurable. |
 
@@ -63,10 +63,10 @@ normative contract.
 
 | ID | Priority | Requirement |
 |---|---|---|
-| STA-10A | MUST | Create one durable queue per stat type using the approved `app_statsstore.<stat-type>` convention. A shared `app_statsstore` queue is not permitted. Retry and dead-letter queues follow the same prefix: `app_statsstore.<stat-type>.retry.<tier>` and `app_statsstore.<stat-type>.dlq` *(G1, 18 Aug 2026)*. |
+| STA-10A | MUST | Create one durable queue per stat type using the approved `app_statsstore.<stat-type>` convention. A shared `app_statsstore` queue is not permitted. Retry and dead-letter queues follow the same prefix: `app_statsstore.<stat-type>.retry.<tier>` and `app_statsstore.<stat-type>.dlq` *(18 Aug 2026)*. |
 | STA-10B | MUST | Bind each queue to the applicable type routing key so a poison message cannot block another type. |
 | STA-11A | MUST | Per-type consumer concurrency, prefetch, retry delay, and database-protection settings are externally configurable. |
-| STA-12A | MUST | Define retry count, delay/backoff, transient/permanent classification, retry tracking, DLQ name, DLQ retention, and authorized redrive. **Three** retry tiers per stat type; all delays and the maximum attempt count are externalised to `application.properties`, never hard-coded, with starting values of 30 s / 5 min / 30 min. Immediate requeue is never used for a persistent failure *(G4, 18 Aug 2026)*. **DLQ retention is decided: the dead-letter queue carries no `x-message-ttl` and no expiry of any kind** — a TTL'd DLQ is silent data loss, and a dead-lettered message has already survived three retry tiers. Operations MUST alert on DLQ depth > 0 and on oldest-message age, dispose manually within 14 days, and restrict redrive to an authorized role, explicit and scoped per stat type, rate-limited to 2× nominal, with the root cause resolved first *(ADR-002 §12, 29 Aug 2026)*. The DLQ MUST have no automatic consumer. A manual redrive preserves its attempt and safe failure metadata and permits one processing attempt; a repeat failure returns directly to the same DLQ without another three-tier retry allocation. |
+| STA-12A | MUST | Define retry count, delay/backoff, transient/permanent classification, retry tracking, DLQ name, DLQ retention, and authorized redrive. **Three** retry tiers per stat type; all delays and the maximum attempt count are externalised to `application.properties`, never hard-coded, with starting values of 30 s / 5 min / 30 min. Immediate requeue is never used for a persistent failure *(18 Aug 2026)*. **DLQ retention is decided: the dead-letter queue carries no `x-message-ttl` and no expiry of any kind** — a TTL'd DLQ is silent data loss, and a dead-lettered message has already survived three retry tiers. Operations MUST alert on DLQ depth > 0 and on oldest-message age, dispose manually within 14 days, and restrict redrive to an authorized role, explicit and scoped per stat type, rate-limited to 2× nominal, with the root cause resolved first *(29 Aug 2026)*. The DLQ MUST have no automatic consumer. A manual redrive preserves its attempt and safe failure metadata and permits one processing attempt; a repeat failure returns directly to the same DLQ without another three-tier retry allocation. |
 | STA-12B | MUST | Exhausted failures are visible in a per-type DLQ, metric, log, and alert. |
 | STA-13A | MUST | Exchange, queues, and bindings are durable; accepted messages are persistent. The current answer says every module declares topology; interpret this as every broker-connected module and confirm whether `stats-api` is intended to connect to RabbitMQ. Declarations must be identical and idempotent. |
 | STA-14A | MUST | Adding a type adds only its schema/configuration, binding, queue, consumer, PostgreSQL table, indexes, API operation, fixtures, and metrics. |
@@ -79,12 +79,12 @@ The exchange is `app_stats_input` and its type is `TopicExchange`. The routing k
 |---|---|---|
 | STA-20A | MUST | Each type has isolated consumer configuration and per-type observability. Three application Docker images are independently deployable. |
 | STA-21A | MUST | Persist each type in its own PostgreSQL table: `lorastats`, `ltestats`, `sysstats`, `omsstats`, and `netstats`. No shared table may mix types. |
-| STA-21B | MUST | Each table contains the common fields, type-specific data, `uid` as its own column, and versioned migrations. Uniqueness is enforced by a primary key on `(ts_device, uid)` — in that column order — scoped **per partition, not globally**, because PostgreSQL requires a partitioned table's unique index to include the partition key. This is sufficient for the redelivery and replay cases it defends against, since such a record carries an identical `ts_device`. Suppressed duplicate inserts MUST be metered. *(ADR-003, G2 — supersedes the global-unique-constraint wording of v1.2)* |
+| STA-21B | MUST | Each table contains the common fields, type-specific data, `uid` as its own column, and versioned migrations. Uniqueness is enforced by a primary key on `(ts_device, uid)` — in that column order — scoped **per partition, not globally**, because PostgreSQL requires a partitioned table's unique index to include the partition key. This is sufficient for the redelivery and replay cases it defends against, since such a record carries an identical `ts_device`. Suppressed duplicate inserts MUST be metered. *(Supersedes the global-unique-constraint wording of v1.0.)* |
 | STA-21C | MUST | Indexes must prioritize the dominant query pattern `(tenant, clsbox, ts.device)` and include a deterministic unique tie-breaker for pagination. |
 | STA-23A | MUST | Retention is externally configurable with a default of 90 days unless an approved per-type override exists. |
 | STA-23B | MUST | Retention uses `ts.device`. Late-arriving records can therefore be near expiry on arrival; this accepted business rule must be documented and tested. |
 | STA-23C | MUST | PostgreSQL retention uses an approved partition-drop/detach strategy or bounded, indexed deletion jobs. It must expose deletion lag and active retention metrics. MongoDB TTL logic is forbidden. |
-| STA-25A | MUST | Acknowledge only after a successful PostgreSQL transaction. Use the `(ts_device, uid)` constraint of STA-21B with `ON CONFLICT DO NOTHING` for duplicate-safe handling, even though Heimdal states it does not intentionally deliver duplicates. A suppressed insert MUST increment the `duplicate` metric of STA-27A; it is never discarded silently. *(ADR-003)* |
+| STA-25A | MUST | Acknowledge only after a successful PostgreSQL transaction. Use the `(ts_device, uid)` constraint of STA-21B with `ON CONFLICT DO NOTHING` for duplicate-safe handling, even though Heimdal states it does not intentionally deliver duplicates. A suppressed insert MUST increment the `duplicate` metric of STA-27A; it is never discarded silently. ** |
 | STA-26A | MUST | Document per-type consumer concurrency, prefetch, PostgreSQL connection limits, deployment replicas, and backlog/autoscaling strategy. |
 | STA-27A | MUST | Metrics include accepted, validation failures, publish-confirm failures, consumed, persisted, duplicate, retry, DLQ, duration, main queue depth, DLQ depth, PostgreSQL errors, retention lag, and consumer availability per type. |
 
@@ -95,7 +95,7 @@ At the answered volume of 160,000 gateways every 10 minutes, the corrected avera
 | ID | Priority | Requirement |
 |---|---|---|
 | STA-30A | MUST | Define and approve the versioned OpenAPI 3.1 contract before implementing controllers. |
-| STA-31A | MUST | Configure Keycloak issuer, client/resource, audience, role, and tenant claim. The engineering proposal is live in the dev realm (Q8b, 18 Aug 2026): realm `statsapp`, audience `stats-api`, read role **`stats.readOnly`** (not the bare `readOnly` placeholder of the v1.0 answer), tenant claim `tenant` as a **single-valued String**. Every value is a configuration property with **no default in code**, so ZC's confirmation (Q8b-2) is a config change. *(ADR-006)* |
+| STA-31A | MUST | Configure Keycloak issuer, client/resource, audience, role, and tenant claim. The engineering proposal is live in the dev realm (18 Aug 2026): realm `statsapp`, audience `stats-api`, read role **`stats.readOnly`** (not the bare `readOnly` placeholder of the v1.0 answer), tenant claim `tenant` as a **single-valued String**. Every value is a configuration property with **no default in code**, so ZC's confirmation is a config change. ** |
 | STA-32A | MUST | API routes are GET-only. POST, PUT, PATCH, and DELETE return 405 with no side effect. |
 | STA-33A | MUST | Every approved type, including `omsstats` and `netstats`, is individually queryable. |
 | STA-34A | MUST | Derive tenant only from the validated token. Do not accept a normal caller-controlled tenant query parameter/header/body. |

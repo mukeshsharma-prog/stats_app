@@ -6,7 +6,7 @@ import java.util.Objects;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.validation.annotation.Validated;
 
-/** Externally tunable controls for the isolated omsstats consumer (STA-11A). */
+/** Externally tunable controls for the isolated omsstats consumer. */
 @Validated
 @ConfigurationProperties(OmsstatsConsumerDescriptor.PROPERTY_PREFIX)
 public record OmsstatsConsumerProperties(

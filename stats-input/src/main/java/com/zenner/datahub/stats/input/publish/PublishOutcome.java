@@ -3,8 +3,8 @@ package com.zenner.datahub.stats.input.publish;
 /**
  * The result of handing one record to the broker.
  *
- * <p>There are only two outcomes that matter to the caller, and the split is rule 8
- * (STA-04A): {@link #CONFIRMED} is the <em>only</em> state that may become a 2xx.
+ * <p>There are only two outcomes that matter to the caller:
+ * {@link #CONFIRMED} is the <em>only</em> state that may become a 2xx.
  * Everything else is a 503, because Heimdal owns retry and will resend on any
  * non-2xx — but only if we tell it we failed.</p>
  */

@@ -10,8 +10,8 @@ import java.util.List;
  * {@code sysstats} (V6). Three wire types in one payload, and the contract returns each
  * in the representation it arrived in: {@code runable} is the gateway's own {@code "2/139"}
  * string, the loads are doubles, and {@code timespan} — stored as {@code bigint} after the
- * Writer's range check (DL-148) — goes back as the string {@code "300"}, because on this
- * type, unlike the other four, that is what the wire sends (ADR-007 §5).
+ * Writer's range check — goes back as the string {@code "300"}, because on this
+ * type, unlike the other four, that is what the wire sends.
  */
 public final class SysstatsReader implements StatReader {
 

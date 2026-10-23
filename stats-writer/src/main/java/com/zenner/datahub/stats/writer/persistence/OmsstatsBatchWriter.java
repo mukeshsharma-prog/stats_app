@@ -36,26 +36,25 @@ import org.springframework.transaction.TransactionException;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * Individual, idempotent omsstats inserts behind the batch-shaped contract (T-036,
- * DL-153; STA-21A, STA-25A, STA-27A; ADR-003 D2/D7, ADR-004, ADR-005, D14/D14b, DL-115).
+ * Individual, idempotent omsstats inserts behind the batch-shaped contract.
  *
- * <p>A sibling of {@link SysstatsBatchWriter} — the reference slice since DL-148 — with
+ * <p>A sibling of {@link SysstatsBatchWriter} — the reference slice — with
  * the same two-stage shape (bind the row outside any transaction, then let the database
  * have its turn) and the same three metered outcomes. What differs is the parse, and
- * ADR-003 says it must: <em>"the parse is per type, not one shared coercion"</em>.
+ * it must: <em>the parse is per type, not one shared coercion</em>.
  * omsstats has the simplest payload of the five: five required members, every one an
- * integer on the wire (ADR-007 §6), no optional member and no string-typed number. Each
+ * integer on the wire, no optional member and no string-typed number. Each
  * is bound as a {@code BIGINT} and a value the column cannot hold — a JSON integer wider
  * than 64 bits is schema-valid, the schema states no maximum — is {@code unmappable}
- * (DL-126) and dead-letters on its first attempt; it is never zeroed or truncated
- * (STA-04C).</p>
+ * and dead-letters on its first attempt; it is never zeroed or truncated.
+ * </p>
  *
  * <p>{@code ts.converter} is on every production omsstats record. It is preserved in
  * {@code passthrough} with the other envelope members this system never reads, and no
- * timestamp is normalised anywhere on this path (ADR-004 as amended by ADR-007 §2).</p>
+ * timestamp is normalised anywhere on this path.</p>
  *
- * <p>Unknown {@code data} members go to {@code data_extra} verbatim and are metered
- * (D14b). The schema is {@code additionalProperties: true}, so a member Heimdal adds
+ * <p>Unknown {@code data} members go to {@code data_extra} verbatim and are metered.
+ * The schema is {@code additionalProperties: true}, so a member Heimdal adds
  * between releases is valid and must survive the INSERT.</p>
  */
 @Component(OmsstatsConsumerDescriptor.BATCH_WRITER_BEAN)
@@ -121,7 +120,7 @@ public final class OmsstatsBatchWriter implements StatsBatchWriter {
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
         this.gateMetrics = Objects.requireNonNull(gateMetrics, "gateMetrics");
         // The gate's and retention's series for this type export at zero from startup
-        // too (DL-158): a deployed type is exactly one with a writer, and a series that
+        // too: a deployed type is exactly one with a writer, and a series that
         // waits for its first event or its first maintenance pass is absent until then.
         gateMetrics.registerFor(TYPE);
         Objects.requireNonNull(retentionMetrics, "retentionMetrics").registerFor(TYPE);
@@ -137,7 +136,7 @@ public final class OmsstatsBatchWriter implements StatsBatchWriter {
                 Counter.builder(LorastatsBatchWriter.UNMAPPED_DATA_METRIC)
                         .description(
                                 "Records carrying a data member the schema does not name, "
-                                        + "preserved in data_extra (D14b)")
+                                        + "preserved in data_extra")
                         .tag("type", TYPE.wireName())
                         .register(meterRegistry);
         this.writeFailures =
@@ -171,7 +170,7 @@ public final class OmsstatsBatchWriter implements StatsBatchWriter {
 
         List<RecordWriteResult> results = new ArrayList<>(records.size());
         for (int index = 0; index < records.size(); index++) {
-            // Two stages, two failure meanings (DL-126): binding is payload work and
+            // Two stages, two failure meanings: binding is payload work and
             // opens no transaction; the INSERT is the database's turn. A record nobody
             // can map is `unmappable`, never `write_failed`.
             final MapSqlParameterSource parameters;
@@ -206,7 +205,7 @@ public final class OmsstatsBatchWriter implements StatsBatchWriter {
                 }
             } catch (RuntimeException failure) {
                 // Never silent, never dropped: the consumer hands the delivery to the
-                // failure arm. The failure is DESCRIBED, never passed (guard P2).
+                // failure arm. The failure is DESCRIBED, never passed.
                 writeFailures.increment();
                 if (isDatabaseFailure(failure)) {
                     postgresErrors.increment();
@@ -271,14 +270,14 @@ public final class OmsstatsBatchWriter implements StatsBatchWriter {
                 .addValue("uid", requiredText(record.uid(), "uid"))
                 .addValue("tenant", requiredText(record.tenant(), "tenant"))
                 .addValue("maintenant", requiredText(record.maintenant(), "maintenant"))
-                // One canonical case before the index sees it (DL-115); Locale.ROOT so a
+                // One canonical case before the index sees it; Locale.ROOT so a
                 // Turkish-locale host cannot map 'i' outside A-F and fail the CHECK.
                 .addValue(
                         "clsbox",
                         requiredText(record.clsbox(), "clsbox").toUpperCase(Locale.ROOT))
                 .addValue("ts_server", timestamp(ts.server(), "ts.server"))
                 .addValue("ts_device", timestamp(ts.device(), "ts.device"))
-                // Stored as received, never a discriminator (ADR-007 §4).
+                // Stored as received, never a discriminator.
                 .addValue("record_version", shortOrNull(record.version()), Types.SMALLINT)
                 // Which of OUR schemas admitted the row, from the validator's result.
                 .addValue("schema_version", validated.schemaVersion())
@@ -286,8 +285,8 @@ public final class OmsstatsBatchWriter implements StatsBatchWriter {
                 .addValue("data_extra", dataExtra, Types.VARCHAR)
                 // Required members: the gate has proved presence and JSON type; the parse
                 // here is the column's, and a value BIGINT cannot hold is unmappable rather
-                // than silently narrowed (STA-04C). timespan is an INTEGER on this type --
-                // the string "300" is sysstats' spelling, not this one's (ADR-007 §6).
+                // than silently narrowed. timespan is an INTEGER on this type --
+                // the string "300" is sysstats' spelling, not this one's.
                 .addValue("rx_nr_pkts", WireNumbers.requiredInteger(data, "rx_nr_pkts"))
                 .addValue("rx_valid_nr_pkts", WireNumbers.requiredInteger(data, "rx_valid_nr_pkts"))
                 .addValue("rx_crc_bad", WireNumbers.requiredInteger(data, "rx_crc_bad"))
@@ -298,7 +297,7 @@ public final class OmsstatsBatchWriter implements StatsBatchWriter {
 
     /**
      * The envelope members production sends that this system preserves and never
-     * reads (ADR-003, ADR-007 §2, DL-146), in the wire's own shape and units — the same
+     * reads, in the wire's own shape and units — the same
      * projection the lorastats writer stores, so the API reads one {@code passthrough}
      * shape for every type.
      */
@@ -370,7 +369,7 @@ public final class OmsstatsBatchWriter implements StatsBatchWriter {
             return null;
         }
         if (version < Short.MIN_VALUE || version > Short.MAX_VALUE) {
-            // Permanent: no redelivery changes the value (DL-168). The envelope refuses it at
+            // Permanent: no redelivery changes the value. The envelope refuses it at
             // Input now; this is the backstop for anything already queued.
             throw new PermanentFailureException("version does not fit the record_version column");
         }
@@ -379,7 +378,7 @@ public final class OmsstatsBatchWriter implements StatsBatchWriter {
 
     private static String requiredText(String value, String field) {
         if (value == null || value.isBlank()) {
-            // Permanent, as above (DL-168): the envelope requires a non-blank value now.
+            // Permanent, as above: the envelope requires a non-blank value now.
             throw new PermanentFailureException(field + " must be present");
         }
         return value;

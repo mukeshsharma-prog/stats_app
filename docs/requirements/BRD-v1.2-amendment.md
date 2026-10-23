@@ -12,13 +12,13 @@ BRD v1.0 correctly explains the intended business workflow but does not identify
 
 ### 2.1 In scope
 
-V1 delivers a reliable statistics-ingestion and retrieval capability for five types: `lorastats`, `ltestats`, `sysstats`, `omsstats`, and `netstats`. The `netstats` nested-interface rules were answered on 18 August 2026 (Q4a): `eth0` and `wwan` are mandatory, additional interfaces are allowed, `apipa` is optional, and counters stay strings on the wire. Strict validation is finalized.
+V1 delivers a reliable statistics-ingestion and retrieval capability for five types: `lorastats`, `ltestats`, `sysstats`, `omsstats`, and `netstats`. The `netstats` nested-interface rules were answered on 18 August 2026: `eth0` and `wwan` are mandatory, additional interfaces are allowed, `apipa` is optional, and counters stay strings on the wire. Strict validation is finalized.
 
 The business capability includes authenticated ingestion from Heimdal Core, per-type buffering, per-type persistent storage, automatic retention, operational visibility, and a secure, tenant-scoped, read-only API. The solution must retain the ability to add a new type without reworking existing types.
 
 ### 2.2 Conditional scope
 
-`netstats` is fully in the V1 delivery sequence. Q4a was answered on 18 August 2026 and the schema is strict, so this is no longer conditional. One narrow item remains open and does not gate delivery: **Q4b — do any gateways report IPv6 addresses?** The schema accepts IPv4 only; if IPv6 exists, one `$def` widens and no code changes.
+`netstats` is fully in the V1 delivery sequence. The `netstats` questions were answered on 18 August 2026 and the schema is strict, so this is no longer conditional. One narrow item remains open and does not gate delivery: **do any gateways report IPv6 addresses?** The schema accepts IPv4 only; if IPv6 exists, one `$def` widens and no code changes.
 
 ### 2.3 Explicitly out of scope for V1
 
@@ -53,7 +53,7 @@ No API operation, index, or aggregation should be created solely because it seem
 | BR-31 | A tenant may see only statistics belonging to that tenant. | Approve the token claim that identifies the tenant and handling of tenantless records. |
 | BR-32 | Data records, logs, DLQs, and backups may contain device identifiers and potentially IMSI. | Approve classification, access, retention, deletion, and audit requirements. |
 | BR-33 | All records beyond the approved retention period are automatically removed. | Approve whether 90 days is a default or hard maximum, the timestamp basis, and per-type overrides. |
-| BR-34 | A record that cannot be processed remains visible for operational follow-up, **and stays visible — the DLQ has no expiry** (ADR-002 §12, 29 Aug 2026). | Approve DLQ **ownership** and review cadence. Redrive authority and the retention position are decided: an authorized role only, per type, ≤ 2× nominal, root cause first, manual disposition within 14 days. |
+| BR-34 | A record that cannot be processed remains visible for operational follow-up, **and stays visible — the DLQ has no expiry** (decided 29 Aug 2026). | Approve DLQ **ownership** and review cadence. Redrive authority and the retention position are decided: an authorized role only, per type, ≤ 2× nominal, root cause first, manual disposition within 14 days. |
 | BR-35 | The service must remain useful as data volume grows. | Approve capacity envelope, end-to-end delay target, API response target, and backlog/replay objective. |
 
 ## 5. Business acceptance criteria
@@ -73,7 +73,7 @@ No API operation, index, or aggregation should be created solely because it seem
 
 | Decision | Required approver(s) | Target date | Status |
 |---|---|---|---|
-| V1 type scope and `netstats` nested-field rules | Product owner + Heimdal owner | — | **DECIDED 18 Aug 2026 (Q4a).** All five types; `eth0`/`wwan` mandatory, other interfaces allowed, `apipa` optional, counters digit-only strings. Open: IPv6 (Q4b), which widens one schema `$def`. |
+| V1 type scope and `netstats` nested-field rules | Product owner + Heimdal owner | — | **DECIDED 18 Aug 2026.** All five types; `eth0`/`wwan` mandatory, other interfaces allowed, `apipa` optional, counters digit-only strings. Open: IPv6, which widens one schema `$def`. |
 | Inbound delivery/replay/data-loss acceptance | Product owner + Heimdal owner + operations | PENDING | PENDING APPROVAL |
 | API consumer/use-case catalogue | Product owner + consumer representatives | PENDING | PENDING APPROVAL |
 | Retention default/max/per-type policy | Product owner + data owner + compliance | PENDING | PENDING APPROVAL |

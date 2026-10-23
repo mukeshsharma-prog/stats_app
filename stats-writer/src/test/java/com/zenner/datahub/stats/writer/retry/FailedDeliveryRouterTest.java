@@ -37,7 +37,7 @@ import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.dao.DataIntegrityViolationException;
 
 /**
- * The routing decision and the ACK ordering it protects (T-024, ADR-005).
+ * The routing decision and the ACK ordering it protects.
  *
  * <p>The broker's own behaviour — that a tier's TTL really does bounce a message back
  * to the main queue — is proved against a real broker in
@@ -56,7 +56,7 @@ class FailedDeliveryRouterTest {
     private FailedDeliveryRouter router;
 
     @Test
-    @DisplayName("an unconfirmed hand-off is counted, paused on, then nacked WITH requeue — DL-168")
+    @DisplayName("an unconfirmed hand-off is counted, paused on, then nacked WITH requeue")
     void requeuesAnUnconfirmedHandOffAfterThePause() throws Exception {
         com.rabbitmq.client.Channel channel = mock(com.rabbitmq.client.Channel.class);
         MessageProperties properties = new MessageProperties();
@@ -66,13 +66,13 @@ class FailedDeliveryRouterTest {
         long started = System.nanoTime();
         router.requeueUnconfirmed(StatType.SYSSTATS, message, channel);
 
-        // Requeue = true: the broker keeps the only copy and redelivers it. Before DL-168
-        // the delivery was left unacknowledged on the open channel instead, which in
+        // Requeue = true: the broker keeps the only copy and redelivers it. Rethrowing would
+        // leave the delivery unacknowledged on the open channel instead, which in
         // MANUAL mode is never returned — one prefetch slot lost per occurrence.
         verify(channel).basicNack(77L, false, true);
         verify(channel, never()).basicAck(org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.anyBoolean());
         assertThat(Duration.ofNanos(System.nanoTime() - started))
-                .as("rule 5: never an immediate requeue")
+                .as("never an immediate requeue")
                 .isGreaterThanOrEqualTo(Duration.ofMillis(10));
         assertThat(meterRegistry.get(WriterFailureMetrics.HANDOFF_UNCONFIRMED)
                         .tag("type", "sysstats").counter().count())
@@ -221,8 +221,8 @@ class FailedDeliveryRouterTest {
     @Test
     @DisplayName("the copy keeps the original bytes and gains only headers")
     void bodyIsRepublishedVerbatim() {
-        // ADR-004 has to survive the retry loop: a redriven record must still collide on
-        // (ts_device, uid), which is what makes ADR-003's duplicate suppression correct.
+        // Byte-identical publication has to survive the retry loop: a redriven record must still collide on
+        // (ts_device, uid), which is what makes the duplicate suppression correct.
         router.route(StatType.LORASTATS, delivery(1), new IllegalStateException("db"));
 
         Message published = capturePublished();
@@ -239,7 +239,7 @@ class FailedDeliveryRouterTest {
     @Test
     @DisplayName("the failure header carries a class name, never an exception message")
     void failureHeaderNeverCarriesPayloadText() {
-        // STA-03A: a JDBC or validation message routinely quotes the offending value,
+        // A JDBC or validation message routinely quotes the offending value,
         // and a broker header is displayed by ops tooling like any other field.
         router.route(
                 StatType.LORASTATS,

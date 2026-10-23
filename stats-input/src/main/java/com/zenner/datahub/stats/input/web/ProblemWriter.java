@@ -12,18 +12,18 @@ import java.util.Objects;
  * values are not available.
  *
  * <p>It exists so a filter cannot answer with an empty body and a bare status code.
- * Rule 7 and STA-03A say a rejected record is answered, not silently dropped, and a 413
+ * A rejected record is answered, not silently dropped, and a 413
  * with nothing in it tells the sender only that something is wrong somewhere.</p>
  */
-final class ProblemWriter {
+public final class ProblemWriter {
 
     private final ObjectMapper objectMapper;
 
-    ProblemWriter(ObjectMapper objectMapper) {
+    public ProblemWriter(ObjectMapper objectMapper) {
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
     }
 
-    void write(HttpServletResponse response, ProblemDetails problem) throws IOException {
+    public void write(HttpServletResponse response, ProblemDetails problem) throws IOException {
         response.setStatus(problem.status());
         response.setContentType(ProblemDetails.CONTENT_TYPE);
         response.setCharacterEncoding(StandardCharsets.UTF_8.name());

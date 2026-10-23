@@ -19,7 +19,7 @@ import java.util.Objects;
  * {@code ts.converter}, {@code ts.expiresOn} in whichever spelling arrived,
  * {@code ts.deviceOrig}, {@code status}, {@code meta}); and the payload, which is the
  * type's typed columns plus {@code data_extra} — the unknown {@code data} members the
- * Writer preserved verbatim (D14, DL-095). A typed column always wins over a same-named
+ * Writer preserved verbatim. A typed column always wins over a same-named
  * member of {@code data_extra}, which the Writer never produces.</p>
  *
  * <p>Timestamps are Unix <strong>seconds</strong>, on the way out as on the way in.</p>
