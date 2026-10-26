@@ -309,7 +309,9 @@ components:
         type: string
         minLength: 1
     RetryAfter:
-      description: Seconds to wait before resending. Always `1` for the rate limit.
+      description: |
+        Seconds to wait before resending. Always `1` on a 429 (the rate limiter's
+        one-second bucket); `stats.problems.retry-after` (5 s by default) on a 503.
       schema:
         type: integer
         format: int32
@@ -479,10 +481,13 @@ components:
         A 503 here is the system working correctly: Input refusing to pretend it has
         a record it cannot vouch for. Under a replay it is the backpressure channel.
         Metered as `records_publish_failed{type}` / `records_unroutable{type}` and
-        logged at `ERROR`.
+        logged at `ERROR`. Also the answer, with `oauth2` authentication, when the
+        issuer's signing keys cannot be fetched.
       headers:
         X-Trace-Id:
           $ref: '#/components/headers/TraceId'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
       content:
         application/problem+json:
           schema:
@@ -491,9 +496,9 @@ components:
             notAccepted:
               $ref: '#/components/examples/ProblemNotAccepted'
 
-  # Problem `type` URIs are what stats-common's ErrorCode.typeUri() emits:
-  # https://stats.example/errors/<wire_code>, underscore and all. Input is built, so
-  # these examples show what Heimdal will actually receive.
+  # Problem `type` URIs are <stats.problems.type-uri-base>/<wire_code>, underscore and
+  # all. The examples use the contract's placeholder base, https://stats.example/errors;
+  # a deployment sets its own (STATS_ERROR_TYPE_URI_BASE) and the wire code is unchanged.
   examples:
 
     ProblemMalformedJson:

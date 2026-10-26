@@ -3,6 +3,7 @@ package com.zenner.datahub.stats.input.auth;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zenner.datahub.stats.common.error.ErrorCode;
 import com.zenner.datahub.stats.common.error.ProblemDetails;
+import com.zenner.datahub.stats.common.error.ProblemResponseSettings;
 import com.zenner.datahub.stats.input.ingest.IngestMetrics;
 import com.zenner.datahub.stats.input.log.IngestLogContext;
 import com.zenner.datahub.stats.input.log.IngestLoggingFilter;
@@ -40,7 +41,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
  *   <tr><td>No {@code Authorization: Bearer} header</td><td>401, {@code WWW-Authenticate: Bearer}</td></tr>
  *   <tr><td>A token that fails decoding or validation</td><td>401, {@code error="invalid_token"}</td></tr>
  *   <tr><td>A valid token without the ingest realm role</td><td>403</td></tr>
- *   <tr><td>The issuer's signing keys cannot be fetched</td><td>503 — Heimdal retries</td></tr>
+ *   <tr><td>The issuer's signing keys cannot be fetched</td><td>503 with {@code Retry-After} — Heimdal retries</td></tr>
  * </table>
  *
  * <p><strong>Why a key outage is a 503 and not a 401.</strong> A 401 tells the sender its
@@ -69,13 +70,19 @@ public final class BearerTokenIngestFilter extends OncePerRequestFilter {
     private final String requiredRole;
     private final IngestMetrics metrics;
     private final ProblemWriter problemWriter;
+    private final ProblemResponseSettings problemSettings;
 
     public BearerTokenIngestFilter(
-            JwtDecoder decoder, String requiredRole, IngestMetrics metrics, ObjectMapper objectMapper) {
+            JwtDecoder decoder,
+            String requiredRole,
+            IngestMetrics metrics,
+            ObjectMapper objectMapper,
+            ProblemResponseSettings problemSettings) {
         this.decoder = Objects.requireNonNull(decoder, "decoder");
         this.requiredRole = Objects.requireNonNull(requiredRole, "requiredRole");
         this.metrics = Objects.requireNonNull(metrics, "metrics");
         this.problemWriter = new ProblemWriter(Objects.requireNonNull(objectMapper, "objectMapper"));
+        this.problemSettings = Objects.requireNonNull(problemSettings, "problemSettings");
     }
 
     @Override
@@ -151,6 +158,9 @@ public final class BearerTokenIngestFilter extends OncePerRequestFilter {
                 .log("Refused an ingest request at the authentication filter; nothing was read and nothing published");
         if (challenge != null) {
             response.setHeader(HttpHeaders.WWW_AUTHENTICATE, challenge);
+        }
+        if (errorCode == ErrorCode.SERVICE_UNAVAILABLE) {
+            response.setHeader(HttpHeaders.RETRY_AFTER, problemSettings.retryAfterHeader());
         }
         problemWriter.write(
                 response,

@@ -39,6 +39,11 @@ public enum ErrorCode {
     TOO_MANY_REQUESTS("too_many_requests", "Too many requests", 429),
     SERVICE_UNAVAILABLE("service_unavailable", "Service unavailable", 503);
 
+    /**
+     * The base a problem is built with. What callers receive is the deployment's
+     * {@code stats.problems.type-uri-base} ({@link ProblemResponseSettings}); this value
+     * is the contract's placeholder host and what a mapper without settings writes.
+     */
     public static final String TYPE_URI_BASE = "https://stats.example/errors";
 
     private final String wireCode;

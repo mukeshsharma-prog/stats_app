@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -85,7 +86,9 @@ class StatsIngestControllerTest {
         mockMvc.perform(postRecord("valid/lorastats-production-canonical.json"))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(content().contentTypeCompatibleWith("application/problem+json"))
-                .andExpect(jsonPath("$.status").value(503));
+                .andExpect(jsonPath("$.status").value(503))
+                // stats.problems.retry-after, whole seconds: when to resend, as on a 429.
+                .andExpect(header().string("Retry-After", "5"));
 
         assertThat(counter(IngestMetrics.PUBLISH_FAILED) - before).isEqualTo(1.0d);
         // The cycle histogram counts ACCEPTED records only. Heimdal resends after a

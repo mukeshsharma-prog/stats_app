@@ -4,6 +4,7 @@ import com.zenner.datahub.stats.common.error.ErrorCode;
 import com.zenner.datahub.stats.common.error.FieldError;
 import com.zenner.datahub.stats.common.error.FieldError.SafeMessage;
 import com.zenner.datahub.stats.common.error.ProblemDetails;
+import com.zenner.datahub.stats.common.error.ProblemResponseSettings;
 import com.zenner.datahub.stats.common.model.StatType;
 import com.zenner.datahub.stats.input.config.IngestEndpointProperties;
 import com.zenner.datahub.stats.input.config.IngestSource;
@@ -19,6 +20,7 @@ import java.util.List;
 import java.util.Objects;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -65,16 +67,19 @@ public class StatsIngestController {
     private final StatsPublisher publisher;
     private final IngestMetrics metrics;
     private final IngestEndpointProperties endpointProperties;
+    private final ProblemResponseSettings problemSettings;
 
     public StatsIngestController(
             EnvelopeGate gate,
             StatsPublisher publisher,
             IngestMetrics metrics,
-            IngestEndpointProperties endpointProperties) {
+            IngestEndpointProperties endpointProperties,
+            ProblemResponseSettings problemSettings) {
         this.gate = Objects.requireNonNull(gate, "gate");
         this.publisher = Objects.requireNonNull(publisher, "publisher");
         this.metrics = Objects.requireNonNull(metrics, "metrics");
         this.endpointProperties = Objects.requireNonNull(endpointProperties, "endpointProperties");
+        this.problemSettings = Objects.requireNonNull(problemSettings, "problemSettings");
     }
 
     @PostMapping(
@@ -135,7 +140,7 @@ public class StatsIngestController {
                     .log(
                             "Record passed validation but was not publisher-confirmed; answering "
                                     + "503 so Heimdal retries");
-            return problem(
+            return unavailable(
                     ProblemDetails.of(
                             ErrorCode.SERVICE_UNAVAILABLE,
                             "The record was not accepted. Retry.",
@@ -161,6 +166,14 @@ public class StatsIngestController {
 
     private static ResponseEntity<ProblemDetails> problem(ProblemDetails problem) {
         return ResponseEntity.status(problem.status())
+                .contentType(MediaType.valueOf(ProblemDetails.CONTENT_TYPE))
+                .body(problem);
+    }
+
+    /** A 503 tells Heimdal when to resend, as the 429 does. */
+    private ResponseEntity<ProblemDetails> unavailable(ProblemDetails problem) {
+        return ResponseEntity.status(problem.status())
+                .header(HttpHeaders.RETRY_AFTER, problemSettings.retryAfterHeader())
                 .contentType(MediaType.valueOf(ProblemDetails.CONTENT_TYPE))
                 .body(problem);
     }

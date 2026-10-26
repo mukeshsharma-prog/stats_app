@@ -1,6 +1,7 @@
 package com.zenner.datahub.stats.common.error;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.zenner.datahub.stats.common.model.StatType;
 import java.net.URI;
 import java.util.List;
@@ -13,10 +14,13 @@ import java.util.Objects;
  * tenant's data. Validation failures should be created through
  * {@link #validationFailure(ErrorCode, StatType, List, String, String)}, which
  * supplies the catalogue-owned URI, title, and HTTP status.</p>
+ *
+ * <p>{@code type} is written under the deployment's base when the module's mapper is
+ * configured with {@link ProblemResponseSettings} ({@link ProblemTypeUriSerializer}).</p>
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record ProblemDetails(
-        URI type,
+        @JsonSerialize(using = ProblemTypeUriSerializer.class) URI type,
         String title,
         int status,
         String detail,

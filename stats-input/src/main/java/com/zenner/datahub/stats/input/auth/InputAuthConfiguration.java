@@ -1,6 +1,7 @@
 package com.zenner.datahub.stats.input.auth;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.zenner.datahub.stats.common.error.ProblemResponseSettings;
 import com.zenner.datahub.stats.input.config.IngestEndpointProperties;
 import com.zenner.datahub.stats.input.config.InputAuthProperties;
 import com.zenner.datahub.stats.input.ingest.IngestMetrics;
@@ -52,7 +53,8 @@ public class InputAuthConfiguration {
             IngestEndpointProperties endpointProperties,
             ObjectProvider<JwtDecoder> jwtDecoder,
             ObjectProvider<IngestMetrics> metrics,
-            ObjectProvider<ObjectMapper> objectMapper) {
+            ObjectProvider<ObjectMapper> objectMapper,
+            ObjectProvider<ProblemResponseSettings> problemSettings) {
 
         OncePerRequestFilter filter =
                 switch (authProperties.mode()) {
@@ -69,7 +71,8 @@ public class InputAuthConfiguration {
                                 decoder,
                                 authProperties.requiredRole(),
                                 metrics.getObject(),
-                                objectMapper.getObject());
+                                objectMapper.getObject(),
+                                problemSettings.getObject());
                     }
                     case MTLS -> throw new IllegalStateException(
                             "stats.input.auth.mode="

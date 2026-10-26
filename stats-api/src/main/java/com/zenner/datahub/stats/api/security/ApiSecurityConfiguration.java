@@ -5,6 +5,9 @@ import com.zenner.datahub.stats.api.web.ProblemResponses;
 import com.zenner.datahub.stats.api.web.ReadOnlyMethods;
 import com.zenner.datahub.stats.api.web.TraceId;
 import com.zenner.datahub.stats.common.error.ErrorCode;
+import com.zenner.datahub.stats.common.error.ProblemResponseSettings;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.actuate.autoconfigure.security.servlet.EndpointRequest;
 import org.springframework.boot.actuate.health.HealthEndpoint;
 import org.springframework.boot.autoconfigure.security.oauth2.resource.OAuth2ResourceServerProperties;
@@ -14,14 +17,18 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.Ordered;
 import org.springframework.http.HttpMethod;
+import org.springframework.security.authentication.AuthenticationServiceException;
 import org.springframework.security.config.Customizer;
+import org.springframework.security.config.ObjectPostProcessor;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.oauth2.server.resource.web.BearerTokenAuthenticationEntryPoint;
+import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.AccessDeniedHandler;
+import org.springframework.security.web.authentication.AuthenticationFailureHandler;
 
 /**
  * The Keycloak resource server and who may read.
@@ -46,10 +53,18 @@ import org.springframework.security.web.access.AccessDeniedHandler;
  * the security chain, so a non-GET is a 405 for every caller. CSRF is disabled:
  * this is a stateless bearer-token API with no cookie to forge, and with CSRF on an
  * authenticated POST would be a 403 instead of the contract's 405.</p>
+ *
+ * <p><strong>Unreachable signing keys are a 503, not a 401.</strong> When the keys
+ * cannot be fetched, the decoder's verdict is not "bad token" but "could not check", and
+ * Spring's default rethrows it — the servlet error page then answers 401, telling a caller
+ * with a perfectly good token that its credential is wrong. The bearer filter's failure
+ * handler answers 503 with {@code Retry-After} instead, as Input does.</p>
  */
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties(SecurityProperties.class)
 public class ApiSecurityConfiguration {
+
+    private static final Logger LOG = LoggerFactory.getLogger(ApiSecurityConfiguration.class);
 
     @Bean
     public SecurityFilterChain apiSecurityFilterChain(
@@ -62,6 +77,7 @@ public class ApiSecurityConfiguration {
         ResourceServerSettings.require(resourceServer);
         AuthenticationEntryPoint unauthorized = unauthorized(problems);
         AccessDeniedHandler forbidden = forbidden(problems);
+        AuthenticationFailureHandler authenticationFailed = authenticationFailed(unauthorized, problems);
         http.authorizeHttpRequests(
                         authorize -> {
                             if (properties.prometheusPublicAccess()) {
@@ -81,7 +97,16 @@ public class ApiSecurityConfiguration {
                         oauth2 ->
                                 oauth2.jwt(Customizer.withDefaults())
                                         .authenticationEntryPoint(unauthorized)
-                                        .accessDeniedHandler(forbidden))
+                                        .accessDeniedHandler(forbidden)
+                                        .withObjectPostProcessor(
+                                                new ObjectPostProcessor<BearerTokenAuthenticationFilter>() {
+                                                    @Override
+                                                    public <O extends BearerTokenAuthenticationFilter> O postProcess(
+                                                            O filter) {
+                                                        filter.setAuthenticationFailureHandler(authenticationFailed);
+                                                        return filter;
+                                                    }
+                                                }))
                 .exceptionHandling(
                         exceptions ->
                                 exceptions
@@ -94,8 +119,8 @@ public class ApiSecurityConfiguration {
     }
 
     @Bean
-    public ProblemResponses problemResponses(ObjectMapper objectMapper) {
-        return new ProblemResponses(objectMapper);
+    public ProblemResponses problemResponses(ObjectMapper objectMapper, ProblemResponseSettings settings) {
+        return new ProblemResponses(objectMapper, settings);
     }
 
     @Bean
@@ -124,6 +149,32 @@ public class ApiSecurityConfiguration {
         return (request, response, failure) -> {
             challenge.commence(request, response, failure);
             problems.write(request, response, ErrorCode.UNAUTHORIZED, "A valid bearer token is required.");
+        };
+    }
+
+    /**
+     * A token that could not be checked — the signing keys are unreachable — is 503 with
+     * {@code Retry-After}; every other authentication failure is the ordinary 401. Only the
+     * exception's type is logged: a decoder message can quote the token.
+     */
+    private static AuthenticationFailureHandler authenticationFailed(
+            AuthenticationEntryPoint unauthorized, ProblemResponses problems) {
+        return (request, response, failure) -> {
+            if (!(failure instanceof AuthenticationServiceException)) {
+                unauthorized.commence(request, response, failure);
+                return;
+            }
+            LOG.atWarn()
+                    .addKeyValue("event", "token_verification_unavailable")
+                    .addKeyValue(
+                            "exceptionType",
+                            (failure.getCause() == null ? failure : failure.getCause()).getClass().getName())
+                    .log("Read not served: the token could not be verified because the signing keys are unavailable");
+            problems.write(
+                    request,
+                    response,
+                    ErrorCode.SERVICE_UNAVAILABLE,
+                    "The token could not be verified right now. Retry after the indicated interval.");
         };
     }
 

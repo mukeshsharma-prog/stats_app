@@ -125,7 +125,8 @@ schema-valid and carry `$expect: "input-reject"`.
 `ReturnsCallback`, and answers only after the broker's confirm:
 
 * confirmed → 200 with `{"status":"accepted","traceId":…}`;
-* nack, confirm timeout or broker down → 503, nothing buffered locally, Heimdal retries;
+* nack, confirm timeout or broker down → 503 with `Retry-After`, nothing buffered locally,
+  Heimdal retries;
 * returned as unroutable → 503 and `records_unroutable`. A confirm says the broker accepted
   the message, not that any queue wanted it; without `mandatory` a missing binding would be
   acknowledged and the record dropped with every component reporting success.
@@ -255,7 +256,9 @@ full cluster restore. `postgres-alerts.yml` pages when archiving fails, stalls o
 * The tenant predicate is in the **SQL** of every query, count and cursor, and the tests check
   the generated SQL, not only the response.
 * A missing **or empty** `tenant` claim is 403; absent never means "all tenants". A token
-  without `stats.readOnly` is 403; no valid token is 401. Issuer and audience are validated,
+  without `stats.readOnly` is 403; no valid token is 401. A token that cannot be checked
+  because Keycloak's signing keys are unreachable is 503 with `Retry-After`, never a 401 that
+  would tell a caller with a good token to fix it. Issuer and audience are validated,
   and a blank issuer or audience stops the API at startup, because an empty audience list
   would switch the audience check off.
 * A `uid` in another tenant is **404**, identical to one that does not exist. A `clsbox` the

@@ -54,7 +54,7 @@ The Input Module validates the received message and publishes it byte-identicall
 | U+0000 or an unpaired surrogate in any member name or string | 400, field code `unstorable_character` | Do not retry unchanged; PostgreSQL cannot store it. See §4. |
 | Missing/invalid inbound credentials | 401 | Configuration/credential issue; do not retry blindly. |
 | Authenticated but forbidden | 403 | Configuration/identity issue. |
-| RabbitMQ unavailable, confirm timeout, **or an unroutable message** | 503 | Heimdal dead-letter/retry handling applies because response is non-2xx. |
+| RabbitMQ unavailable, confirm timeout, **or an unroutable message** | 503, with `Retry-After` (`stats.problems.retry-after`, 5 s) | Heimdal dead-letter/retry handling applies because response is non-2xx. |
 | Request too large | 413 `payload_too_large` | Do not retry without correcting payload. |
 | Rate limited | 429 `too_many_requests`, with `Retry-After: 1` | Retry using approved backoff. |
 | Unexpected Input failure | 5xx | Heimdal dead-letter/retry handling applies. |
@@ -156,7 +156,7 @@ in `realm_access.roles`:
 |---|---|
 | No bearer token, or one that fails validation | **401** `unauthorized`, `WWW-Authenticate: Bearer`. Configuration, not something a resend fixes |
 | A valid token without `stats.ingest` | **403** `forbidden` |
-| Input cannot fetch the issuer's signing keys | **503** `service_unavailable` — the fault is ours; Heimdal retries |
+| Input cannot fetch the issuer's signing keys | **503** `service_unavailable`, with `Retry-After` — the fault is ours; Heimdal retries |
 
 Every refusal happens before the body is read, publishes nothing, and is metered as
 `requests_auth_rejected{source,reason}`. The issuer and audience have no defaults in code:

@@ -4,9 +4,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jayway.jsonpath.JsonPath;
+import com.zenner.datahub.stats.common.error.ProblemResponseSettings;
 import com.zenner.datahub.stats.input.config.InputAuthProperties;
 import com.zenner.datahub.stats.input.ingest.IngestMetrics;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
@@ -136,6 +138,7 @@ class BearerTokenIngestFilterTest {
 
         assertRefused(outcome, 503, "service_unavailable", "keys_unavailable");
         assertThat(outcome.response().getHeader("WWW-Authenticate")).isNull();
+        assertThat(outcome.response().getHeader("Retry-After")).isEqualTo("7");
     }
 
     @Test
@@ -155,7 +158,8 @@ class BearerTokenIngestFilterTest {
                 IngestJwtDecoders.create(settings),
                 IngestTokens.INGEST_ROLE,
                 new IngestMetrics(registry),
-                new ObjectMapper());
+                new ObjectMapper(),
+                ProblemResponseSettings.of("https://errors.zenner.test", Duration.ofSeconds(7)));
     }
 
     private Outcome send(String authorization) throws Exception {

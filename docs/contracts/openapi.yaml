@@ -617,11 +617,15 @@ components:
 
     ServiceUnavailable:
       description: |
-        A dependency the API needs is unavailable. The request was not served; it
-        is safe to retry. Reads are idempotent.
+        A dependency the API needs is unavailable — PostgreSQL, or Keycloak's signing
+        keys, without which a token cannot be checked (so the answer is 503, not a 401
+        that would blame a good token). The request was not served; it is safe to retry.
+        Reads are idempotent.
       headers:
         Retry-After:
-          description: Seconds to wait before retrying, when a useful value is known.
+          description: |
+            Seconds to wait before retrying. Always sent;
+            deployment configuration (`stats.problems.retry-after`, 5 s by default).
           schema:
             type: integer
             format: int32

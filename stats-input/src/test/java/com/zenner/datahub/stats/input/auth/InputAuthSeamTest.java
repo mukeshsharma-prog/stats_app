@@ -3,10 +3,12 @@ package com.zenner.datahub.stats.input.auth;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.zenner.datahub.stats.common.error.ProblemResponseSettings;
 import com.zenner.datahub.stats.input.config.IngestEndpointProperties;
 import com.zenner.datahub.stats.input.config.InputAuthProperties;
 import com.zenner.datahub.stats.input.ingest.IngestMetrics;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import java.time.Duration;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -36,6 +38,9 @@ class InputAuthSeamTest {
                     .withUserConfiguration(TestProperties.class, InputAuthConfiguration.class)
                     .withBean(IngestMetrics.class, () -> new IngestMetrics(new SimpleMeterRegistry()))
                     .withBean(ObjectMapper.class, ObjectMapper::new)
+                    .withBean(
+                            ProblemResponseSettings.class,
+                            () -> ProblemResponseSettings.of("https://errors.test", Duration.ofSeconds(5)))
                     .withPropertyValues(
                             "stats.input.auth.required-role=stats.ingest",
                             "stats.input.endpoint.internal-path=/internal/stats",
